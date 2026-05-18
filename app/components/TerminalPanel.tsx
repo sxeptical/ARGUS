@@ -6,6 +6,7 @@ type TerminalPanelProps = {
   title: string;
   children: React.ReactNode;
   className?: string;
+  contentClassName?: string;
   defaultExpanded?: boolean;
 };
 
@@ -13,6 +14,7 @@ export default function TerminalPanel({
   title,
   children,
   className,
+  contentClassName,
   defaultExpanded = true,
 }: TerminalPanelProps) {
   const [expanded, setExpanded] = useState(defaultExpanded);
@@ -34,7 +36,7 @@ export default function TerminalPanel({
         <span className="terminal-dim text-[11px]">{expanded ? "[-]" : "[+]"}</span>
       </button>
       {expanded ? (
-        <div id={contentId} className="terminal-content flex-1 overflow-auto">
+        <div id={contentId} className={`terminal-content flex-1 overflow-auto ${contentClassName ?? ""}`}>
           {children}
         </div>
       ) : null}

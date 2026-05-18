@@ -69,7 +69,7 @@ export default function CameraPanel({ cameras, selectedCamera }: CameraPanelProp
 
   return (
     <>
-      <TerminalPanel title="ROAD CAMERAS" className="min-h-52">
+      <TerminalPanel title="ROAD CAMERAS" contentClassName="min-h-52">
         <div className="grid grid-cols-2 gap-2">
           {displayCameras.map((camera) => (
             <button

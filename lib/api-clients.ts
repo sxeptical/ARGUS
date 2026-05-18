@@ -51,11 +51,11 @@ export async function getBusStops(): Promise<BusStop[]> {
       if (!page || !Array.isArray(page.value)) break;
       allStops.push(...page.value);
 
-      if (page.value.length < 500) {
+      if (page.value.length === 0) {
         break;
       }
 
-      skip += 500;
+      skip += page.value.length;
     }
 
     return allStops;

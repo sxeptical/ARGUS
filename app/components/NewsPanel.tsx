@@ -7,7 +7,7 @@ type NewsPanelProps = {
 
 export default function NewsPanel({ news }: NewsPanelProps) {
   return (
-    <TerminalPanel title="NEWS" className="min-h-44">
+    <TerminalPanel title="NEWS" contentClassName="min-h-44">
       <div className="space-y-2">
         {news.map((item) => (
           <a

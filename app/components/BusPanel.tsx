@@ -70,7 +70,7 @@ export default function BusPanel({ busStops, selectedStop, onSelectStop }: BusPa
   const visibleArrivals = activeStop ? arrivals : [];
 
   return (
-    <TerminalPanel title="BUS ARRIVALS" className="min-h-56">
+    <TerminalPanel title="BUS ARRIVALS" contentClassName="min-h-56">
       <div className="space-y-3">
         <label className="sr-only" htmlFor="bus-stop-search">
           Search bus stops
