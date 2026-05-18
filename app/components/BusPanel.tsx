@@ -33,11 +33,12 @@ export default function BusPanel({ busStops, selectedStop, onSelectStop }: BusPa
     if (!selectedStop) return;
 
     let cancelled = false;
+    const stopCode = selectedStop.BusStopCode;
 
     const loadArrivals = async () => {
       try {
         const response = await fetch(
-          `/api/bus-arrivals?stopId=${encodeURIComponent(selectedStop.BusStopCode)}`,
+          `/api/bus-arrivals?stopId=${encodeURIComponent(stopCode)}`,
         );
 
         if (!response.ok) {
@@ -106,14 +107,14 @@ export default function BusPanel({ busStops, selectedStop, onSelectStop }: BusPa
           <div className="rounded border border-terminal-border/60 bg-black/20 p-2">
             <div className="terminal-green font-semibold">{activeStop.Description}</div>
             <div className="terminal-dim text-[11px]">
-              {activeStop.BusStopCode} • {activeStop.RoadName}
+              {activeStop.BusStopCode} &bull; {activeStop.RoadName}
             </div>
           </div>
         ) : (
           <div className="terminal-dim text-[11px]">Select a bus stop from the map to load arrivals.</div>
         )}
 
-        {error ? <div className="terminal-red">{error}</div> : null}
+        {error ? <div className="terminal-red text-[12px]">{error}</div> : null}
 
         <div className="space-y-2">
           {visibleArrivals.map((service) => (

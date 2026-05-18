@@ -1,4 +1,19 @@
+const MAX_ENTRIES = 500;
+
 const cache = new Map<string, { value: unknown; timestamp: number }>();
+
+function evictOldest(): void {
+  if (cache.size < MAX_ENTRIES) return;
+  let oldestKey = "";
+  let oldest = Infinity;
+  for (const [key, entry] of cache) {
+    if (entry.timestamp < oldest) {
+      oldest = entry.timestamp;
+      oldestKey = key;
+    }
+  }
+  if (oldestKey) cache.delete(oldestKey);
+}
 
 export async function cachedFetch<T>(
   key: string,
@@ -13,6 +28,7 @@ export async function cachedFetch<T>(
   }
 
   const value = await loader();
+  evictOldest();
   cache.set(key, { value, timestamp: now });
   return value;
 }

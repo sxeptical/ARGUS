@@ -3,6 +3,7 @@ import type { BusArrival, BusStop, NewsItem, TrafficCamera, WeatherData } from "
 
 const LTA_BASE_URL = "https://datamall2.mytransport.sg/ltaodataservice";
 const DATA_GOV_BASE_URL = "https://api.data.gov.sg/v1/environment";
+const FETCH_TIMEOUT_MS = 10_000;
 
 function getLtaApiKey(): string {
   const apiKey = process.env.LTA_API_KEY;
@@ -12,8 +13,14 @@ function getLtaApiKey(): string {
   return apiKey;
 }
 
+function fetchWithTimeout(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+  return fetch(input, { ...init, signal: controller.signal }).finally(() => clearTimeout(timer));
+}
+
 async function ltaFetch<T>(endpoint: string): Promise<T> {
-  const response = await fetch(`${LTA_BASE_URL}${endpoint}`, {
+  const response = await fetchWithTimeout(`${LTA_BASE_URL}${endpoint}`, {
     headers: {
       AccountKey: getLtaApiKey(),
       Accept: "application/json",
@@ -27,6 +34,8 @@ async function ltaFetch<T>(endpoint: string): Promise<T> {
 
   return response.json() as Promise<T>;
 }
+
+const BUS_STOP_ID_RE = /^\d{5}$/;
 
 export async function getBusStops(): Promise<BusStop[]> {
   return cachedFetch("bus-stops", async () => {
@@ -49,6 +58,10 @@ export async function getBusStops(): Promise<BusStop[]> {
 }
 
 export async function getBusArrivals(stopId: string): Promise<BusArrival[]> {
+  if (!BUS_STOP_ID_RE.test(stopId)) {
+    throw new Error("Invalid bus stop code");
+  }
+
   return cachedFetch(`bus-arrivals-${stopId}`, async () => {
     const data = await ltaFetch<{ Services: BusArrival[] }>(
       `/BusArrivalv2?BusStopCode=${encodeURIComponent(stopId)}`,
@@ -127,9 +140,9 @@ function average(values: number[]): number {
 export async function getWeather(): Promise<WeatherData> {
   return cachedFetch("weather", async () => {
     const [forecastResponse, psiResponse, temperatureResponse] = await Promise.all([
-      fetch(`${DATA_GOV_BASE_URL}/2-hour-weather-forecast`, { cache: "no-store" }),
-      fetch(`${DATA_GOV_BASE_URL}/psi`, { cache: "no-store" }),
-      fetch(`${DATA_GOV_BASE_URL}/air-temperature`, { cache: "no-store" }),
+      fetchWithTimeout(`${DATA_GOV_BASE_URL}/2-hour-weather-forecast`, { cache: "no-store" }),
+      fetchWithTimeout(`${DATA_GOV_BASE_URL}/psi`, { cache: "no-store" }),
+      fetchWithTimeout(`${DATA_GOV_BASE_URL}/air-temperature`, { cache: "no-store" }),
     ]);
 
     if (!forecastResponse.ok || !psiResponse.ok || !temperatureResponse.ok) {
@@ -159,6 +172,8 @@ export async function getWeather(): Promise<WeatherData> {
   }, 5 * 60 * 1000);
 }
 
+const SAFE_URL_RE = /^https?:\/\//i;
+
 function parseRssItems(xml: string, source: string): NewsItem[] {
   const itemMatches = xml.match(/<item>([\s\S]*?)<\/item>/g) ?? [];
 
@@ -169,6 +184,10 @@ function parseRssItems(xml: string, source: string): NewsItem[] {
       const publishedAt = extractRssTag(rawItem, "pubDate");
 
       if (!title || !link) {
+        return null;
+      }
+
+      if (!SAFE_URL_RE.test(link)) {
         return null;
       }
 
@@ -204,7 +223,7 @@ export async function getNews(): Promise<NewsItem[]> {
     const rssResults = await Promise.all(
       rssFeeds.map(async ({ source, url }) => {
         try {
-          const response = await fetch(url, { cache: "no-store" });
+          const response = await fetchWithTimeout(url, { cache: "no-store" });
           if (!response.ok) return [];
           const xml = await response.text();
           return parseRssItems(xml, source);

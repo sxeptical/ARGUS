@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import TerminalPanel from "@/app/components/TerminalPanel";
 import type { TrafficCamera } from "@/types";
@@ -12,6 +12,51 @@ type CameraPanelProps = {
 
 export default function CameraPanel({ cameras, selectedCamera }: CameraPanelProps) {
   const [expanded, setExpanded] = useState<TrafficCamera | null>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const previousFocusRef = useRef<HTMLElement | null>(null);
+
+  const closeModal = useCallback(() => {
+    setExpanded(null);
+    previousFocusRef.current?.focus();
+  }, []);
+
+  const handleKeyDown = useCallback(
+    (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        closeModal();
+      }
+      if (event.key === "Tab" && dialogRef.current) {
+        const focusable = dialogRef.current.querySelectorAll<HTMLElement>(
+          'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
+        );
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        if (event.shiftKey && document.activeElement === first) {
+          event.preventDefault();
+          last?.focus();
+        } else if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault();
+          first?.focus();
+        }
+      }
+    },
+    [closeModal],
+  );
+
+  useEffect(() => {
+    if (!expanded) return;
+
+    previousFocusRef.current = document.activeElement as HTMLElement;
+    closeButtonRef.current?.focus();
+    document.addEventListener("keydown", handleKeyDown);
+    document.body.style.overflow = "hidden";
+
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+      document.body.style.overflow = "";
+    };
+  }, [expanded, handleKeyDown]);
 
   const displayCameras = useMemo(() => {
     if (selectedCamera) {
@@ -32,6 +77,7 @@ export default function CameraPanel({ cameras, selectedCamera }: CameraPanelProp
               type="button"
               className="overflow-hidden rounded border border-terminal-border/40 bg-black/30 text-left hover:border-terminal-cyan"
               onClick={() => setExpanded(camera)}
+              aria-label={`View camera ${camera.location}`}
             >
               <Image
                 src={camera.ImageLink}
@@ -51,10 +97,17 @@ export default function CameraPanel({ cameras, selectedCamera }: CameraPanelProp
       {expanded ? (
         <div
           className="fixed inset-0 z-50 grid place-items-center bg-black/80 p-4"
-          onClick={() => setExpanded(null)}
+          onClick={() => closeModal()}
           role="presentation"
         >
-          <div className="max-w-4xl rounded border border-terminal-cyan/70 bg-terminal-panel p-2">
+          <div
+            ref={dialogRef}
+            role="dialog"
+            aria-modal="true"
+            aria-label={expanded.location}
+            className="max-w-4xl rounded border border-terminal-cyan/70 bg-terminal-panel p-2"
+            onClick={(e) => e.stopPropagation()}
+          >
             <Image
               src={expanded.ImageLink}
               alt={expanded.location}
@@ -63,8 +116,16 @@ export default function CameraPanel({ cameras, selectedCamera }: CameraPanelProp
               className="max-h-[75vh] h-auto w-full object-contain"
               unoptimized
             />
-            <div className="p-2 text-sm">
-              <span className="terminal-cyan">{expanded.location}</span>
+            <div className="flex items-center justify-between p-2">
+              <span className="terminal-cyan text-sm">{expanded.location}</span>
+              <button
+                ref={closeButtonRef}
+                type="button"
+                className="terminal-dim hover:terminal-text rounded px-2 py-1 text-xs"
+                onClick={() => closeModal()}
+              >
+                Close [Esc]
+              </button>
             </div>
           </div>
         </div>

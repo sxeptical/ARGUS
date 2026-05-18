@@ -50,25 +50,32 @@ export default function Map({ busStops, cameras, onStopClick, onCameraClick }: M
 
     map.addControl(new maplibregl.NavigationControl(), "top-right");
 
-    map.on("load", async () => {
-      const response = await fetch("/mrt-lines.json");
-      const geoJson = (await response.json()) as MRTGeoJson;
+    map.on("load", () => {
+      void (async () => {
+        try {
+          const response = await fetch("/mrt-lines.json");
+          if (!response.ok) throw new Error(`MRT fetch failed: ${response.status}`);
+          const geoJson = (await response.json()) as MRTGeoJson;
 
-      map.addSource("mrt-lines", {
-        type: "geojson",
-        data: geoJson,
-      });
+          map.addSource("mrt-lines", {
+            type: "geojson",
+            data: geoJson,
+          });
 
-      map.addLayer({
-        id: "mrt-lines-layer",
-        type: "line",
-        source: "mrt-lines",
-        paint: {
-          "line-color": ["get", "color"],
-          "line-width": 3,
-          "line-opacity": 0.9,
-        },
-      });
+          map.addLayer({
+            id: "mrt-lines-layer",
+            type: "line",
+            source: "mrt-lines",
+            paint: {
+              "line-color": ["get", "color"],
+              "line-width": 3,
+              "line-opacity": 0.9,
+            },
+          });
+        } catch {
+          // MRT layer is cosmetic; continue without it
+        }
+      })();
     });
 
     mapRef.current = map;

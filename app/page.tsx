@@ -65,25 +65,43 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    const weatherTimer = setInterval(async () => {
-      const response = await fetch("/api/weather");
-      if (response.ok) {
-        setWeather((await response.json()) as WeatherData);
-      }
+    const weatherTimer = setInterval(() => {
+      void (async () => {
+        try {
+          const response = await fetch("/api/weather");
+          if (response.ok) {
+            setWeather((await response.json()) as WeatherData);
+          }
+        } catch {
+          // Silently retry on next interval
+        }
+      })();
     }, 5 * 60 * 1000);
 
-    const newsTimer = setInterval(async () => {
-      const response = await fetch("/api/news");
-      if (response.ok) {
-        setNews((await response.json()) as NewsItem[]);
-      }
+    const newsTimer = setInterval(() => {
+      void (async () => {
+        try {
+          const response = await fetch("/api/news");
+          if (response.ok) {
+            setNews((await response.json()) as NewsItem[]);
+          }
+        } catch {
+          // Silently retry on next interval
+        }
+      })();
     }, 15 * 60 * 1000);
 
-    const camerasTimer = setInterval(async () => {
-      const response = await fetch("/api/cameras");
-      if (response.ok) {
-        setCameras((await response.json()) as TrafficCamera[]);
-      }
+    const camerasTimer = setInterval(() => {
+      void (async () => {
+        try {
+          const response = await fetch("/api/cameras");
+          if (response.ok) {
+            setCameras((await response.json()) as TrafficCamera[]);
+          }
+        } catch {
+          // Silently retry on next interval
+        }
+      })();
     }, 60 * 1000);
 
     return () => {

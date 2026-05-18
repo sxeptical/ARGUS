@@ -1,6 +1,13 @@
 import { getBusArrivals } from "@/lib/api-clients";
+import { checkRateLimit, extractClientIp } from "@/lib/rate-limit";
 
 export async function GET(request: Request) {
+  const ip = extractClientIp(request);
+  const { allowed } = checkRateLimit(ip, 60);
+  if (!allowed) {
+    return Response.json({ error: "Too many requests" }, { status: 429 });
+  }
+
   try {
     const { searchParams } = new URL(request.url);
     const stopId = searchParams.get("stopId");
