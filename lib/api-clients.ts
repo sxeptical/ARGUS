@@ -68,13 +68,19 @@ type TrafficImageResponse =
   | { value: RawTrafficImage[] }
   | { value: Array<{ Cameras: RawTrafficImage[] }> };
 
+function hasCameras(
+  entry: RawTrafficImage | { Cameras: RawTrafficImage[] },
+): entry is { Cameras: RawTrafficImage[] } {
+  return typeof entry === "object" && entry !== null && "Cameras" in entry;
+}
+
 export async function getTrafficCameras(): Promise<TrafficCamera[]> {
   return cachedFetch("traffic-cameras", async () => {
     const payload = await ltaFetch<TrafficImageResponse>("/Traffic-Imagesv2");
 
     const value = payload.value ?? [];
-    const cameras = Array.isArray(value) && value.length > 0 && "Cameras" in value[0]
-      ? value.flatMap((entry) => entry.Cameras)
+    const cameras = Array.isArray(value) && value.length > 0 && hasCameras(value[0])
+      ? value.flatMap((entry) => (hasCameras(entry) ? entry.Cameras : []))
       : (value as RawTrafficImage[]);
 
     return cameras.map((camera) => ({

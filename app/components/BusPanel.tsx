@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import TerminalPanel from "@/app/components/TerminalPanel";
 import type { BusArrival, BusStop } from "@/types";
 
@@ -13,7 +13,6 @@ type BusPanelProps = {
 export default function BusPanel({ busStops, selectedStop, onSelectStop }: BusPanelProps) {
   const [search, setSearch] = useState("");
   const [arrivals, setArrivals] = useState<BusArrival[]>([]);
-  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const filteredStops = useMemo(() => {
@@ -30,41 +29,44 @@ export default function BusPanel({ busStops, selectedStop, onSelectStop }: BusPa
       .slice(0, 8);
   }, [busStops, search]);
 
-  const fetchArrivals = useCallback(async (stopCode: string) => {
-    setLoading(true);
-    setError(null);
-
-    try {
-      const response = await fetch(`/api/bus-arrivals?stopId=${encodeURIComponent(stopCode)}`);
-      if (!response.ok) {
-        throw new Error("Unable to fetch bus arrivals");
-      }
-
-      const data = (await response.json()) as BusArrival[];
-      setArrivals(data);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unknown error");
-      setArrivals([]);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
   useEffect(() => {
-    if (!selectedStop) {
-      setArrivals([]);
-      return;
-    }
+    if (!selectedStop) return;
 
-    fetchArrivals(selectedStop.BusStopCode);
+    let cancelled = false;
+
+    const loadArrivals = async () => {
+      try {
+        const response = await fetch(
+          `/api/bus-arrivals?stopId=${encodeURIComponent(selectedStop.BusStopCode)}`,
+        );
+
+        if (!response.ok) {
+          throw new Error("Unable to fetch bus arrivals");
+        }
+
+        const data = (await response.json()) as BusArrival[];
+        if (cancelled) return;
+        setArrivals(data);
+        setError(null);
+      } catch (err) {
+        if (cancelled) return;
+        setError(err instanceof Error ? err.message : "Unknown error");
+      }
+    };
+
+    void loadArrivals();
     const timer = setInterval(() => {
-      fetchArrivals(selectedStop.BusStopCode);
+      void loadArrivals();
     }, 15_000);
 
-    return () => clearInterval(timer);
-  }, [selectedStop, fetchArrivals]);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [selectedStop]);
 
   const activeStop = selectedStop;
+  const visibleArrivals = activeStop ? arrivals : [];
 
   return (
     <TerminalPanel title="BUS ARRIVALS" className="min-h-56">
@@ -111,11 +113,10 @@ export default function BusPanel({ busStops, selectedStop, onSelectStop }: BusPa
           <div className="terminal-dim text-[11px]">Select a bus stop from the map to load arrivals.</div>
         )}
 
-        {loading ? <div className="terminal-dim">Loading arrivals...</div> : null}
         {error ? <div className="terminal-red">{error}</div> : null}
 
         <div className="space-y-2">
-          {arrivals.map((service) => (
+          {visibleArrivals.map((service) => (
             <div key={service.ServiceNo} className="rounded border border-terminal-border/50 p-2">
               <div className="mb-1 flex items-center justify-between">
                 <span className="terminal-cyan font-semibold">Service {service.ServiceNo}</span>

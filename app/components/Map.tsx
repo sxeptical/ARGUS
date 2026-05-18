@@ -46,7 +46,6 @@ export default function Map({ busStops, cameras, onStopClick, onCameraClick }: M
       },
       center: [103.8198, 1.3521],
       zoom: 10.8,
-      attributionControl: true,
     });
 
     map.addControl(new maplibregl.NavigationControl(), "top-right");

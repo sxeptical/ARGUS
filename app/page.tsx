@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import BusPanel from "@/app/components/BusPanel";
 import CameraPanel from "@/app/components/CameraPanel";
 import Map from "@/app/components/Map";
@@ -26,39 +26,43 @@ export default function Home() {
   const [selectedCamera, setSelectedCamera] = useState<TrafficCamera | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const loadOnce = useCallback(async () => {
-    try {
-      const [busStopsRes, camerasRes, weatherRes, newsRes] = await Promise.all([
-        fetch("/api/bus-stops"),
-        fetch("/api/cameras"),
-        fetch("/api/weather"),
-        fetch("/api/news"),
-      ]);
-
-      if (!busStopsRes.ok || !camerasRes.ok || !weatherRes.ok || !newsRes.ok) {
-        throw new Error("Failed to load initial dashboard data");
-      }
-
-      const [busStopsData, camerasData, weatherData, newsData] = await Promise.all([
-        busStopsRes.json() as Promise<BusStop[]>,
-        camerasRes.json() as Promise<TrafficCamera[]>,
-        weatherRes.json() as Promise<WeatherData>,
-        newsRes.json() as Promise<NewsItem[]>,
-      ]);
-
-      setBusStops(busStopsData);
-      setCameras(camerasData);
-      setWeather(weatherData);
-      setNews(newsData);
-      setError(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unknown dashboard error");
-    }
-  }, []);
-
   useEffect(() => {
-    loadOnce();
-  }, [loadOnce]);
+    let mounted = true;
+
+    void Promise.all([
+      fetch("/api/bus-stops"),
+      fetch("/api/cameras"),
+      fetch("/api/weather"),
+      fetch("/api/news"),
+    ])
+      .then(async ([busStopsRes, camerasRes, weatherRes, newsRes]) => {
+        if (!busStopsRes.ok || !camerasRes.ok || !weatherRes.ok || !newsRes.ok) {
+          throw new Error("Failed to load initial dashboard data");
+        }
+
+        const [busStopsData, camerasData, weatherData, newsData] = await Promise.all([
+          busStopsRes.json() as Promise<BusStop[]>,
+          camerasRes.json() as Promise<TrafficCamera[]>,
+          weatherRes.json() as Promise<WeatherData>,
+          newsRes.json() as Promise<NewsItem[]>,
+        ]);
+
+        if (!mounted) return;
+        setBusStops(busStopsData);
+        setCameras(camerasData);
+        setWeather(weatherData);
+        setNews(newsData);
+        setError(null);
+      })
+      .catch((err: unknown) => {
+        if (!mounted) return;
+        setError(err instanceof Error ? err.message : "Unknown dashboard error");
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   useEffect(() => {
     const weatherTimer = setInterval(async () => {
@@ -94,7 +98,7 @@ export default function Home() {
       <header className="terminal-panel mb-3">
         <div className="terminal-header justify-between">
           <span>
-            <span className="terminal-cyan">ARGUS</span> // SG DAILY OSINT TERMINAL
+            <span className="terminal-cyan">ARGUS</span> | SG DAILY OSINT TERMINAL
           </span>
           <span className="terminal-dim text-[11px]">{new Date().toLocaleString()}</span>
         </div>

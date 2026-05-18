@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import Image from "next/image";
 import TerminalPanel from "@/app/components/TerminalPanel";
 import type { TrafficCamera } from "@/types";
 
@@ -32,11 +33,14 @@ export default function CameraPanel({ cameras, selectedCamera }: CameraPanelProp
               className="overflow-hidden rounded border border-terminal-border/40 bg-black/30 text-left hover:border-terminal-cyan"
               onClick={() => setExpanded(camera)}
             >
-              <img
+              <Image
                 src={camera.ImageLink}
                 alt={camera.location}
+                width={640}
+                height={360}
                 className="h-20 w-full object-cover"
                 loading="lazy"
+                unoptimized
               />
               <div className="truncate px-2 py-1 text-[11px] terminal-dim">{camera.location}</div>
             </button>
@@ -51,7 +55,14 @@ export default function CameraPanel({ cameras, selectedCamera }: CameraPanelProp
           role="presentation"
         >
           <div className="max-w-4xl rounded border border-terminal-cyan/70 bg-terminal-panel p-2">
-            <img src={expanded.ImageLink} alt={expanded.location} className="max-h-[75vh] w-full object-contain" />
+            <Image
+              src={expanded.ImageLink}
+              alt={expanded.location}
+              width={1280}
+              height={720}
+              className="max-h-[75vh] h-auto w-full object-contain"
+              unoptimized
+            />
             <div className="p-2 text-sm">
               <span className="terminal-cyan">{expanded.location}</span>
             </div>
