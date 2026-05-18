@@ -118,7 +118,7 @@ export default function Home() {
           <span>
             <span className="terminal-cyan">ARGUS</span> | SG DAILY OSINT TERMINAL
           </span>
-          <span className="terminal-dim text-[11px]">{new Date().toLocaleString()}</span>
+          <span className="terminal-dim text-[11px]" suppressHydrationWarning>{new Date().toLocaleString()}</span>
         </div>
       </header>
 

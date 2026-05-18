@@ -1,7 +1,7 @@
 import { cachedFetch } from "@/lib/cache";
 import type { BusArrival, BusStop, NewsItem, TrafficCamera, WeatherData } from "@/types";
 
-const LTA_BASE_URL = "http://datamall2.mytransport.sg/ltaodataservice";
+const LTA_BASE_URL = "https://datamall2.mytransport.sg/ltaodataservice";
 const DATA_GOV_BASE_URL = "https://api.data.gov.sg/v1/environment";
 const FETCH_TIMEOUT_MS = 10_000;
 
@@ -19,7 +19,7 @@ function fetchWithTimeout(input: RequestInfo | URL, init?: RequestInit): Promise
   return fetch(input, { ...init, signal: controller.signal }).finally(() => clearTimeout(timer));
 }
 
-async function ltaFetch<T>(endpoint: string): Promise<T> {
+async function ltaFetch<T>(endpoint: string): Promise<T | null> {
   const response = await fetchWithTimeout(`${LTA_BASE_URL}${endpoint}`, {
     headers: {
       AccountKey: getLtaApiKey(),
@@ -27,6 +27,10 @@ async function ltaFetch<T>(endpoint: string): Promise<T> {
     },
     cache: "no-store",
   });
+
+  if (response.status === 404) {
+    return null;
+  }
 
   if (!response.ok) {
     throw new Error(`LTA request failed (${response.status}) for ${endpoint}`);
@@ -44,6 +48,7 @@ export async function getBusStops(): Promise<BusStop[]> {
 
     while (true) {
       const page = await ltaFetch<{ value: BusStop[] }>(`/BusStops?$skip=${skip}`);
+      if (!page || !Array.isArray(page.value)) break;
       allStops.push(...page.value);
 
       if (page.value.length < 500) {
@@ -66,7 +71,7 @@ export async function getBusArrivals(stopId: string): Promise<BusArrival[]> {
     const data = await ltaFetch<{ Services: BusArrival[] }>(
       `/BusArrivalv2?BusStopCode=${encodeURIComponent(stopId)}`,
     );
-    return data.Services ?? [];
+    return data?.Services ?? [];
   }, 15 * 1000);
 }
 
@@ -90,6 +95,7 @@ function hasCameras(
 export async function getTrafficCameras(): Promise<TrafficCamera[]> {
   return cachedFetch("traffic-cameras", async () => {
     const payload = await ltaFetch<TrafficImageResponse>("/Traffic-Imagesv2");
+    if (!payload) return [];
 
     const value = payload.value ?? [];
     const cameras = Array.isArray(value) && value.length > 0 && hasCameras(value[0])
