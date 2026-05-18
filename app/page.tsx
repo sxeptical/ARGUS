@@ -1,64 +1,123 @@
-import Image from "next/image";
+"use client";
+
+import { useCallback, useEffect, useState } from "react";
+import BusPanel from "@/app/components/BusPanel";
+import CameraPanel from "@/app/components/CameraPanel";
+import Map from "@/app/components/Map";
+import NewsPanel from "@/app/components/NewsPanel";
+import WeatherPanel from "@/app/components/WeatherPanel";
+import type { BusStop, NewsItem, TrafficCamera, WeatherData } from "@/types";
+
+const DEFAULT_WEATHER: WeatherData = {
+  temperature: 0,
+  humidity: 0,
+  psi: 0,
+  psiStatus: "Good",
+  forecast: "Loading...",
+  lastUpdated: new Date().toISOString(),
+};
 
 export default function Home() {
+  const [busStops, setBusStops] = useState<BusStop[]>([]);
+  const [cameras, setCameras] = useState<TrafficCamera[]>([]);
+  const [weather, setWeather] = useState<WeatherData>(DEFAULT_WEATHER);
+  const [news, setNews] = useState<NewsItem[]>([]);
+  const [selectedStop, setSelectedStop] = useState<BusStop | null>(null);
+  const [selectedCamera, setSelectedCamera] = useState<TrafficCamera | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const loadOnce = useCallback(async () => {
+    try {
+      const [busStopsRes, camerasRes, weatherRes, newsRes] = await Promise.all([
+        fetch("/api/bus-stops"),
+        fetch("/api/cameras"),
+        fetch("/api/weather"),
+        fetch("/api/news"),
+      ]);
+
+      if (!busStopsRes.ok || !camerasRes.ok || !weatherRes.ok || !newsRes.ok) {
+        throw new Error("Failed to load initial dashboard data");
+      }
+
+      const [busStopsData, camerasData, weatherData, newsData] = await Promise.all([
+        busStopsRes.json() as Promise<BusStop[]>,
+        camerasRes.json() as Promise<TrafficCamera[]>,
+        weatherRes.json() as Promise<WeatherData>,
+        newsRes.json() as Promise<NewsItem[]>,
+      ]);
+
+      setBusStops(busStopsData);
+      setCameras(camerasData);
+      setWeather(weatherData);
+      setNews(newsData);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unknown dashboard error");
+    }
+  }, []);
+
+  useEffect(() => {
+    loadOnce();
+  }, [loadOnce]);
+
+  useEffect(() => {
+    const weatherTimer = setInterval(async () => {
+      const response = await fetch("/api/weather");
+      if (response.ok) {
+        setWeather((await response.json()) as WeatherData);
+      }
+    }, 5 * 60 * 1000);
+
+    const newsTimer = setInterval(async () => {
+      const response = await fetch("/api/news");
+      if (response.ok) {
+        setNews((await response.json()) as NewsItem[]);
+      }
+    }, 15 * 60 * 1000);
+
+    const camerasTimer = setInterval(async () => {
+      const response = await fetch("/api/cameras");
+      if (response.ok) {
+        setCameras((await response.json()) as TrafficCamera[]);
+      }
+    }, 60 * 1000);
+
+    return () => {
+      clearInterval(weatherTimer);
+      clearInterval(newsTimer);
+      clearInterval(camerasTimer);
+    };
+  }, []);
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
+    <div className="flex h-screen flex-col overflow-hidden px-3 py-3">
+      <header className="terminal-panel mb-3">
+        <div className="terminal-header justify-between">
+          <span>
+            <span className="terminal-cyan">ARGUS</span> // SG DAILY OSINT TERMINAL
+          </span>
+          <span className="terminal-dim text-[11px]">{new Date().toLocaleString()}</span>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
+      </header>
+
+      {error ? <div className="terminal-red mb-2 text-sm">{error}</div> : null}
+
+      <main className="grid flex-1 grid-cols-1 gap-3 overflow-hidden lg:grid-cols-[3fr_2fr]">
+        <section className="terminal-panel min-h-[320px] overflow-hidden">
+          <Map
+            busStops={busStops}
+            cameras={cameras}
+            onStopClick={setSelectedStop}
+            onCameraClick={setSelectedCamera}
+          />
+        </section>
+
+        <section className="grid min-h-0 auto-rows-min gap-3 overflow-auto pr-1">
+          <WeatherPanel weather={weather} />
+          <BusPanel busStops={busStops} selectedStop={selectedStop} onSelectStop={setSelectedStop} />
+          <NewsPanel news={news} />
+          <CameraPanel cameras={cameras} selectedCamera={selectedCamera} />
+        </section>
       </main>
     </div>
   );
