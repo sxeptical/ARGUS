@@ -1,26 +1,108 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --terminal-bg: #070d10;
+  --terminal-panel: #0f171c;
+  --terminal-border: rgba(84, 255, 174, 0.28);
+  --terminal-green: #54ffae;
+  --terminal-cyan: #6be6ff;
+  --terminal-text: #d8f2e4;
+  --terminal-dim: #7f9b91;
+  --terminal-red: #ff6b6b;
+  --terminal-yellow: #ffd166;
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-terminal-bg: var(--terminal-bg);
+  --color-terminal-panel: var(--terminal-panel);
+  --color-terminal-border: var(--terminal-border);
+  --color-terminal-green: var(--terminal-green);
+  --color-terminal-cyan: var(--terminal-cyan);
+  --color-terminal-text: var(--terminal-text);
+  --color-terminal-dim: var(--terminal-dim);
+  --color-terminal-red: var(--terminal-red);
+  --color-terminal-yellow: var(--terminal-yellow);
+  --font-mono: var(--font-jetbrains-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  margin: 0;
+  background:
+    radial-gradient(circle at 10% 20%, rgba(84, 255, 174, 0.08), transparent 35%),
+    radial-gradient(circle at 85% 15%, rgba(107, 230, 255, 0.08), transparent 35%),
+    linear-gradient(180deg, #05090c 0%, var(--terminal-bg) 100%);
+  color: var(--terminal-text);
+  font-family: var(--font-jetbrains-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.terminal-panel {
+  background-color: color-mix(in srgb, var(--terminal-panel) 88%, black 12%);
+  border: 1px solid var(--terminal-border);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.04),
+    0 0 14px rgba(84, 255, 174, 0.08);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.terminal-header {
+  background: linear-gradient(90deg, rgba(84, 255, 174, 0.12), rgba(107, 230, 255, 0.08));
+  border-bottom: 1px solid var(--terminal-border);
+  padding: 8px 10px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--terminal-green);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  letter-spacing: 0.04em;
+}
+
+.terminal-content {
+  padding: 12px;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.terminal-dim {
+  color: var(--terminal-dim);
+}
+
+.terminal-green {
+  color: var(--terminal-green);
+}
+
+.terminal-cyan {
+  color: var(--terminal-cyan);
+}
+
+.terminal-red {
+  color: var(--terminal-red);
+}
+
+.terminal-yellow {
+  color: var(--terminal-yellow);
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--terminal-cyan) 40%, transparent);
+  border-radius: 999px;
 }
