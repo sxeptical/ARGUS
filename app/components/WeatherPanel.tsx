@@ -28,7 +28,7 @@ export default function WeatherPanel({ weather }: WeatherPanelProps) {
           <div className="terminal-dim">Forecast</div>
           <div>{weather.forecast}</div>
         </div>
-        <div className="terminal-dim text-[11px]">
+        <div className="terminal-dim text-[11px]" suppressHydrationWarning>
           Updated {new Date(weather.lastUpdated).toLocaleTimeString()}
         </div>
       </div>

@@ -20,7 +20,7 @@ export default function NewsPanel({ news }: NewsPanelProps) {
             <div className="line-clamp-2 font-medium">{item.title}</div>
             <div className="mt-1 flex items-center justify-between text-[11px] terminal-dim">
               <span>{item.source}</span>
-              <span>{new Date(item.publishedAt).toLocaleTimeString()}</span>
+              <span suppressHydrationWarning>{new Date(item.publishedAt).toLocaleTimeString()}</span>
             </div>
           </a>
         ))}
