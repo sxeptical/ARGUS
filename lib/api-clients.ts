@@ -1,7 +1,7 @@
 import { cachedFetch } from "@/lib/cache";
 import type { BusArrival, BusStop, NewsItem, TrafficCamera, WeatherData } from "@/types";
 
-const LTA_BASE_URL = "https://datamall2.mytransport.sg/ltaodataservice";
+const LTA_BASE_URL = "http://datamall2.mytransport.sg/ltaodataservice";
 const DATA_GOV_BASE_URL = "https://api.data.gov.sg/v1/environment";
 const FETCH_TIMEOUT_MS = 10_000;
 
