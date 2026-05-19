@@ -31,6 +31,7 @@ export default function Home() {
   const [selectedFlight, setSelectedFlight] = useState<FlightState | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [now, setNow] = useState(new Date());
+  const [bootComplete, setBootComplete] = useState(false);
   const [sensorVisibility, setSensorVisibility] = useState<Record<SensorKey, boolean>>({
     flights: true,
     cameras: true,
@@ -89,9 +90,11 @@ export default function Home() {
       } else {
         setError(null);
       }
+      setBootComplete(true);
     })().catch((err: unknown) => {
       if (!mounted) return;
       setError(err instanceof Error ? err.message : "Unknown dashboard error");
+      setBootComplete(true);
     });
 
     return () => {
@@ -221,6 +224,10 @@ export default function Home() {
     { label: "Air Outbound", value: Math.min(100, outboundFlights * 7) },
     { label: "Sensor Uptime", value: 92 },
   ];
+
+  if (!bootComplete) {
+    return <LoadingScreen now={now} />;
+  }
 
   return (
     <div className="flex h-screen flex-col gap-3 overflow-hidden px-3 py-2">
@@ -395,6 +402,46 @@ function HeaderChip({ label, value }: { label: string; value: string }) {
     <span className="rounded-sm border border-cyan-400/25 bg-[#051728]/70 px-2 py-1 text-[#9ec7df]">
       <span className="text-[#5c86a1]">{label}</span> {value}
     </span>
+  );
+}
+
+function LoadingScreen({ now }: { now: Date }) {
+  const sources = ["LTA DataMall", "Traffic Cameras", "Weather Grid", "OSINT Stream", "Airspace Feed"];
+
+  return (
+    <div className="grid h-screen place-items-center overflow-hidden bg-[#020913] px-4 text-terminal-text">
+      <div className="absolute inset-0 bg-[linear-gradient(rgba(33,108,156,0.08)_1px,transparent_1px),linear-gradient(90deg,rgba(33,108,156,0.08)_1px,transparent_1px)] bg-[size:72px_72px]" />
+      <div className="relative w-full max-w-3xl rounded-md border border-cyan-400/25 bg-[#04111e]/95 p-5 shadow-[0_0_44px_rgba(42,166,255,0.16)]">
+        <div className="mb-6 flex items-center justify-between gap-4 border-b border-cyan-500/20 pb-4">
+          <div>
+            <div className="[font-family:var(--font-rajdhani)] text-3xl font-semibold uppercase tracking-[0.22em] text-[#e8f5ff]">
+              ARGUS MONITOR
+            </div>
+            <div className="mt-1 text-xs uppercase tracking-[0.18em] text-[#6d90a8]">
+              Initializing Singapore signal surface
+            </div>
+          </div>
+          <div className="hidden rounded-sm border border-cyan-400/25 bg-[#051728]/70 px-3 py-2 text-right text-[11px] uppercase tracking-[0.14em] text-[#9ec7df] sm:block">
+            <div className="text-[#5c86a1]">Boot Time</div>
+            <div>{now.toLocaleTimeString("en-SG")}</div>
+          </div>
+        </div>
+
+        <div className="mb-5 h-1.5 overflow-hidden rounded bg-[#0a2237]">
+          <div className="h-full w-2/3 animate-pulse rounded bg-gradient-to-r from-[#35f0ce] via-[#3fb9ff] to-[#6e9dff]" />
+        </div>
+
+        <div className="grid gap-2 sm:grid-cols-5">
+          {sources.map((source) => (
+            <div key={source} className="rounded-sm border border-cyan-500/20 bg-[#071629]/70 p-3">
+              <div className="mb-3 h-1.5 w-10 rounded bg-cyan-300/70" />
+              <div className="text-[11px] uppercase tracking-[0.12em] text-[#cfe6f5]">{source}</div>
+              <div className="mt-1 text-[10px] uppercase tracking-[0.1em] text-[#6d90a8]">Syncing</div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
   );
 }
 
