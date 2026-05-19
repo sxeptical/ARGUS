@@ -103,57 +103,29 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    const weatherTimer = setInterval(() => {
-      void (async () => {
-        try {
-          const response = await fetch("/api/weather");
-          if (response.ok) {
-            setWeather((await response.json()) as WeatherData);
-          }
-        } catch {
-          // Silently retry on next interval
-        }
-      })();
-    }, 5 * 60 * 1000);
+    const inFlight: Record<string, boolean> = {};
 
-    const newsTimer = setInterval(() => {
-      void (async () => {
-        try {
-          const response = await fetch("/api/news");
-          if (response.ok) {
-            setNews((await response.json()) as NewsItem[]);
+    const createPoller = (url: string, intervalMs: number, setter: (data: unknown) => void) => {
+      return setInterval(() => {
+        if (inFlight[url]) return;
+        inFlight[url] = true;
+        void (async () => {
+          try {
+            const response = await fetch(url);
+            if (response.ok) setter(await response.json());
+          } catch {
+            // Silently retry on next interval
+          } finally {
+            inFlight[url] = false;
           }
-        } catch {
-          // Silently retry on next interval
-        }
-      })();
-    }, 15 * 60 * 1000);
+        })();
+      }, intervalMs);
+    };
 
-    const camerasTimer = setInterval(() => {
-      void (async () => {
-        try {
-          const response = await fetch("/api/cameras");
-          if (response.ok) {
-            setCameras((await response.json()) as TrafficCamera[]);
-          }
-        } catch {
-          // Silently retry on next interval
-        }
-      })();
-    }, 60 * 1000);
-
-    const flightsTimer = setInterval(() => {
-      void (async () => {
-        try {
-          const response = await fetch("/api/flights");
-          if (response.ok) {
-            setFlights((await response.json()) as FlightState[]);
-          }
-        } catch {
-          // Silently retry on next interval
-        }
-      })();
-    }, 20 * 1000);
+    const weatherTimer = createPoller("/api/weather", 5 * 60 * 1000, setWeather as (data: unknown) => void);
+    const newsTimer = createPoller("/api/news", 15 * 60 * 1000, setNews as (data: unknown) => void);
+    const camerasTimer = createPoller("/api/cameras", 60 * 1000, setCameras as (data: unknown) => void);
+    const flightsTimer = createPoller("/api/flights", 20 * 1000, setFlights as (data: unknown) => void);
 
     const clockTimer = setInterval(() => setNow(new Date()), 1000);
 

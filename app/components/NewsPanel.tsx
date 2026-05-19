@@ -1,6 +1,10 @@
 import TerminalPanel from "@/app/components/TerminalPanel";
 import type { NewsItem } from "@/types";
 
+function formatTime(iso: string): string {
+  return new Date(iso).toLocaleTimeString("en-SG", { timeZone: "Asia/Singapore" });
+}
+
 type NewsPanelProps = {
   news: NewsItem[];
 };
@@ -20,7 +24,7 @@ export default function NewsPanel({ news }: NewsPanelProps) {
             <div className="line-clamp-2 font-medium">{item.title}</div>
             <div className="mt-1 flex items-center justify-between text-[11px] terminal-dim">
               <span>{item.source}</span>
-              <span suppressHydrationWarning>{new Date(item.publishedAt).toLocaleTimeString()}</span>
+              <span suppressHydrationWarning>{formatTime(item.publishedAt)}</span>
             </div>
           </a>
         ))}
