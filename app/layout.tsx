@@ -1,10 +1,17 @@
 import type { Metadata } from "next";
 import { JetBrains_Mono } from "next/font/google";
+import { Rajdhani } from "next/font/google";
 import "./globals.css";
 
 const jetBrainsMono = JetBrains_Mono({
   variable: "--font-jetbrains-mono",
   subsets: ["latin"],
+});
+
+const rajdhani = Rajdhani({
+  variable: "--font-rajdhani",
+  subsets: ["latin"],
+  weight: ["500", "600", "700"],
 });
 
 export const metadata: Metadata = {
@@ -18,7 +25,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className={`${jetBrainsMono.variable} h-full antialiased`}>
+    <html lang="en" className={`${jetBrainsMono.variable} ${rajdhani.variable} h-full antialiased`}>
       <body className="min-h-full flex flex-col bg-terminal-bg text-terminal-text">
         {children}
       </body>

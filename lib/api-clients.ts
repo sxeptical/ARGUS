@@ -1,8 +1,17 @@
 import { cachedFetch } from "@/lib/cache";
-import type { BusArrival, BusStop, NewsItem, TrafficCamera, WeatherData } from "@/types";
+import type {
+  BusArrival,
+  BusStop,
+  FlightDirection,
+  FlightState,
+  NewsItem,
+  TrafficCamera,
+  WeatherData,
+} from "@/types";
 
 const LTA_BASE_URL = "https://datamall2.mytransport.sg/ltaodataservice";
 const DATA_GOV_BASE_URL = "https://api.data.gov.sg/v1/environment";
+const OPENSKY_BASE_URL = "https://opensky-network.org/api";
 const FETCH_TIMEOUT_MS = 10_000;
 
 function getLtaApiKey(): string {
@@ -68,10 +77,20 @@ export async function getBusArrivals(stopId: string): Promise<BusArrival[]> {
   }
 
   return cachedFetch(`bus-arrivals-${stopId}`, async () => {
-    const data = await ltaFetch<{ Services: BusArrival[] }>(
-      `/BusArrivalv2?BusStopCode=${encodeURIComponent(stopId)}`,
+    const busStopCode = encodeURIComponent(stopId);
+    const primary = await ltaFetch<{ Services: BusArrival[] }>(
+      `/v3/BusArrival?BusStopCode=${busStopCode}`,
     );
-    return data?.Services ?? [];
+
+    if (primary?.Services) {
+      return primary.Services;
+    }
+
+    // Backward-compatibility fallback for older tenants/environments.
+    const fallback = await ltaFetch<{ Services: BusArrival[] }>(
+      `/BusArrivalv2?BusStopCode=${busStopCode}`,
+    );
+    return fallback?.Services ?? [];
   }, 15 * 1000);
 }
 
@@ -255,4 +274,168 @@ export async function getNews(): Promise<NewsItem[]> {
       },
     ];
   }, 15 * 60 * 1000);
+}
+
+type OpenSkyResponse = {
+  time: number;
+  states: Array<
+    [
+      string | null,
+      string | null,
+      string | null,
+      number | null,
+      number | null,
+      number | null,
+      number | null,
+      number | null,
+      boolean | null,
+      number | null,
+      number | null,
+      number | null,
+      unknown,
+      number | null,
+      string | null,
+      boolean | null,
+      number | null,
+      number | null,
+    ]
+  > | null;
+};
+
+const SG_BOUNDS = {
+  lamin: 1.15,
+  lomin: 103.45,
+  lamax: 1.50,
+  lomax: 104.15,
+};
+
+const CHANGI_COORDS = { lat: 1.3644, lon: 103.9915 };
+
+function normalizeHeading(angle: number): number {
+  const value = angle % 360;
+  return value < 0 ? value + 360 : value;
+}
+
+function absoluteBearingDiff(a: number, b: number): number {
+  const diff = Math.abs(normalizeHeading(a) - normalizeHeading(b));
+  return diff > 180 ? 360 - diff : diff;
+}
+
+function bearingDegrees(fromLat: number, fromLon: number, toLat: number, toLon: number): number {
+  const fromLatRad = (fromLat * Math.PI) / 180;
+  const fromLonRad = (fromLon * Math.PI) / 180;
+  const toLatRad = (toLat * Math.PI) / 180;
+  const toLonRad = (toLon * Math.PI) / 180;
+
+  const dLon = toLonRad - fromLonRad;
+  const y = Math.sin(dLon) * Math.cos(toLatRad);
+  const x =
+    Math.cos(fromLatRad) * Math.sin(toLatRad) -
+    Math.sin(fromLatRad) * Math.cos(toLatRad) * Math.cos(dLon);
+  const theta = Math.atan2(y, x);
+  return normalizeHeading((theta * 180) / Math.PI);
+}
+
+function classifyFlightDirection(
+  latitude: number,
+  longitude: number,
+  track: number | null,
+): FlightDirection {
+  if (track === null) return "transit";
+
+  const headingToChangi = bearingDegrees(
+    latitude,
+    longitude,
+    CHANGI_COORDS.lat,
+    CHANGI_COORDS.lon,
+  );
+  const diff = absoluteBearingDiff(track, headingToChangi);
+
+  if (diff <= 55) return "inbound";
+  if (diff >= 125) return "outbound";
+  return "transit";
+}
+
+function toFlightState(row: NonNullable<OpenSkyResponse["states"]>[number]): FlightState | null {
+  const icao24 = row[0]?.trim() ?? "";
+  const callsign = row[1]?.trim() ?? "";
+  const originCountry = row[2]?.trim() ?? "Unknown";
+  const longitude = row[5];
+  const latitude = row[6];
+  const altitude = row[7];
+  const onGround = row[8] ?? false;
+  const velocity = row[9];
+  const track = row[10];
+  const verticalRate = row[11];
+  const lastContact = row[4];
+
+  if (
+    !icao24 ||
+    !Number.isFinite(latitude) ||
+    !Number.isFinite(longitude)
+  ) {
+    return null;
+  }
+
+  if (onGround) return null;
+
+  const flightLatitude = latitude as number;
+  const flightLongitude = longitude as number;
+  const flightTrack = Number.isFinite(track) ? track : null;
+  const direction = classifyFlightDirection(flightLatitude, flightLongitude, flightTrack);
+
+  return {
+    id: callsign || icao24,
+    icao24,
+    callsign: callsign || "UNKN",
+    originCountry,
+    latitude: flightLatitude,
+    longitude: flightLongitude,
+    altitude: Number.isFinite(altitude) ? altitude : null,
+    velocity: Number.isFinite(velocity) ? velocity : null,
+    track: flightTrack,
+    verticalRate: Number.isFinite(verticalRate) ? verticalRate : null,
+    onGround,
+    direction,
+    lastContact: Number.isFinite(lastContact) ? lastContact : null,
+  };
+}
+
+export async function getFlights(): Promise<FlightState[]> {
+  return cachedFetch("flights-sg", async () => {
+    const params = new URLSearchParams({
+      lamin: String(SG_BOUNDS.lamin),
+      lomin: String(SG_BOUNDS.lomin),
+      lamax: String(SG_BOUNDS.lamax),
+      lomax: String(SG_BOUNDS.lomax),
+    });
+
+    const response = await fetchWithTimeout(`${OPENSKY_BASE_URL}/states/all?${params.toString()}`, {
+      cache: "no-store",
+      headers: {
+        Accept: "application/json",
+      },
+    });
+
+    if (response.status === 404) {
+      return [];
+    }
+
+    if (!response.ok) {
+      throw new Error(`OpenSky request failed (${response.status})`);
+    }
+
+    const payload = (await response.json()) as OpenSkyResponse;
+    const states = payload.states ?? [];
+
+    return states
+      .map((row) => toFlightState(row))
+      .filter((flight): flight is FlightState => flight !== null)
+      .sort((a, b) => {
+        const aSpeed = a.velocity ?? 0;
+        const bSpeed = b.velocity ?? 0;
+        return bSpeed - aSpeed;
+      })
+      .slice(0, 120);
+  }, 15 * 1000);
 }

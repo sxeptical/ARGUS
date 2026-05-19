@@ -1,13 +1,13 @@
 @import "tailwindcss";
 
 :root {
-  --terminal-bg: #070d10;
-  --terminal-panel: #0f171c;
-  --terminal-border: rgba(84, 255, 174, 0.28);
-  --terminal-green: #54ffae;
-  --terminal-cyan: #6be6ff;
-  --terminal-text: #d8f2e4;
-  --terminal-dim: #7f9b91;
+  --terminal-bg: #020913;
+  --terminal-panel: #071726;
+  --terminal-border: rgba(84, 188, 255, 0.24);
+  --terminal-green: #63ffd6;
+  --terminal-cyan: #3fd3ff;
+  --terminal-text: #d5edf8;
+  --terminal-dim: #7395a8;
   --terminal-red: #ff6b6b;
   --terminal-yellow: #ffd166;
 }
@@ -23,6 +23,7 @@
   --color-terminal-red: var(--terminal-red);
   --color-terminal-yellow: var(--terminal-yellow);
   --font-mono: var(--font-jetbrains-mono);
+  --font-display: var(--font-rajdhani);
 }
 
 * {
@@ -37,34 +38,50 @@ body {
 body {
   margin: 0;
   background:
-    radial-gradient(circle at 10% 20%, rgba(84, 255, 174, 0.08), transparent 35%),
-    radial-gradient(circle at 85% 15%, rgba(107, 230, 255, 0.08), transparent 35%),
-    linear-gradient(180deg, #05090c 0%, var(--terminal-bg) 100%);
+    radial-gradient(circle at 16% 8%, rgba(79, 201, 255, 0.12), transparent 32%),
+    radial-gradient(circle at 88% 12%, rgba(49, 255, 218, 0.08), transparent 28%),
+    linear-gradient(180deg, #02050d 0%, #020913 45%, #01060f 100%);
   color: var(--terminal-text);
   font-family: var(--font-jetbrains-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
+  position: relative;
+}
+
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(rgba(33, 108, 156, 0.09) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(33, 108, 156, 0.08) 1px, transparent 1px);
+  background-size: 72px 72px;
+  mask-image: radial-gradient(circle at center, black 42%, transparent 88%);
+  z-index: -1;
 }
 
 .terminal-panel {
-  background-color: color-mix(in srgb, var(--terminal-panel) 88%, black 12%);
+  background-color: color-mix(in srgb, var(--terminal-panel) 90%, black 10%);
   border: 1px solid var(--terminal-border);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.04),
-    0 0 14px rgba(84, 255, 174, 0.08);
-  border-radius: 8px;
+    0 0 28px rgba(29, 148, 227, 0.1);
+  border-radius: 6px;
   overflow: hidden;
 }
 
 .terminal-header {
-  background: linear-gradient(90deg, rgba(84, 255, 174, 0.12), rgba(107, 230, 255, 0.08));
+  background: linear-gradient(90deg, rgba(44, 230, 255, 0.1), rgba(71, 134, 255, 0.06));
   border-bottom: 1px solid var(--terminal-border);
-  padding: 8px 10px;
-  font-size: 12px;
+  padding: 9px 11px;
+  font-family: var(--font-rajdhani), var(--font-jetbrains-mono), monospace;
+  font-size: 14px;
   font-weight: 700;
-  color: var(--terminal-green);
+  color: #75e6ff;
+  text-transform: uppercase;
   display: flex;
   align-items: center;
   gap: 8px;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.1em;
 }
 
 .terminal-content {

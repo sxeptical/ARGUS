@@ -50,6 +50,24 @@ export interface TrafficCamera {
   location: string;
 }
 
+export type FlightDirection = "inbound" | "outbound" | "transit";
+
+export interface FlightState {
+  id: string;
+  icao24: string;
+  callsign: string;
+  originCountry: string;
+  latitude: number;
+  longitude: number;
+  altitude: number | null;
+  velocity: number | null;
+  track: number | null;
+  verticalRate: number | null;
+  onGround: boolean;
+  direction: FlightDirection;
+  lastContact: number | null;
+}
+
 export interface MRTGeoJson {
   type: "FeatureCollection";
   features: Array<{

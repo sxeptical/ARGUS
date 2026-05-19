@@ -3,13 +3,15 @@
 import { useEffect, useRef } from "react";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
-import type { BusStop, MRTGeoJson, TrafficCamera } from "@/types";
+import type { BusStop, FlightState, MRTGeoJson, TrafficCamera } from "@/types";
 
 type MapProps = {
   busStops: BusStop[];
   cameras: TrafficCamera[];
+  flights: FlightState[];
   onStopClick: (stop: BusStop) => void;
   onCameraClick: (camera: TrafficCamera) => void;
+  onFlightClick: (flight: FlightState) => void;
 };
 
 const MRT_LINE_STATIONS: Record<string, string[]> = {
@@ -167,16 +169,59 @@ function interpolateStations(
   });
 }
 
-export default function Map({ busStops, cameras, onStopClick, onCameraClick }: MapProps) {
+function buildPlaneIcon(size = 64): ImageData {
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const context = canvas.getContext("2d");
+  if (!context) {
+    return new ImageData(size, size);
+  }
+
+  context.clearRect(0, 0, size, size);
+  context.translate(size / 2, size / 2);
+  context.fillStyle = "#ffffff";
+
+  context.beginPath();
+  context.moveTo(0, -size * 0.34); // nose
+  context.lineTo(size * 0.08, -size * 0.10);
+  context.lineTo(size * 0.30, -size * 0.02); // right wing tip
+  context.lineTo(size * 0.12, size * 0.02);
+  context.lineTo(size * 0.12, size * 0.30); // tail fin
+  context.lineTo(0, size * 0.24);
+  context.lineTo(-size * 0.12, size * 0.30);
+  context.lineTo(-size * 0.12, size * 0.02);
+  context.lineTo(-size * 0.30, -size * 0.02); // left wing tip
+  context.lineTo(-size * 0.08, -size * 0.10);
+  context.closePath();
+  context.fill();
+
+  return context.getImageData(0, 0, size, size);
+}
+
+export default function Map({
+  busStops,
+  cameras,
+  flights,
+  onStopClick,
+  onCameraClick,
+  onFlightClick,
+}: MapProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const cameraMarkersRef = useRef<maplibregl.Marker[]>([]);
   const busStopsRef = useRef<globalThis.Map<string, BusStop>>(new globalThis.Map());
+  const flightsRef = useRef<globalThis.Map<string, FlightState>>(new globalThis.Map());
   const onStopClickRef = useRef(onStopClick);
+  const onFlightClickRef = useRef(onFlightClick);
 
   useEffect(() => {
     onStopClickRef.current = onStopClick;
   }, [onStopClick]);
+
+  useEffect(() => {
+    onFlightClickRef.current = onFlightClick;
+  }, [onFlightClick]);
 
   useEffect(() => {
     if (!containerRef.current || mapRef.current) {
@@ -216,7 +261,17 @@ export default function Map({ busStops, cameras, onStopClick, onCameraClick }: M
         type: "geojson",
         data: {
           type: "FeatureCollection",
-          features: [],
+          features: Array.from(busStopsRef.current.values()).map((stop) => ({
+            type: "Feature" as const,
+            properties: {
+              BusStopCode: stop.BusStopCode,
+              Description: stop.Description,
+            },
+            geometry: {
+              type: "Point" as const,
+              coordinates: [stop.Longitude, stop.Latitude],
+            },
+          })),
         },
       });
 
@@ -246,6 +301,92 @@ export default function Map({ busStops, cameras, onStopClick, onCameraClick }: M
       });
 
       map.on("mouseleave", "bus-stops-layer", () => {
+        map.getCanvas().style.cursor = "";
+      });
+
+      map.addSource("flights", {
+        type: "geojson",
+        data: {
+          type: "FeatureCollection",
+          features: Array.from(flightsRef.current.values()).map((flight) => ({
+            type: "Feature" as const,
+            properties: {
+              id: flight.id,
+              callsign: flight.callsign,
+              direction: flight.direction,
+              track: flight.track ?? 0,
+            },
+            geometry: {
+              type: "Point" as const,
+              coordinates: [flight.longitude, flight.latitude],
+            },
+          })),
+        },
+      });
+
+      if (!map.hasImage("plane-icon")) {
+        map.addImage("plane-icon", buildPlaneIcon(), { sdf: true });
+      }
+
+      map.addLayer({
+        id: "flights-layer",
+        type: "symbol",
+        source: "flights",
+        layout: {
+          "icon-image": "plane-icon",
+          "icon-size": 0.32,
+          "icon-allow-overlap": true,
+          "icon-ignore-placement": true,
+          "icon-rotate": ["coalesce", ["get", "track"], 0],
+          "icon-rotation-alignment": "map",
+        },
+        paint: {
+          "icon-color": [
+            "match",
+            ["get", "direction"],
+            "inbound",
+            "#54ffae",
+            "outbound",
+            "#ff6b6b",
+            "#6be6ff",
+          ],
+          "icon-halo-color": "#021019",
+          "icon-halo-width": 1.2,
+          "icon-opacity": 0.98,
+        },
+      });
+
+      map.addLayer({
+        id: "flights-label-layer",
+        type: "symbol",
+        source: "flights",
+        minzoom: 10.8,
+        layout: {
+          "text-field": ["get", "callsign"],
+          "text-size": 10,
+          "text-anchor": "left",
+          "text-offset": [0.8, 0],
+        },
+        paint: {
+          "text-color": "#f1f9ff",
+          "text-halo-color": "#041118",
+          "text-halo-width": 1,
+        },
+      });
+
+      map.on("click", "flights-layer", (event) => {
+        const feature = event.features?.[0];
+        const id = feature?.properties?.id;
+        if (typeof id !== "string") return;
+        const flight = flightsRef.current.get(id);
+        if (flight) onFlightClickRef.current(flight);
+      });
+
+      map.on("mouseenter", "flights-layer", () => {
+        map.getCanvas().style.cursor = "pointer";
+      });
+
+      map.on("mouseleave", "flights-layer", () => {
         map.getCanvas().style.cursor = "";
       });
 
@@ -370,6 +511,41 @@ export default function Map({ busStops, cameras, onStopClick, onCameraClick }: M
       });
     }
   }, [busStops]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    flightsRef.current = new globalThis.Map(
+      flights.map((flight) => [flight.id, flight]),
+    );
+
+    const flightsSource = map.getSource("flights") as maplibregl.GeoJSONSource | undefined;
+    if (!flightsSource) return;
+
+    flightsSource.setData({
+      type: "FeatureCollection",
+      features: flights
+        .filter(
+          (flight) =>
+            Number.isFinite(flight.latitude) &&
+            Number.isFinite(flight.longitude),
+        )
+        .map((flight) => ({
+          type: "Feature" as const,
+            properties: {
+              id: flight.id,
+              callsign: flight.callsign,
+              direction: flight.direction,
+              track: flight.track ?? 0,
+            },
+            geometry: {
+              type: "Point" as const,
+              coordinates: [flight.longitude, flight.latitude],
+            },
+        })),
+    });
+  }, [flights]);
 
   useEffect(() => {
     const map = mapRef.current;

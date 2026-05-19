@@ -14,6 +14,7 @@ export default function BusPanel({ busStops, selectedStop, onSelectStop }: BusPa
   const [search, setSearch] = useState("");
   const [arrivals, setArrivals] = useState<BusArrival[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
 
   const filteredStops = useMemo(() => {
     if (!search.trim()) return [];
@@ -37,21 +38,31 @@ export default function BusPanel({ busStops, selectedStop, onSelectStop }: BusPa
 
     const loadArrivals = async () => {
       try {
+        if (!cancelled) {
+          setLoading(true);
+          setArrivals([]);
+          setError(null);
+        }
         const response = await fetch(
           `/api/bus-arrivals?stopId=${encodeURIComponent(stopCode)}`,
         );
 
         if (!response.ok) {
-          throw new Error("Unable to fetch bus arrivals");
+          const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+          throw new Error(payload?.error || "Unable to fetch bus arrivals");
         }
 
         const data = (await response.json()) as BusArrival[];
         if (cancelled) return;
         setArrivals(data);
-        setError(null);
       } catch (err) {
         if (cancelled) return;
+        setArrivals([]);
         setError(err instanceof Error ? err.message : "Unknown error");
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
       }
     };
 
@@ -117,6 +128,16 @@ export default function BusPanel({ busStops, selectedStop, onSelectStop }: BusPa
         {error ? <div className="terminal-red text-[12px]">{error}</div> : null}
 
         <div className="space-y-2">
+          {loading ? (
+            <div className="terminal-dim text-[11px]">Loading bus arrivals...</div>
+          ) : null}
+
+          {!loading && activeStop && !error && visibleArrivals.length === 0 ? (
+            <div className="terminal-dim text-[11px]">
+              No live arrival data currently available for this stop.
+            </div>
+          ) : null}
+
           {visibleArrivals.map((service) => (
             <div key={service.ServiceNo} className="rounded border border-terminal-border/50 p-2">
               <div className="mb-1 flex items-center justify-between">
