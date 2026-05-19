@@ -11,6 +11,7 @@ import type {
 
 const LTA_BASE_URL = "https://datamall2.mytransport.sg/ltaodataservice";
 const DATA_GOV_BASE_URL = "https://api.data.gov.sg/v1/environment";
+const AVIATIONSTACK_BASE_URL = "https://api.aviationstack.com/v1";
 const OPENSKY_BASE_URL = "https://opensky-network.org/api";
 const FETCH_TIMEOUT_MS = 10_000;
 
@@ -18,6 +19,14 @@ function getLtaApiKey(): string {
   const apiKey = process.env.LTA_API_KEY;
   if (!apiKey) {
     throw new Error("Missing LTA_API_KEY");
+  }
+  return apiKey;
+}
+
+function getAviationStackApiKey(): string {
+  const apiKey = process.env.AVIATIONSTACK_API_KEY?.trim();
+  if (!apiKey) {
+    throw new Error("Missing AVIATIONSTACK_API_KEY");
   }
   return apiKey;
 }
@@ -276,6 +285,51 @@ export async function getNews(): Promise<NewsItem[]> {
   }, 15 * 60 * 1000);
 }
 
+type AviationStackFlight = {
+  departure?: {
+    airport?: string | null;
+    iata?: string | null;
+    icao?: string | null;
+  } | null;
+  arrival?: {
+    airport?: string | null;
+    iata?: string | null;
+    icao?: string | null;
+  } | null;
+  airline?: {
+    name?: string | null;
+    iata?: string | null;
+  } | null;
+  flight?: {
+    number?: string | null;
+    iata?: string | null;
+    icao?: string | null;
+  } | null;
+  aircraft?: {
+    registration?: string | null;
+    icao24?: string | null;
+  } | null;
+  live?: {
+    updated?: string | null;
+    latitude?: number | null;
+    longitude?: number | null;
+    altitude?: number | null; // meters
+    direction?: number | null; // degrees
+    speed_horizontal?: number | null; // km/h
+    speed_vertical?: number | null; // km/h
+    is_ground?: boolean | null;
+  } | null;
+};
+
+type AviationStackResponse = {
+  data?: AviationStackFlight[];
+  error?: {
+    code?: string | number;
+    type?: string;
+    info?: string;
+  };
+};
+
 type OpenSkyResponse = {
   time: number;
   states: Array<
@@ -309,7 +363,13 @@ const SG_BOUNDS = {
   lomax: 104.15,
 };
 
+const FLIGHTS_FALLBACK_MAX_AGE_MS = 10 * 60 * 1000; // 10 minutes
+let lastSuccessfulFlights: FlightState[] = [];
+let lastSuccessfulFlightsAt = 0;
+
 const CHANGI_COORDS = { lat: 1.3644, lon: 103.9915 };
+const SG_AIRPORT_ICAO = new Set(["WSSS", "WSSL"]);
+const SG_AIRPORT_IATA = new Set(["SIN", "XSP"]);
 
 function normalizeHeading(angle: number): number {
   const value = angle % 360;
@@ -356,7 +416,73 @@ function classifyFlightDirection(
   return "transit";
 }
 
-function toFlightState(row: NonNullable<OpenSkyResponse["states"]>[number]): FlightState | null {
+function normalizeCode(code?: string | null): string {
+  return (code ?? "").trim().toUpperCase();
+}
+
+function isSingaporeAirport(icao?: string | null, iata?: string | null): boolean {
+  const normalizedIcao = normalizeCode(icao);
+  const normalizedIata = normalizeCode(iata);
+  return SG_AIRPORT_ICAO.has(normalizedIcao) || SG_AIRPORT_IATA.has(normalizedIata);
+}
+
+function toFlightStateFromAviationStack(item: AviationStackFlight): FlightState | null {
+  const live = item.live;
+  const latitude = live?.latitude;
+  const longitude = live?.longitude;
+  const onGround = live?.is_ground ?? false;
+
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude) || onGround) {
+    return null;
+  }
+
+  const flightLatitude = latitude as number;
+  const flightLongitude = longitude as number;
+  const flightTrack = Number.isFinite(live?.direction) ? (live?.direction as number) : null;
+
+  const depIsSingapore = isSingaporeAirport(item.departure?.icao, item.departure?.iata);
+  const arrIsSingapore = isSingaporeAirport(item.arrival?.icao, item.arrival?.iata);
+  const direction: FlightDirection = arrIsSingapore && !depIsSingapore
+    ? "inbound"
+    : depIsSingapore && !arrIsSingapore
+      ? "outbound"
+      : classifyFlightDirection(flightLatitude, flightLongitude, flightTrack);
+
+  const flightCode = item.flight?.icao?.trim()
+    || item.flight?.iata?.trim()
+    || `${item.airline?.iata?.trim() ?? ""}${item.flight?.number?.trim() ?? ""}`.trim();
+  const icao24 = item.aircraft?.icao24?.trim()
+    || item.aircraft?.registration?.trim()
+    || flightCode
+    || "unknown";
+  const callsign = flightCode || icao24.toUpperCase();
+
+  const velocityKmh = live?.speed_horizontal;
+  const verticalKmh = live?.speed_vertical;
+  const velocity = Number.isFinite(velocityKmh) ? (velocityKmh as number) / 3.6 : null;
+  const verticalRate = Number.isFinite(verticalKmh) ? (verticalKmh as number) / 3.6 : null;
+  const altitude = Number.isFinite(live?.altitude) ? (live?.altitude as number) : null;
+  const lastContactMs = live?.updated ? Date.parse(live.updated) : Number.NaN;
+  const lastContact = Number.isFinite(lastContactMs) ? Math.floor(lastContactMs / 1000) : null;
+
+  return {
+    id: `${callsign}-${lastContact ?? 0}`,
+    icao24,
+    callsign,
+    originCountry: item.departure?.airport?.trim() || item.airline?.name?.trim() || "Unknown",
+    latitude: flightLatitude,
+    longitude: flightLongitude,
+    altitude,
+    velocity,
+    track: flightTrack,
+    verticalRate,
+    onGround,
+    direction,
+    lastContact,
+  };
+}
+
+function toFlightStateFromOpenSky(row: NonNullable<OpenSkyResponse["states"]>[number]): FlightState | null {
   const icao24 = row[0]?.trim() ?? "";
   const callsign = row[1]?.trim() ?? "";
   const originCountry = row[2]?.trim() ?? "Unknown";
@@ -369,15 +495,9 @@ function toFlightState(row: NonNullable<OpenSkyResponse["states"]>[number]): Fli
   const verticalRate = row[11];
   const lastContact = row[4];
 
-  if (
-    !icao24 ||
-    !Number.isFinite(latitude) ||
-    !Number.isFinite(longitude)
-  ) {
+  if (!icao24 || !Number.isFinite(latitude) || !Number.isFinite(longitude) || onGround) {
     return null;
   }
-
-  if (onGround) return null;
 
   const flightLatitude = latitude as number;
   const flightLongitude = longitude as number;
@@ -401,36 +521,127 @@ function toFlightState(row: NonNullable<OpenSkyResponse["states"]>[number]): Fli
   };
 }
 
+async function fetchFlightsFromAviationStack(): Promise<FlightState[]> {
+  const apiKey = getAviationStackApiKey();
+  const endpoints = [
+    { dep_icao: "WSSS" },
+    { arr_icao: "WSSS" },
+    { dep_icao: "WSSL" },
+    { arr_icao: "WSSL" },
+  ] as const;
+
+  const responses = await Promise.allSettled(
+    endpoints.map(async (filter) => {
+      const params = new URLSearchParams({
+        access_key: apiKey,
+        limit: "100",
+        ...filter,
+      });
+
+      const response = await fetchWithTimeout(`${AVIATIONSTACK_BASE_URL}/flights?${params.toString()}`, {
+        cache: "no-store",
+        headers: {
+          Accept: "application/json",
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error(`Aviationstack request failed (${response.status})`);
+      }
+
+      const payload = (await response.json()) as AviationStackResponse;
+      if (payload.error) {
+        throw new Error(
+          `Aviationstack error${payload.error.code ? ` ${payload.error.code}` : ""}: ${payload.error.info ?? payload.error.type ?? "unknown"}`,
+        );
+      }
+
+      return payload.data ?? [];
+    }),
+  );
+
+  const deduped = new globalThis.Map<string, FlightState>();
+  for (const result of responses) {
+    if (result.status !== "fulfilled") {
+      continue;
+    }
+
+    for (const item of result.value) {
+      const flight = toFlightStateFromAviationStack(item);
+      if (!flight) continue;
+
+      const existing = deduped.get(flight.icao24);
+      const existingTs = existing?.lastContact ?? 0;
+      const currentTs = flight.lastContact ?? 0;
+      if (!existing || currentTs >= existingTs) {
+        deduped.set(flight.icao24, flight);
+      }
+    }
+  }
+
+  return Array.from(deduped.values());
+}
+
+async function fetchFlightsFromOpenSky(): Promise<FlightState[]> {
+  const params = new URLSearchParams({
+    lamin: String(SG_BOUNDS.lamin),
+    lomin: String(SG_BOUNDS.lomin),
+    lamax: String(SG_BOUNDS.lamax),
+    lomax: String(SG_BOUNDS.lomax),
+  });
+
+  const response = await fetchWithTimeout(`${OPENSKY_BASE_URL}/states/all?${params.toString()}`, {
+    cache: "no-store",
+    headers: {
+      Accept: "application/json",
+    },
+  });
+
+  if (response.status === 404) {
+    return [];
+  }
+
+  if (!response.ok) {
+    throw new Error(`OpenSky request failed (${response.status})`);
+  }
+
+  const payload = (await response.json()) as OpenSkyResponse;
+  const states = payload.states ?? [];
+
+  return states
+    .map((row) => toFlightStateFromOpenSky(row))
+    .filter((flight): flight is FlightState => flight !== null);
+}
+
 export async function getFlights(): Promise<FlightState[]> {
   return cachedFetch("flights-sg", async () => {
-    const params = new URLSearchParams({
-      lamin: String(SG_BOUNDS.lamin),
-      lomin: String(SG_BOUNDS.lomin),
-      lamax: String(SG_BOUNDS.lamax),
-      lomax: String(SG_BOUNDS.lomax),
-    });
+    let flights: FlightState[] = [];
 
-    const response = await fetchWithTimeout(`${OPENSKY_BASE_URL}/states/all?${params.toString()}`, {
-      cache: "no-store",
-      headers: {
-        Accept: "application/json",
-      },
-    });
-
-    if (response.status === 404) {
-      return [];
+    try {
+      flights = await fetchFlightsFromAviationStack();
+    } catch {
+      flights = [];
     }
 
-    if (!response.ok) {
-      throw new Error(`OpenSky request failed (${response.status})`);
+    if (flights.length === 0) {
+      try {
+        flights = await fetchFlightsFromOpenSky();
+      } catch {
+        flights = [];
+      }
     }
 
-    const payload = (await response.json()) as OpenSkyResponse;
-    const states = payload.states ?? [];
+    if (flights.length > 0) {
+      lastSuccessfulFlights = flights;
+      lastSuccessfulFlightsAt = Date.now();
+    } else if (lastSuccessfulFlights.length > 0) {
+      const ageMs = Date.now() - lastSuccessfulFlightsAt;
+      if (ageMs <= FLIGHTS_FALLBACK_MAX_AGE_MS) {
+        flights = lastSuccessfulFlights;
+      }
+    }
 
-    return states
-      .map((row) => toFlightState(row))
-      .filter((flight): flight is FlightState => flight !== null)
+    return flights
       .sort((a, b) => {
         const aSpeed = a.velocity ?? 0;
         const bSpeed = b.velocity ?? 0;

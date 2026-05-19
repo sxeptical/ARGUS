@@ -9,6 +9,8 @@ import NewsPanel from "@/app/components/NewsPanel";
 import WeatherPanel from "@/app/components/WeatherPanel";
 import type { BusStop, FlightState, NewsItem, TrafficCamera, WeatherData } from "@/types";
 
+type SensorKey = "flights" | "cameras" | "busStops" | "mrt";
+
 const DEFAULT_WEATHER: WeatherData = {
   temperature: 0,
   humidity: 0,
@@ -29,42 +31,68 @@ export default function Home() {
   const [selectedFlight, setSelectedFlight] = useState<FlightState | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [now, setNow] = useState(new Date());
+  const [sensorVisibility, setSensorVisibility] = useState<Record<SensorKey, boolean>>({
+    flights: true,
+    cameras: true,
+    busStops: true,
+    mrt: true,
+  });
 
   useEffect(() => {
     let mounted = true;
 
-    void Promise.all([
-      fetch("/api/bus-stops"),
-      fetch("/api/cameras"),
-      fetch("/api/weather"),
-      fetch("/api/news"),
-      fetch("/api/flights"),
-    ])
-      .then(async ([busStopsRes, camerasRes, weatherRes, newsRes, flightsRes]) => {
-        if (!busStopsRes.ok || !camerasRes.ok || !weatherRes.ok || !newsRes.ok || !flightsRes.ok) {
-          throw new Error("Failed to load initial dashboard data");
-        }
+    void (async () => {
+      const [busStopsRes, camerasRes, weatherRes, newsRes, flightsRes] = await Promise.allSettled([
+        fetch("/api/bus-stops"),
+        fetch("/api/cameras"),
+        fetch("/api/weather"),
+        fetch("/api/news"),
+        fetch("/api/flights"),
+      ]);
 
-        const [busStopsData, camerasData, weatherData, newsData, flightsData] = await Promise.all([
-          busStopsRes.json() as Promise<BusStop[]>,
-          camerasRes.json() as Promise<TrafficCamera[]>,
-          weatherRes.json() as Promise<WeatherData>,
-          newsRes.json() as Promise<NewsItem[]>,
-          flightsRes.json() as Promise<FlightState[]>,
-        ]);
+      if (!mounted) return;
 
-        if (!mounted) return;
-        setBusStops(busStopsData);
-        setCameras(camerasData);
-        setWeather(weatherData);
-        setNews(newsData);
-        setFlights(flightsData);
+      const errors: string[] = [];
+
+      if (busStopsRes.status === "fulfilled" && busStopsRes.value.ok) {
+        setBusStops((await busStopsRes.value.json()) as BusStop[]);
+      } else {
+        errors.push("bus stops");
+      }
+
+      if (camerasRes.status === "fulfilled" && camerasRes.value.ok) {
+        setCameras((await camerasRes.value.json()) as TrafficCamera[]);
+      } else {
+        errors.push("cameras");
+      }
+
+      if (weatherRes.status === "fulfilled" && weatherRes.value.ok) {
+        setWeather((await weatherRes.value.json()) as WeatherData);
+      } else {
+        errors.push("weather");
+      }
+
+      if (newsRes.status === "fulfilled" && newsRes.value.ok) {
+        setNews((await newsRes.value.json()) as NewsItem[]);
+      } else {
+        errors.push("news");
+      }
+
+      if (flightsRes.status === "fulfilled" && flightsRes.value.ok) {
+        setFlights((await flightsRes.value.json()) as FlightState[]);
+      } else {
+        errors.push("flights");
+      }
+
+      if (errors.length > 0) {
+        setError(`Some data sources failed: ${errors.join(", ")}`);
+      } else {
         setError(null);
-      })
-      .catch((err: unknown) => {
-        if (!mounted) return;
-        setError(err instanceof Error ? err.message : "Unknown dashboard error");
-      });
+      }
+    })().catch((err: unknown) => {
+      if (!mounted) return;
+      setError(err instanceof Error ? err.message : "Unknown dashboard error");
+    });
 
     return () => {
       mounted = false;
@@ -149,9 +177,37 @@ export default function Home() {
   );
 
   const sensorRows = [
-    { label: "Air Activity", note: "live tracks", value: flights.length, tone: "text-[#63ffd6]" },
-    { label: "Road Cameras", note: "stream nodes", value: cameras.length, tone: "text-[#4fc8ff]" },
-    { label: "Bus Stops", note: "monitor points", value: busStops.length, tone: "text-[#90f5ff]" },
+    {
+      key: "flights" as const,
+      label: "Air Activity",
+      note: "live tracks",
+      value: flights.length,
+      tone: "text-[#63ffd6]",
+    },
+    {
+      key: "cameras" as const,
+      label: "Road Cameras",
+      note: "stream nodes",
+      value: cameras.length,
+      tone: "text-[#4fc8ff]",
+    },
+    {
+      key: "busStops" as const,
+      label: "Bus Stops",
+      note: "monitor points",
+      value: busStops.length,
+      tone: "text-[#90f5ff]",
+    },
+    {
+      key: "mrt" as const,
+      label: "MRT Network",
+      note: "lines + stations",
+      value: 2,
+      tone: "text-[#f8d36f]",
+    },
+  ];
+
+  const sensorStatsRows = [
     { label: "Inbound Flights", note: "approach vector", value: inboundFlights, tone: "text-[#63ffd6]" },
     { label: "Outbound Flights", note: "departure vector", value: outboundFlights, tone: "text-[#ff9c7b]" },
     { label: "Transit Flights", note: "crossing tracks", value: transitFlights, tone: "text-[#4fc8ff]" },
@@ -207,6 +263,33 @@ export default function Home() {
                     <div className="text-xs text-[#cfe6f5]">{row.label}</div>
                     <div className="text-[10px] uppercase tracking-[0.1em] text-[#6d90a8]">{row.note}</div>
                   </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setSensorVisibility((prev) => ({ ...prev, [row.key]: !prev[row.key] }))
+                      }
+                      className={`rounded-sm border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] ${
+                        sensorVisibility[row.key]
+                          ? "border-emerald-300/60 bg-emerald-400/15 text-emerald-200"
+                          : "border-slate-500/50 bg-slate-800/40 text-slate-300"
+                      }`}
+                    >
+                      {sensorVisibility[row.key] ? "On" : "Off"}
+                    </button>
+                    <div className={`min-w-8 text-right text-lg font-semibold ${row.tone}`}>{row.value}</div>
+                  </div>
+                </div>
+              ))}
+              {sensorStatsRows.map((row) => (
+                <div
+                  key={row.label}
+                  className="flex items-center justify-between rounded-sm border border-cyan-500/15 bg-[#061325]/55 px-2 py-1.5"
+                >
+                  <div>
+                    <div className="text-xs text-[#cfe6f5]">{row.label}</div>
+                    <div className="text-[10px] uppercase tracking-[0.1em] text-[#6d90a8]">{row.note}</div>
+                  </div>
                   <div className={`text-lg font-semibold ${row.tone}`}>{row.value}</div>
                 </div>
               ))}
@@ -223,6 +306,7 @@ export default function Home() {
               busStops={busStops}
               cameras={cameras}
               flights={flights}
+              sensorVisibility={sensorVisibility}
               onStopClick={setSelectedStop}
               onCameraClick={setSelectedCamera}
               onFlightClick={setSelectedFlight}

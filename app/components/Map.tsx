@@ -9,6 +9,12 @@ type MapProps = {
   busStops: BusStop[];
   cameras: TrafficCamera[];
   flights: FlightState[];
+  sensorVisibility: {
+    busStops: boolean;
+    cameras: boolean;
+    flights: boolean;
+    mrt: boolean;
+  };
   onStopClick: (stop: BusStop) => void;
   onCameraClick: (camera: TrafficCamera) => void;
   onFlightClick: (flight: FlightState) => void;
@@ -203,6 +209,7 @@ export default function Map({
   busStops,
   cameras,
   flights,
+  sensorVisibility,
   onStopClick,
   onCameraClick,
   onFlightClick,
@@ -214,6 +221,7 @@ export default function Map({
   const flightsRef = useRef<globalThis.Map<string, FlightState>>(new globalThis.Map());
   const onStopClickRef = useRef(onStopClick);
   const onFlightClickRef = useRef(onFlightClick);
+  const sensorVisibilityRef = useRef(sensorVisibility);
 
   useEffect(() => {
     onStopClickRef.current = onStopClick;
@@ -222,6 +230,27 @@ export default function Map({
   useEffect(() => {
     onFlightClickRef.current = onFlightClick;
   }, [onFlightClick]);
+
+  useEffect(() => {
+    sensorVisibilityRef.current = sensorVisibility;
+  }, [sensorVisibility]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    const setLayerVisibility = (layerId: string, visible: boolean) => {
+      if (!map.getLayer(layerId)) return;
+      map.setLayoutProperty(layerId, "visibility", visible ? "visible" : "none");
+    };
+
+    setLayerVisibility("bus-stops-layer", sensorVisibility.busStops);
+    setLayerVisibility("flights-layer", sensorVisibility.flights);
+    setLayerVisibility("flights-label-layer", sensorVisibility.flights);
+    setLayerVisibility("mrt-lines-layer", sensorVisibility.mrt);
+    setLayerVisibility("mrt-stations-layer", sensorVisibility.mrt);
+    setLayerVisibility("mrt-stations-label-layer", sensorVisibility.mrt);
+  }, [sensorVisibility]);
 
   useEffect(() => {
     if (!containerRef.current || mapRef.current) {
@@ -279,6 +308,9 @@ export default function Map({
         id: "bus-stops-layer",
         type: "circle",
         source: "bus-stops",
+        layout: {
+          visibility: sensorVisibilityRef.current.busStops ? "visible" : "none",
+        },
         paint: {
           "circle-radius": 3,
           "circle-color": "#54ffae",
@@ -333,6 +365,7 @@ export default function Map({
         type: "symbol",
         source: "flights",
         layout: {
+          visibility: sensorVisibilityRef.current.flights ? "visible" : "none",
           "icon-image": "plane-icon",
           "icon-size": 0.32,
           "icon-allow-overlap": true,
@@ -362,6 +395,7 @@ export default function Map({
         source: "flights",
         minzoom: 10.8,
         layout: {
+          visibility: sensorVisibilityRef.current.flights ? "visible" : "none",
           "text-field": ["get", "callsign"],
           "text-size": 10,
           "text-anchor": "left",
@@ -405,6 +439,9 @@ export default function Map({
             id: "mrt-lines-layer",
             type: "line",
             source: "mrt-lines",
+            layout: {
+              visibility: sensorVisibilityRef.current.mrt ? "visible" : "none",
+            },
             paint: {
               "line-color": ["get", "color"],
               "line-width": 3,
@@ -437,6 +474,9 @@ export default function Map({
               id: "mrt-stations-layer",
               type: "circle",
               source: "mrt-stations",
+              layout: {
+                visibility: sensorVisibilityRef.current.mrt ? "visible" : "none",
+              },
               paint: {
                 "circle-radius": 4,
                 "circle-color": ["get", "color"],
@@ -451,6 +491,7 @@ export default function Map({
               source: "mrt-stations",
               minzoom: 11.5,
               layout: {
+                visibility: sensorVisibilityRef.current.mrt ? "visible" : "none",
                 "text-field": ["get", "name"],
                 "text-size": 10,
                 "text-anchor": "top",
@@ -491,7 +532,7 @@ export default function Map({
     if (busStopSource) {
       busStopSource.setData({
         type: "FeatureCollection",
-        features: busStops
+        features: (sensorVisibility.busStops ? busStops : [])
           .filter(
             (stop) =>
               Number.isFinite(stop.Latitude) &&
@@ -510,7 +551,7 @@ export default function Map({
           })),
       });
     }
-  }, [busStops]);
+  }, [busStops, sensorVisibility.busStops]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -525,7 +566,7 @@ export default function Map({
 
     flightsSource.setData({
       type: "FeatureCollection",
-      features: flights
+      features: (sensorVisibility.flights ? flights : [])
         .filter(
           (flight) =>
             Number.isFinite(flight.latitude) &&
@@ -533,19 +574,19 @@ export default function Map({
         )
         .map((flight) => ({
           type: "Feature" as const,
-            properties: {
-              id: flight.id,
-              callsign: flight.callsign,
-              direction: flight.direction,
-              track: flight.track ?? 0,
-            },
-            geometry: {
-              type: "Point" as const,
-              coordinates: [flight.longitude, flight.latitude],
-            },
+          properties: {
+            id: flight.id,
+            callsign: flight.callsign,
+            direction: flight.direction,
+            track: flight.track ?? 0,
+          },
+          geometry: {
+            type: "Point" as const,
+            coordinates: [flight.longitude, flight.latitude],
+          },
         })),
     });
-  }, [flights]);
+  }, [flights, sensorVisibility.flights]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -553,6 +594,10 @@ export default function Map({
 
     cameraMarkersRef.current.forEach((marker) => marker.remove());
     cameraMarkersRef.current = [];
+
+    if (!sensorVisibility.cameras) {
+      return;
+    }
 
     cameras.forEach((camera) => {
       const el = document.createElement("button");
@@ -568,7 +613,7 @@ export default function Map({
 
       cameraMarkersRef.current.push(marker);
     });
-  }, [cameras, onCameraClick]);
+  }, [cameras, onCameraClick, sensorVisibility.cameras]);
 
   return <div ref={containerRef} className="h-full w-full" />;
 }
