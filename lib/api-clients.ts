@@ -1,4 +1,4 @@
-import { cachedFetch } from "@/lib/cache";
+import { cachedFetch, setCachedValue } from "@/lib/cache";
 import type {
   BusArrival,
   BusStop,
@@ -14,6 +14,8 @@ const DATA_GOV_BASE_URL = "https://api.data.gov.sg/v1/environment";
 const AVIATIONSTACK_BASE_URL = "https://api.aviationstack.com/v1";
 const OPENSKY_BASE_URL = "https://opensky-network.org/api";
 const FETCH_TIMEOUT_MS = 10_000;
+const FLIGHT_TIMEOUT_MS = 6_000;
+const MAX_RSS_BYTES = 512 * 1024; // 512 KB
 
 function getLtaApiKey(): string {
   const apiKey = process.env.LTA_API_KEY;
@@ -63,17 +65,18 @@ export async function getBusStops(): Promise<BusStop[]> {
   return cachedFetch("bus-stops", async () => {
     const allStops: BusStop[] = [];
     let skip = 0;
+    const MAX_PAGES = 20;
 
-    while (true) {
+    for (let pages = 0; pages < MAX_PAGES; pages++) {
       const page = await ltaFetch<{ value: BusStop[] }>(`/BusStops?$skip=${skip}`);
       if (!page || !Array.isArray(page.value)) break;
       allStops.push(...page.value);
 
-      if (page.value.length === 0) {
+      if (page.value.length < 500) {
         break;
       }
 
-      skip += page.value.length;
+      skip += 500;
     }
 
     return allStops;
@@ -259,7 +262,14 @@ export async function getNews(): Promise<NewsItem[]> {
         try {
           const response = await fetchWithTimeout(url, { cache: "no-store" });
           if (!response.ok) return [];
+
+          const contentLength = response.headers.get("content-length");
+          if (contentLength && Number(contentLength) > MAX_RSS_BYTES) {
+            return [];
+          }
+
           const xml = await response.text();
+          if (xml.length > MAX_RSS_BYTES) return [];
           return parseRssItems(xml, source);
         } catch {
           return [];
@@ -363,11 +373,40 @@ const SG_BOUNDS = {
   lomax: 104.15,
 };
 
+const FLIGHTS_FALLBACK_KEY = "flights-sg-fallback";
 const FLIGHTS_FALLBACK_MAX_AGE_MS = 10 * 60 * 1000; // 10 minutes
-let lastSuccessfulFlights: FlightState[] = [];
-let lastSuccessfulFlightsAt = 0;
 
 const CHANGI_COORDS = { lat: 1.3644, lon: 103.9915 };
+
+export async function getFlights(): Promise<FlightState[]> {
+  return cachedFetch("flights-sg", async () => {
+    let flights: FlightState[] = [];
+
+    try {
+      flights = await Promise.any([
+        fetchFlightsFromAviationStack(),
+        fetchFlightsFromOpenSky(),
+      ]);
+    } catch {
+      // Both providers failed
+    }
+
+    const sorted = flights
+      .sort((a, b) => (b.velocity ?? 0) - (a.velocity ?? 0))
+      .slice(0, 120);
+
+    if (sorted.length > 0) {
+      setCachedValue(FLIGHTS_FALLBACK_KEY, sorted);
+      return sorted;
+    }
+
+    return cachedFetch<FlightState[]>(
+      FLIGHTS_FALLBACK_KEY,
+      async () => [],
+      FLIGHTS_FALLBACK_MAX_AGE_MS,
+    );
+  }, 15 * 1000);
+}
 const SG_AIRPORT_ICAO = new Set(["WSSS", "WSSL"]);
 const SG_AIRPORT_IATA = new Set(["SIN", "XSP"]);
 
@@ -538,7 +577,8 @@ async function fetchFlightsFromAviationStack(): Promise<FlightState[]> {
         ...filter,
       });
 
-      const response = await fetchWithTimeout(`${AVIATIONSTACK_BASE_URL}/flights?${params.toString()}`, {
+      const response = await fetch(`${AVIATIONSTACK_BASE_URL}/flights?${params.toString()}`, {
+        signal: AbortSignal.timeout(FLIGHT_TIMEOUT_MS),
         cache: "no-store",
         headers: {
           Accept: "application/json",
@@ -590,7 +630,8 @@ async function fetchFlightsFromOpenSky(): Promise<FlightState[]> {
     lomax: String(SG_BOUNDS.lomax),
   });
 
-  const response = await fetchWithTimeout(`${OPENSKY_BASE_URL}/states/all?${params.toString()}`, {
+  const response = await fetch(`${OPENSKY_BASE_URL}/states/all?${params.toString()}`, {
+    signal: AbortSignal.timeout(FLIGHT_TIMEOUT_MS),
     cache: "no-store",
     headers: {
       Accept: "application/json",
@@ -613,40 +654,3 @@ async function fetchFlightsFromOpenSky(): Promise<FlightState[]> {
     .filter((flight): flight is FlightState => flight !== null);
 }
 
-export async function getFlights(): Promise<FlightState[]> {
-  return cachedFetch("flights-sg", async () => {
-    let flights: FlightState[] = [];
-
-    try {
-      flights = await fetchFlightsFromAviationStack();
-    } catch {
-      flights = [];
-    }
-
-    if (flights.length === 0) {
-      try {
-        flights = await fetchFlightsFromOpenSky();
-      } catch {
-        flights = [];
-      }
-    }
-
-    if (flights.length > 0) {
-      lastSuccessfulFlights = flights;
-      lastSuccessfulFlightsAt = Date.now();
-    } else if (lastSuccessfulFlights.length > 0) {
-      const ageMs = Date.now() - lastSuccessfulFlightsAt;
-      if (ageMs <= FLIGHTS_FALLBACK_MAX_AGE_MS) {
-        flights = lastSuccessfulFlights;
-      }
-    }
-
-    return flights
-      .sort((a, b) => {
-        const aSpeed = a.velocity ?? 0;
-        const bSpeed = b.velocity ?? 0;
-        return bSpeed - aSpeed;
-      })
-      .slice(0, 120);
-  }, 15 * 1000);
-}

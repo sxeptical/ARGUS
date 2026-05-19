@@ -1,6 +1,10 @@
 import type { WeatherData } from "@/types";
 import TerminalPanel from "@/app/components/TerminalPanel";
 
+function formatTime(iso: string): string {
+  return new Date(iso).toLocaleTimeString("en-SG", { timeZone: "Asia/Singapore" });
+}
+
 type WeatherPanelProps = {
   weather: WeatherData;
 };
@@ -29,7 +33,7 @@ export default function WeatherPanel({ weather }: WeatherPanelProps) {
           <div>{weather.forecast}</div>
         </div>
         <div className="terminal-dim text-[11px]" suppressHydrationWarning>
-          Updated {new Date(weather.lastUpdated).toLocaleTimeString()}
+          Updated {formatTime(weather.lastUpdated)}
         </div>
       </div>
     </TerminalPanel>

@@ -3,6 +3,8 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   poweredByHeader: false,
   images: {
+    // Disabled because camera images are dynamic external URLs from LTA;
+    // unoptimized avoids Next.js image processing overhead and cost on Vercel.
     unoptimized: true,
     remotePatterns: [
       {

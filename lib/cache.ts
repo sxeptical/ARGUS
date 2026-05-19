@@ -41,3 +41,8 @@ export function clearCache(key?: string): void {
 
   cache.clear();
 }
+
+export function setCachedValue<T>(key: string, value: T): void {
+  evictOldest();
+  cache.set(key, { value, timestamp: Date.now() });
+}
