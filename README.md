@@ -2,7 +2,7 @@
 
 Singapore OSINT command center. Live transport, aviation, weather, cameras, and news on one tactical map.
 
-## [Live Deployment: argus-rho-five.vercel.app](https://argus-rho-five.vercel.app)
+## [Live Deployment: argus.vercel.app](https://argusint.vercel.app)
 
 [![Next.js](https://img.shields.io/badge/Next.js-16-black?logo=nextdotjs)](https://nextjs.org/)
 [![React](https://img.shields.io/badge/React-19-61dafb?logo=react&logoColor=111)](https://react.dev/)
@@ -14,7 +14,7 @@ ARGUS is a Singapore-focused intelligence dashboard built for fast situational a
 
 It is designed as a single-page operations surface: map first, signal panels around it, and enough controls to hide noise when you only care about one layer.
 
-[![ARGUS dashboard](https://image.thum.io/get/width/1600/crop/900/https://argus-rho-five.vercel.app)](https://argus-rho-five.vercel.app)
+[![ARGUS dashboard](https://image.thum.io/get/width/1600/crop/900/https://argus-rho-five.vercel.app)](https://argusint.vercel.app)
 
 ---
 
