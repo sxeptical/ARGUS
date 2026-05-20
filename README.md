@@ -165,6 +165,3 @@ After editing env vars in Vercel, redeploy the project. Vercel deployments do no
 
 ---
 
-## License
-
-Private project unless a license is added.
