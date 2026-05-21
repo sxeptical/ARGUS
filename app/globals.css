@@ -10,6 +10,8 @@
   --terminal-dim: #7395a8;
   --terminal-red: #ff6b6b;
   --terminal-yellow: #ffd166;
+  --argus-cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='28' height='28' viewBox='0 0 28 28'%3E%3Cg fill='none' stroke='%2363ffd6' stroke-linecap='square'%3E%3Cpath d='M14 3v7M14 18v7M3 14h7M18 14h7' stroke-width='1.8'/%3E%3Cpath d='M14 11.5v5M11.5 14h5' stroke-width='1' opacity='.8'/%3E%3Ccircle cx='14' cy='14' r='8.5' stroke-width='1' opacity='.55'/%3E%3C/g%3E%3Ccircle cx='14' cy='14' r='1.6' fill='%23d5edf8'/%3E%3C/svg%3E") 14 14, crosshair;
+  --argus-cursor-target: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='28' height='28' viewBox='0 0 28 28'%3E%3Cg fill='none' stroke='%233fd3ff' stroke-linecap='square'%3E%3Cpath d='M14 2v6M14 20v6M2 14h6M20 14h6' stroke-width='2'/%3E%3Cpath d='M9 9l3 3M19 9l-3 3M9 19l3-3M19 19l-3-3' stroke-width='1.2' opacity='.75'/%3E%3Ccircle cx='14' cy='14' r='6.5' stroke-width='1.2'/%3E%3C/g%3E%3Ccircle cx='14' cy='14' r='2' fill='%2363ffd6'/%3E%3C/svg%3E") 14 14, pointer;
 }
 
 @theme inline {
@@ -44,6 +46,36 @@ body {
   color: var(--terminal-text);
   font-family: var(--font-jetbrains-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
   position: relative;
+}
+
+@media (pointer: fine) {
+  body {
+    cursor: var(--argus-cursor);
+  }
+
+  a,
+  button,
+  select,
+  summary,
+  [role="button"],
+  .maplibregl-ctrl button,
+  .maplibregl-marker {
+    cursor: var(--argus-cursor-target);
+  }
+
+  input,
+  textarea,
+  [contenteditable="true"] {
+    cursor: text;
+  }
+
+  button:disabled,
+  select:disabled,
+  input:disabled,
+  textarea:disabled,
+  [aria-disabled="true"] {
+    cursor: not-allowed;
+  }
 }
 
 body::before {
