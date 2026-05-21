@@ -2,7 +2,7 @@
 
 Singapore OSINT command center. Live transport, aviation, weather, cameras, and news on one tactical map.
 
-## [Live Deployment: argus.vercel.app](https://argusint.vercel.app)
+[## [Live Deployment: argus.vercel.app](https://argusint.vercel.app)](https://www.argusint.live)
 
 [![Next.js](https://img.shields.io/badge/Next.js-16-black?logo=nextdotjs)](https://nextjs.org/)
 [![React](https://img.shields.io/badge/React-19-61dafb?logo=react&logoColor=111)](https://react.dev/)
