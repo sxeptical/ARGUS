@@ -9,8 +9,6 @@ interface WindowEntry {
 const ipWindows = new Map<string, WindowEntry>();
 const MAX_ENTRIES = 10_000;
 
-const IP_RE = /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/;
-
 function evictOldestIfNeeded(): void {
   if (ipWindows.size < MAX_ENTRIES) return;
   let oldestKey = "";
@@ -22,15 +20,6 @@ function evictOldestIfNeeded(): void {
     }
   }
   if (oldestKey) ipWindows.delete(oldestKey);
-}
-
-function evictStale(): void {
-  const now = Date.now();
-  for (const [key, entry] of ipWindows) {
-    if (now - entry.windowStart > DEFAULT_WINDOW_MS * 2) {
-      ipWindows.delete(key);
-    }
-  }
 }
 
 export function checkRateLimit(
@@ -56,14 +45,8 @@ export function checkRateLimit(
 
 export function extractClientIp(request: Request): string {
   const forwarded = request.headers.get("x-forwarded-for");
-  if (forwarded) {
-    const candidate = forwarded.split(",")[0].trim();
-    if (IP_RE.test(candidate)) return candidate;
-  }
+  if (forwarded) return forwarded.split(",")[0].trim();
 
   const realIp = request.headers.get("x-real-ip");
-  if (realIp && IP_RE.test(realIp)) return realIp;
-
-  evictStale();
-  return `anonymous:${request.headers.get("user-agent")?.slice(0, 64) ?? "unknown"}`;
+  return realIp ?? "127.0.0.1";
 }
