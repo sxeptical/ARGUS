@@ -17,7 +17,7 @@ export default function FlightPanel({
   const transit = flights.filter((flight) => flight.direction === "transit").length;
 
   return (
-    <TerminalPanel title="FLIGHTS (SG AIRSPACE)" contentClassName="min-h-48">
+    <TerminalPanel title="FLIGHTS (SG AIRSPACE)" contentClassName="min-h-40 sm:min-h-48">
       <div className="space-y-3">
         <div className="grid grid-cols-3 gap-2 text-[11px]">
           <Stat label="Inbound" value={inbound} tone="terminal-green" />

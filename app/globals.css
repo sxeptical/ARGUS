@@ -90,6 +90,19 @@ body::before {
   line-height: 1.4;
 }
 
+@media (max-width: 640px) {
+  .terminal-header {
+    padding: 8px 9px;
+    font-size: 12px;
+    letter-spacing: 0.08em;
+  }
+
+  .terminal-content {
+    padding: 10px;
+    font-size: 11px;
+  }
+}
+
 .terminal-dim {
   color: var(--terminal-dim);
 }

@@ -18,7 +18,7 @@ export default function WeatherPanel({ weather }: WeatherPanelProps) {
         : "terminal-red";
 
   return (
-    <TerminalPanel title="WEATHER" contentClassName="min-h-40">
+    <TerminalPanel title="WEATHER" contentClassName="min-h-32 sm:min-h-40">
       <div className="space-y-2">
         <Row label="Temperature" value={`${weather.temperature || "--"} C`} />
         <Row label="Humidity" value={weather.humidity > 0 ? `${weather.humidity}%` : "N/A"} />
