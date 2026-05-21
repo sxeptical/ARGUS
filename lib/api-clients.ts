@@ -17,10 +17,20 @@ const FETCH_TIMEOUT_MS = 10_000;
 const FLIGHT_TIMEOUT_MS = 6_000;
 const MAX_RSS_BYTES = 512 * 1024; // 512 KB
 
+export class ExternalApiError extends Error {
+  constructor(
+    message: string,
+    public readonly status: number,
+  ) {
+    super(message);
+    this.name = "ExternalApiError";
+  }
+}
+
 function getLtaApiKey(): string {
-  const apiKey = process.env.LTA_API_KEY;
-  if (!apiKey) {
-    throw new Error("Missing LTA_API_KEY");
+  const apiKey = process.env.LTA_API_KEY?.trim();
+  if (!apiKey || apiKey.toLowerCase().includes("your_lta_datamall_key")) {
+    throw new ExternalApiError("Missing or placeholder LTA_API_KEY", 401);
   }
   return apiKey;
 }
@@ -53,7 +63,10 @@ async function ltaFetch<T>(endpoint: string): Promise<T | null> {
   }
 
   if (!response.ok) {
-    throw new Error(`LTA request failed (${response.status}) for ${endpoint}`);
+    throw new ExternalApiError(
+      `LTA request failed (${response.status}) for ${endpoint}`,
+      response.status,
+    );
   }
 
   return response.json() as Promise<T>;
@@ -653,4 +666,3 @@ async function fetchFlightsFromOpenSky(): Promise<FlightState[]> {
     .map((row) => toFlightStateFromOpenSky(row))
     .filter((flight): flight is FlightState => flight !== null);
 }
-

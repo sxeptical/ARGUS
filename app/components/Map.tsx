@@ -85,6 +85,174 @@ const MRT_LINE_STATIONS: Record<string, string[]> = {
     "Tampines",
     "Pasir Ris",
   ],
+  "Changi Airport Branch": [
+    "Tanah Merah",
+    "Expo",
+    "Changi Airport",
+  ],
+  "North East Line": [
+    "HarbourFront",
+    "Outram Park",
+    "Chinatown",
+    "Clarke Quay",
+    "Dhoby Ghaut",
+    "Little India",
+    "Farrer Park",
+    "Boon Keng",
+    "Potong Pasir",
+    "Woodleigh",
+    "Serangoon",
+    "Kovan",
+    "Hougang",
+    "Buangkok",
+    "Sengkang",
+    "Punggol",
+    "Punggol Coast",
+  ],
+  "Circle Line": [
+    "Dhoby Ghaut",
+    "Bras Basah",
+    "Esplanade",
+    "Promenade",
+    "Nicoll Highway",
+    "Stadium",
+    "Mountbatten",
+    "Dakota",
+    "Paya Lebar",
+    "MacPherson",
+    "Tai Seng",
+    "Bartley",
+    "Serangoon",
+    "Lorong Chuan",
+    "Bishan",
+    "Marymount",
+    "Caldecott",
+    "Botanic Gardens",
+    "Farrer Road",
+    "Holland Village",
+    "Buona Vista",
+    "one-north",
+    "Kent Ridge",
+    "Haw Par Villa",
+    "Pasir Panjang",
+    "Labrador Park",
+    "Telok Blangah",
+    "HarbourFront",
+  ],
+  "Circle Line Extension": [
+    "HarbourFront",
+    "Keppel",
+    "Cantonment",
+    "Prince Edward Road",
+    "Marina Bay",
+  ],
+  "Downtown Line": [
+    "Bukit Panjang",
+    "Cashew",
+    "Hillview",
+    "Beauty World",
+    "King Albert Park",
+    "Sixth Avenue",
+    "Tan Kah Kee",
+    "Botanic Gardens",
+    "Stevens",
+    "Newton",
+    "Little India",
+    "Rochor",
+    "Bugis",
+    "Promenade",
+    "Bayfront",
+    "Downtown",
+    "Telok Ayer",
+    "Chinatown",
+    "Fort Canning",
+    "Bencoolen",
+    "Jalan Besar",
+    "Bendemeer",
+    "Geylang Bahru",
+    "Mattar",
+    "MacPherson",
+    "Ubi",
+    "Kaki Bukit",
+    "Bedok North",
+    "Bedok Reservoir",
+    "Tampines West",
+    "Tampines",
+    "Tampines East",
+    "Upper Changi",
+    "Expo",
+  ],
+  "Thomson-East Coast Line": [
+    "Woodlands North",
+    "Woodlands",
+    "Woodlands South",
+    "Springleaf",
+    "Lentor",
+    "Mayflower",
+    "Bright Hill",
+    "Upper Thomson",
+    "Caldecott",
+    "Stevens",
+    "Napier",
+    "Orchard Boulevard",
+    "Orchard",
+    "Great World",
+    "Havelock",
+    "Outram Park",
+    "Maxwell",
+    "Shenton Way",
+    "Marina Bay",
+    "Gardens by the Bay",
+    "Tanjong Rhu",
+    "Katong Park",
+    "Tanjong Katong",
+    "Marine Parade",
+    "Marine Terrace",
+    "Siglap",
+    "Bayshore",
+    "Bedok South",
+    "Sungei Bedok",
+  ],
+  "Jurong Region Line": [
+    "Choa Chu Kang",
+    "Choa Chu Kang West",
+    "Tengah",
+    "Hong Kah",
+    "Corporation",
+    "Jurong West",
+    "Bahar Junction",
+    "Boon Lay",
+    "Tawas",
+    "Nanyang Gateway",
+    "Nanyang Crescent",
+    "Peng Kang Hill",
+    "Tengah Plantation",
+    "Tengah Park",
+    "Bukit Batok West",
+    "Bukit Batok",
+  ],
+  "Cross Island Line": [
+    "Aviation Park",
+    "Loyang",
+    "Pasir Ris",
+    "Tampines North",
+    "Defu",
+    "Hougang",
+    "Serangoon North",
+    "Tavistock",
+    "Ang Mo Kio",
+    "Teck Ghee",
+    "Bright Hill",
+    "Turf City",
+    "King Albert Park",
+    "Clementi",
+    "West Coast",
+    "Jurong Lake District",
+  ],
+  "Johor Bahru-Singapore RTS": [
+    "Bukit Chagar",
+    "Woodlands North",
+  ],
 };
 
 type MRTStationGeoJson = {
@@ -93,6 +261,7 @@ type MRTStationGeoJson = {
     type: "Feature";
     properties: {
       name: string;
+      label: string;
       line: string;
       color: string;
     };
@@ -110,12 +279,31 @@ function interpolateStations(
   color: string,
 ): MRTStationGeoJson["features"] {
   if (coordinates.length < 2 || stationNames.length === 0) return [];
+  if (coordinates.length === stationNames.length) {
+    return stationNames.map((stationName, index) => {
+      const [lng, lat] = coordinates[index];
+      return {
+        type: "Feature" as const,
+        properties: {
+          name: stationName,
+          label: stationName,
+          line,
+          color,
+        },
+        geometry: {
+          type: "Point" as const,
+          coordinates: [lng, lat] as [number, number],
+        },
+      };
+    });
+  }
+
   if (stationNames.length === 1) {
     const [lng, lat] = coordinates[0];
     return [
       {
         type: "Feature",
-        properties: { name: stationNames[0], line, color },
+        properties: { name: stationNames[0], label: stationNames[0], line, color },
         geometry: {
           type: "Point",
           coordinates: [lng, lat],
@@ -164,6 +352,7 @@ function interpolateStations(
       type: "Feature" as const,
       properties: {
         name: stationName,
+        label: stationName,
         line,
         color,
       },
@@ -247,7 +436,10 @@ export default function Map({
     setLayerVisibility("bus-stops-layer", sensorVisibility.busStops);
     setLayerVisibility("flights-layer", sensorVisibility.flights);
     setLayerVisibility("flights-label-layer", sensorVisibility.flights);
+    setLayerVisibility("mrt-lines-casing-layer", sensorVisibility.mrt);
     setLayerVisibility("mrt-lines-layer", sensorVisibility.mrt);
+    setLayerVisibility("mrt-lines-future-casing-layer", sensorVisibility.mrt);
+    setLayerVisibility("mrt-lines-future-layer", sensorVisibility.mrt);
     setLayerVisibility("mrt-stations-layer", sensorVisibility.mrt);
     setLayerVisibility("mrt-stations-label-layer", sensorVisibility.mrt);
   }, [sensorVisibility]);
@@ -436,27 +628,91 @@ export default function Map({
           });
 
           map.addLayer({
+            id: "mrt-lines-casing-layer",
+            type: "line",
+            source: "mrt-lines",
+            filter: ["!=", "status", "future"],
+            layout: {
+              visibility: sensorVisibilityRef.current.mrt ? "visible" : "none",
+            },
+            paint: {
+              "line-color": "#020b14",
+              "line-width": 6.8,
+              "line-opacity": 0.84,
+            },
+          });
+
+          map.addLayer({
             id: "mrt-lines-layer",
             type: "line",
             source: "mrt-lines",
+            filter: ["!=", "status", "future"],
             layout: {
               visibility: sensorVisibilityRef.current.mrt ? "visible" : "none",
             },
             paint: {
               "line-color": ["get", "color"],
-              "line-width": 3,
-              "line-opacity": 0.9,
+              "line-width": 4.2,
+              "line-opacity": 0.96,
             },
           });
 
+          map.addLayer({
+            id: "mrt-lines-future-casing-layer",
+            type: "line",
+            source: "mrt-lines",
+            filter: ["==", "status", "future"],
+            layout: {
+              visibility: sensorVisibilityRef.current.mrt ? "visible" : "none",
+            },
+            paint: {
+              "line-color": "#020b14",
+              "line-width": 6.2,
+              "line-opacity": 0.72,
+              "line-dasharray": [2, 1.35],
+            },
+          });
+
+          map.addLayer({
+            id: "mrt-lines-future-layer",
+            type: "line",
+            source: "mrt-lines",
+            filter: ["==", "status", "future"],
+            layout: {
+              visibility: sensorVisibilityRef.current.mrt ? "visible" : "none",
+            },
+            paint: {
+              "line-color": ["get", "color"],
+              "line-width": 3.8,
+              "line-opacity": 0.82,
+              "line-dasharray": [2, 1.35],
+            },
+          });
+
+          const stationLabelSet = new Set<string>();
           const stationFeatures = geoJson.features.flatMap((lineFeature) => {
             const stationNames = MRT_LINE_STATIONS[lineFeature.properties.name] ?? [];
-            return interpolateStations(
+            const features = interpolateStations(
               lineFeature.geometry.coordinates,
               stationNames,
               lineFeature.properties.name,
               lineFeature.properties.color,
             );
+
+            return features.map((feature) => {
+              const stationKey = feature.properties.name.toLowerCase();
+              if (stationLabelSet.has(stationKey)) {
+                return {
+                  ...feature,
+                  properties: {
+                    ...feature.properties,
+                    label: "",
+                  },
+                };
+              }
+              stationLabelSet.add(stationKey);
+              return feature;
+            });
           });
 
           if (stationFeatures.length > 0) {
@@ -492,7 +748,7 @@ export default function Map({
               minzoom: 11.5,
               layout: {
                 visibility: sensorVisibilityRef.current.mrt ? "visible" : "none",
-                "text-field": ["get", "name"],
+                "text-field": ["get", "label"],
                 "text-size": 10,
                 "text-anchor": "top",
                 "text-offset": [0, 1],

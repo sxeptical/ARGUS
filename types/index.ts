@@ -75,6 +75,7 @@ export interface MRTGeoJson {
     properties: {
       name: string;
       color: string;
+      status?: "operational" | "future";
     };
     geometry: {
       type: "LineString";

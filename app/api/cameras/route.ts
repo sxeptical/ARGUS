@@ -1,4 +1,4 @@
-import { getTrafficCameras } from "@/lib/api-clients";
+import { ExternalApiError, getTrafficCameras } from "@/lib/api-clients";
 import { checkRateLimit, extractClientIp } from "@/lib/rate-limit";
 
 export async function GET(request: Request) {
@@ -13,6 +13,12 @@ export async function GET(request: Request) {
     return Response.json(data);
   } catch (error) {
     console.error("Failed to fetch traffic cameras", error);
+    if (error instanceof ExternalApiError) {
+      return Response.json(
+        { error: "LTA API key is missing, invalid, or unauthorized" },
+        { status: error.status },
+      );
+    }
     return Response.json({ error: "Failed to fetch traffic cameras" }, { status: 500 });
   }
 }
