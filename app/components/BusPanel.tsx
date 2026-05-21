@@ -78,7 +78,11 @@ export default function BusPanel({ busStops, selectedStop, onSelectStop }: BusPa
   }, [selectedStop]);
 
   const activeStop = selectedStop;
-  const visibleArrivals = activeStop ? arrivals : [];
+  const visibleArrivals = useMemo(() => {
+    if (!activeStop) return [];
+
+    return [...arrivals].sort((a, b) => compareServiceNumbers(a.ServiceNo, b.ServiceNo));
+  }, [activeStop, arrivals]);
 
   return (
     <TerminalPanel title="BUS ARRIVALS" contentClassName="min-h-44 sm:min-h-56">
@@ -155,6 +159,25 @@ export default function BusPanel({ busStops, selectedStop, onSelectStop }: BusPa
       </div>
     </TerminalPanel>
   );
+}
+
+function compareServiceNumbers(a: string, b: string): number {
+  const parsedA = parseServiceNumber(a);
+  const parsedB = parseServiceNumber(b);
+
+  if (parsedA.numeric !== parsedB.numeric) {
+    return parsedA.numeric - parsedB.numeric;
+  }
+
+  return parsedA.raw.localeCompare(parsedB.raw, "en-SG", { numeric: true });
+}
+
+function parseServiceNumber(serviceNo: string): { numeric: number; raw: string } {
+  const match = serviceNo.match(/^\d+/);
+  return {
+    numeric: match ? Number.parseInt(match[0], 10) : Number.POSITIVE_INFINITY,
+    raw: serviceNo,
+  };
 }
 
 function ArrivalCell({ label, value }: { label: string; value: string }) {
