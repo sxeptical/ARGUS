@@ -14,7 +14,7 @@ ARGUS is a Singapore-focused intelligence dashboard built for fast situational a
 
 It is designed as a single-page operations surface: map first, signal panels around it, and enough controls to hide noise when you only care about one layer.
 
-[![ARGUS dashboard](https://image.thum.io/get/width/1600/crop/900/https://argusint.vercel.app)](https://argusint.vercel.app)
+<img width="1894" height="1052" alt="image" src="https://github.com/user-attachments/assets/e2a33c21-72bd-4709-819e-d9d1305726e7" />
 
 ---
 
