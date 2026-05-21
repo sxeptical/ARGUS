@@ -69,7 +69,7 @@ export default function CameraPanel({ cameras, selectedCamera }: CameraPanelProp
 
   return (
     <>
-      <TerminalPanel title="ROAD CAMERAS" contentClassName="min-h-52">
+      <TerminalPanel title="ROAD CAMERAS" contentClassName="min-h-40 sm:min-h-52">
         <div className="grid grid-cols-2 gap-2">
           {displayCameras.map((camera) => (
             <button
@@ -84,7 +84,7 @@ export default function CameraPanel({ cameras, selectedCamera }: CameraPanelProp
                 alt={camera.location}
                 width={640}
                 height={360}
-                className="h-20 w-full object-cover"
+                className="h-16 w-full object-cover sm:h-20"
                 loading="lazy"
                 unoptimized
               />

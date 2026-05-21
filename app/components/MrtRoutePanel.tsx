@@ -31,7 +31,6 @@ export default function MrtRoutePanel({
   onMapPickTargetChange,
   onReset,
 }: MrtRoutePanelProps) {
-
   const route = useMemo(
     () => (startStation && endStation ? planMrtRoute(startStation, endStation) : null),
     [startStation, endStation],
@@ -40,7 +39,7 @@ export default function MrtRoutePanel({
   const canSwap = startStation !== endStation;
 
   return (
-    <TerminalPanel title="MRT ROUTER" contentClassName="min-h-56">
+    <TerminalPanel title="MRT ROUTER" contentClassName="min-h-44 sm:min-h-56">
       <div className="space-y-3">
         <div className="grid gap-2 sm:grid-cols-2">
           <label className="space-y-1 text-[11px] uppercase tracking-[0.1em] text-[#79a3bd]">

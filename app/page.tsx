@@ -240,17 +240,17 @@ export default function Home() {
   }
 
   return (
-    <div className="flex h-screen flex-col gap-3 overflow-hidden px-3 py-2">
+    <div className="flex min-h-screen flex-col gap-3 px-2 py-2 sm:px-3 lg:h-screen lg:overflow-hidden">
       <header className="rounded-md border border-cyan-400/25 bg-[#04111e]/90 shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_0_24px_rgba(42,166,255,0.12)]">
-        <div className="flex items-center justify-between gap-3 overflow-auto px-3 py-2">
+        <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2">
           <div className="flex items-center gap-3 whitespace-nowrap">
             <div className="[font-family:var(--font-rajdhani)] text-2xl font-semibold uppercase tracking-[0.2em] text-[#e8f5ff]">
               Argus Monitor
             </div>
           </div>
-          <div className="flex items-center gap-2 text-[11px] uppercase tracking-[0.14em]">
-            <HeaderChip label="Visuals" value="Full" />
-            <HeaderChip label="Sweep" value="30.1s" />
+          <div className="flex w-full items-center gap-2 overflow-x-auto pb-1 text-[11px] uppercase tracking-[0.14em] sm:w-auto sm:overflow-visible sm:pb-0">
+            <HeaderChip label="Visuals" value="Full" className="hidden sm:inline-flex" />
+            <HeaderChip label="Sweep" value="30.1s" className="hidden sm:inline-flex" />
             <HeaderChip
               label={now.toLocaleDateString("en-SG", { month: "short", day: "numeric", year: "numeric" })}
               value={now.toLocaleTimeString("en-SG")}
@@ -267,8 +267,8 @@ export default function Home() {
         <div className="rounded border border-red-400/40 bg-red-950/30 px-3 py-2 text-sm text-red-200">{error}</div>
       ) : null}
 
-      <main className="grid min-h-0 flex-1 grid-cols-1 gap-3 xl:grid-cols-[260px_minmax(0,1fr)_320px]">
-        <aside className="flex min-h-0 flex-col gap-3 overflow-auto pr-1">
+      <main className="grid grid-cols-1 gap-3 lg:min-h-0 lg:flex-1 xl:grid-cols-[260px_minmax(0,1fr)_320px]">
+        <aside className="order-2 flex flex-col gap-3 xl:order-1 xl:min-h-0 xl:overflow-auto xl:pr-1">
           <IntelPanel title="Sensor Grid" badge="Live">
             <div className="space-y-1">
               {sensorRows.map((row) => (
@@ -317,8 +317,8 @@ export default function Home() {
           <FlightPanel flights={flights} selectedFlight={selectedFlight} onSelectFlight={setSelectedFlight} />
         </aside>
 
-        <section className="grid min-h-0 grid-rows-[minmax(0,1fr)_minmax(240px,38%)] gap-3">
-          <section className="relative min-h-0 overflow-hidden rounded-md border border-cyan-400/25 bg-[#04101a] shadow-[0_0_28px_rgba(18,149,226,0.14)]">
+        <section className="order-1 grid gap-3 xl:order-2 xl:min-h-0 xl:grid-rows-[minmax(0,1fr)_minmax(240px,38%)]">
+          <section className="relative h-[46vh] min-h-[280px] overflow-hidden rounded-md border border-cyan-400/25 bg-[#04101a] shadow-[0_0_28px_rgba(18,149,226,0.14)] xl:h-auto xl:min-h-0">
             <Map
               busStops={busStops}
               cameras={cameras}
@@ -348,7 +348,7 @@ export default function Home() {
             </div>
           </section>
 
-          <section className="grid min-h-0 grid-cols-1 gap-3 xl:grid-cols-2 2xl:grid-cols-4">
+          <section className="grid min-h-0 grid-cols-1 gap-3 sm:grid-cols-2 2xl:grid-cols-4">
             <div className="min-h-0 overflow-auto">
               <MrtRoutePanel
                 startStation={mrtStartStation}
@@ -370,13 +370,13 @@ export default function Home() {
             <div className="min-h-0 overflow-auto">
               <NewsPanel news={news} />
             </div>
-            <div className="min-h-0 overflow-auto xl:col-span-2 2xl:col-span-1">
+            <div className="min-h-0 overflow-auto sm:col-span-2 2xl:col-span-1">
               <CameraPanel cameras={cameras} selectedCamera={selectedCamera} />
             </div>
           </section>
         </section>
 
-        <aside className="flex min-h-0 flex-col gap-3 overflow-auto pr-1">
+        <aside className="order-3 flex flex-col gap-3 xl:min-h-0 xl:overflow-auto xl:pr-1">
           <IntelPanel title="OSINT Stream" badge={`${news.length} Signals`}>
             <div className="space-y-2">
               {news.slice(0, 6).map((item) => (
@@ -432,9 +432,9 @@ export default function Home() {
   );
 }
 
-function HeaderChip({ label, value }: { label: string; value: string }) {
+function HeaderChip({ label, value, className }: { label: string; value: string; className?: string }) {
   return (
-    <span className="rounded-sm border border-cyan-400/25 bg-[#051728]/70 px-2 py-1 text-[#9ec7df]">
+    <span className={`inline-flex rounded-sm border border-cyan-400/25 bg-[#051728]/70 px-2 py-1 text-[#9ec7df] ${className ?? ""}`}>
       <span className="text-[#5c86a1]">{label}</span> {value}
     </span>
   );
