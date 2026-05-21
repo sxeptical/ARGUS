@@ -20,6 +20,15 @@ const DEFAULT_WEATHER: WeatherData = {
   lastUpdated: new Date().toISOString(),
 };
 
+async function describeFailedSource(response: Response, label: string): Promise<string> {
+  try {
+    const payload = (await response.json()) as { error?: string };
+    return payload.error ? `${label} (${payload.error})` : label;
+  } catch {
+    return label;
+  }
+}
+
 export default function Home() {
   const [busStops, setBusStops] = useState<BusStop[]>([]);
   const [cameras, setCameras] = useState<TrafficCamera[]>([]);
@@ -55,32 +64,52 @@ export default function Home() {
 
       const errors: string[] = [];
 
-      if (busStopsRes.status === "fulfilled" && busStopsRes.value.ok) {
-        setBusStops((await busStopsRes.value.json()) as BusStop[]);
+      if (busStopsRes.status === "fulfilled") {
+        if (busStopsRes.value.ok) {
+          setBusStops((await busStopsRes.value.json()) as BusStop[]);
+        } else {
+          errors.push(await describeFailedSource(busStopsRes.value, "bus stops"));
+        }
       } else {
         errors.push("bus stops");
       }
 
-      if (camerasRes.status === "fulfilled" && camerasRes.value.ok) {
-        setCameras((await camerasRes.value.json()) as TrafficCamera[]);
+      if (camerasRes.status === "fulfilled") {
+        if (camerasRes.value.ok) {
+          setCameras((await camerasRes.value.json()) as TrafficCamera[]);
+        } else {
+          errors.push(await describeFailedSource(camerasRes.value, "cameras"));
+        }
       } else {
         errors.push("cameras");
       }
 
-      if (weatherRes.status === "fulfilled" && weatherRes.value.ok) {
-        setWeather((await weatherRes.value.json()) as WeatherData);
+      if (weatherRes.status === "fulfilled") {
+        if (weatherRes.value.ok) {
+          setWeather((await weatherRes.value.json()) as WeatherData);
+        } else {
+          errors.push(await describeFailedSource(weatherRes.value, "weather"));
+        }
       } else {
         errors.push("weather");
       }
 
-      if (newsRes.status === "fulfilled" && newsRes.value.ok) {
-        setNews((await newsRes.value.json()) as NewsItem[]);
+      if (newsRes.status === "fulfilled") {
+        if (newsRes.value.ok) {
+          setNews((await newsRes.value.json()) as NewsItem[]);
+        } else {
+          errors.push(await describeFailedSource(newsRes.value, "news"));
+        }
       } else {
         errors.push("news");
       }
 
-      if (flightsRes.status === "fulfilled" && flightsRes.value.ok) {
-        setFlights((await flightsRes.value.json()) as FlightState[]);
+      if (flightsRes.status === "fulfilled") {
+        if (flightsRes.value.ok) {
+          setFlights((await flightsRes.value.json()) as FlightState[]);
+        } else {
+          errors.push(await describeFailedSource(flightsRes.value, "flights"));
+        }
       } else {
         errors.push("flights");
       }
@@ -177,7 +206,7 @@ export default function Home() {
       key: "mrt" as const,
       label: "MRT Network",
       note: "lines + stations",
-      value: 2,
+      value: 10,
       tone: "text-[#f8d36f]",
     },
   ];
@@ -395,7 +424,7 @@ function LoadingScreen({ now }: { now: Date }) {
           </div>
           <div className="hidden rounded-sm border border-cyan-400/25 bg-[#051728]/70 px-3 py-2 text-right text-[11px] uppercase tracking-[0.14em] text-[#9ec7df] sm:block">
             <div className="text-[#5c86a1]">Boot Time</div>
-            <div>{now.toLocaleTimeString("en-SG")}</div>
+            <div suppressHydrationWarning>{now.toLocaleTimeString("en-SG")}</div>
           </div>
         </div>
 
