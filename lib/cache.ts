@@ -1,6 +1,15 @@
 const MAX_ENTRIES = 500;
+const MAX_VALUE_SIZE_BYTES = 5 * 1024 * 1024; // 5 MB per entry
 
 const cache = new Map<string, { value: unknown; timestamp: number }>();
+
+function sizeExceedsLimit(value: unknown): boolean {
+  try {
+    return JSON.stringify(value).length > MAX_VALUE_SIZE_BYTES;
+  } catch {
+    return true;
+  }
+}
 
 function evictOldest(): void {
   if (cache.size < MAX_ENTRIES) return;
@@ -28,6 +37,8 @@ export async function cachedFetch<T>(
   }
 
   const value = await loader();
+  if (sizeExceedsLimit(value)) return value;
+
   evictOldest();
   cache.set(key, { value, timestamp: now });
   return value;
@@ -43,6 +54,7 @@ export function clearCache(key?: string): void {
 }
 
 export function setCachedValue<T>(key: string, value: T): void {
+  if (sizeExceedsLimit(value)) return;
   evictOldest();
   cache.set(key, { value, timestamp: Date.now() });
 }

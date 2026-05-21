@@ -37,8 +37,8 @@ function getLtaApiKey(): string {
 
 function getAviationStackApiKey(): string {
   const apiKey = process.env.AVIATIONSTACK_API_KEY?.trim();
-  if (!apiKey) {
-    throw new Error("Missing AVIATIONSTACK_API_KEY");
+  if (!apiKey || apiKey.toLowerCase().includes("your_aviationstack_key")) {
+    throw new Error("Missing or placeholder AVIATIONSTACK_API_KEY");
   }
   return apiKey;
 }
@@ -590,7 +590,9 @@ async function fetchFlightsFromAviationStack(): Promise<FlightState[]> {
         ...filter,
       });
 
-      const response = await fetch(`${AVIATIONSTACK_BASE_URL}/flights?${params.toString()}`, {
+      const url = `${AVIATIONSTACK_BASE_URL}/flights?${params.toString()}`;
+
+      const response = await fetch(url, {
         signal: AbortSignal.timeout(FLIGHT_TIMEOUT_MS),
         cache: "no-store",
         headers: {
@@ -599,7 +601,8 @@ async function fetchFlightsFromAviationStack(): Promise<FlightState[]> {
       });
 
       if (!response.ok) {
-        throw new Error(`Aviationstack request failed (${response.status})`);
+        const safeUrl = url.replace(/(access_key=)[^&]+/, "$1[redacted]");
+        throw new Error(`Aviationstack request failed (${response.status}) for ${safeUrl}`);
       }
 
       const payload = (await response.json()) as AviationStackResponse;
