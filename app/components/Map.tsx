@@ -3,6 +3,7 @@
 import { useEffect, useRef } from "react";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
+import type { MrtRouteSegment } from "@/lib/mrt-routing";
 import type { BusStop, FlightState, MRTGeoJson, TrafficCamera } from "@/types";
 
 type MapProps = {
@@ -18,6 +19,8 @@ type MapProps = {
   onStopClick: (stop: BusStop) => void;
   onCameraClick: (camera: TrafficCamera) => void;
   onFlightClick: (flight: FlightState) => void;
+  onMrtStationClick?: (stationName: string) => void;
+  mrtRouteSegments?: MrtRouteSegment[];
 };
 
 const MRT_LINE_STATIONS: Record<string, string[]> = {
@@ -272,6 +275,21 @@ type MRTStationGeoJson = {
   }>;
 };
 
+type MRTRouteGeoJson = {
+  type: "FeatureCollection";
+  features: Array<{
+    type: "Feature";
+    properties: {
+      line: string;
+      color: string;
+    };
+    geometry: {
+      type: "LineString";
+      coordinates: [number, number][];
+    };
+  }>;
+};
+
 function interpolateStations(
   coordinates: number[][],
   stationNames: string[],
@@ -364,6 +382,51 @@ function interpolateStations(
   });
 }
 
+function buildRouteGeoJson(
+  mrtLines: MRTGeoJson,
+  routeSegments: MrtRouteSegment[],
+): MRTRouteGeoJson {
+  const features: MRTRouteGeoJson["features"] = [];
+
+  for (const segment of routeSegments) {
+    if (segment.stops <= 0) continue;
+    const lineFeature = mrtLines.features.find((feature) => feature.properties.name === segment.line);
+    if (!lineFeature) continue;
+
+    const stationNames = MRT_LINE_STATIONS[segment.line] ?? [];
+    if (stationNames.length === 0 || stationNames.length !== lineFeature.geometry.coordinates.length) {
+      continue;
+    }
+
+    const fromIndex = stationNames.indexOf(segment.from);
+    const toIndex = stationNames.indexOf(segment.to);
+    if (fromIndex < 0 || toIndex < 0 || fromIndex === toIndex) continue;
+
+    const startIndex = Math.min(fromIndex, toIndex);
+    const endIndex = Math.max(fromIndex, toIndex);
+    const sliced = lineFeature.geometry.coordinates.slice(startIndex, endIndex + 1);
+    const coordinates = fromIndex <= toIndex ? sliced : [...sliced].reverse();
+    if (coordinates.length < 2) continue;
+
+    features.push({
+      type: "Feature",
+      properties: {
+        line: segment.line,
+        color: lineFeature.properties.color,
+      },
+      geometry: {
+        type: "LineString",
+        coordinates: coordinates as [number, number][],
+      },
+    });
+  }
+
+  return {
+    type: "FeatureCollection",
+    features,
+  };
+}
+
 function buildPlaneIcon(size = 64): ImageData {
   const canvas = document.createElement("canvas");
   canvas.width = size;
@@ -402,6 +465,8 @@ export default function Map({
   onStopClick,
   onCameraClick,
   onFlightClick,
+  onMrtStationClick,
+  mrtRouteSegments = [],
 }: MapProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
@@ -410,6 +475,9 @@ export default function Map({
   const flightsRef = useRef<globalThis.Map<string, FlightState>>(new globalThis.Map());
   const onStopClickRef = useRef(onStopClick);
   const onFlightClickRef = useRef(onFlightClick);
+  const onMrtStationClickRef = useRef(onMrtStationClick);
+  const mrtLinesRef = useRef<MRTGeoJson | null>(null);
+  const mrtRouteSegmentsRef = useRef<MrtRouteSegment[]>(mrtRouteSegments);
   const sensorVisibilityRef = useRef(sensorVisibility);
 
   useEffect(() => {
@@ -419,6 +487,31 @@ export default function Map({
   useEffect(() => {
     onFlightClickRef.current = onFlightClick;
   }, [onFlightClick]);
+
+  useEffect(() => {
+    onMrtStationClickRef.current = onMrtStationClick;
+  }, [onMrtStationClick]);
+
+  const applyMrtRouteFocus = (map: maplibregl.Map, hasRoute: boolean) => {
+    if (map.getLayer("mrt-lines-layer")) {
+      map.setPaintProperty("mrt-lines-layer", "line-opacity", hasRoute ? 0.15 : 0.96);
+    }
+    if (map.getLayer("mrt-lines-casing-layer")) {
+      map.setPaintProperty("mrt-lines-casing-layer", "line-opacity", hasRoute ? 0.12 : 0.84);
+    }
+    if (map.getLayer("mrt-lines-future-layer")) {
+      map.setPaintProperty("mrt-lines-future-layer", "line-opacity", hasRoute ? 0.08 : 0.82);
+    }
+    if (map.getLayer("mrt-lines-future-casing-layer")) {
+      map.setPaintProperty("mrt-lines-future-casing-layer", "line-opacity", hasRoute ? 0.07 : 0.72);
+    }
+    if (map.getLayer("mrt-stations-layer")) {
+      map.setPaintProperty("mrt-stations-layer", "circle-opacity", hasRoute ? 0.3 : 1);
+    }
+    if (map.getLayer("mrt-stations-label-layer")) {
+      map.setPaintProperty("mrt-stations-label-layer", "text-opacity", hasRoute ? 0.35 : 1);
+    }
+  };
 
   useEffect(() => {
     sensorVisibilityRef.current = sensorVisibility;
@@ -440,9 +533,24 @@ export default function Map({
     setLayerVisibility("mrt-lines-layer", sensorVisibility.mrt);
     setLayerVisibility("mrt-lines-future-casing-layer", sensorVisibility.mrt);
     setLayerVisibility("mrt-lines-future-layer", sensorVisibility.mrt);
+    setLayerVisibility("mrt-route-casing-layer", sensorVisibility.mrt);
+    setLayerVisibility("mrt-route-layer", sensorVisibility.mrt);
     setLayerVisibility("mrt-stations-layer", sensorVisibility.mrt);
     setLayerVisibility("mrt-stations-label-layer", sensorVisibility.mrt);
   }, [sensorVisibility]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    mrtRouteSegmentsRef.current = mrtRouteSegments;
+    if (!mrtLinesRef.current) return;
+    const routeGeoJson = buildRouteGeoJson(mrtLinesRef.current, mrtRouteSegmentsRef.current);
+    const routeSource = map.getSource("mrt-route") as maplibregl.GeoJSONSource | undefined;
+    if (routeSource) {
+      routeSource.setData(routeGeoJson);
+    }
+    applyMrtRouteFocus(map, routeGeoJson.features.length > 0);
+  }, [mrtRouteSegments]);
 
   useEffect(() => {
     if (!containerRef.current || mapRef.current) {
@@ -621,6 +729,7 @@ export default function Map({
           const response = await fetch("/mrt-lines.json");
           if (!response.ok) throw new Error(`MRT fetch failed: ${response.status}`);
           const geoJson = (await response.json()) as MRTGeoJson;
+          mrtLinesRef.current = geoJson;
 
           map.addSource("mrt-lines", {
             type: "geojson",
@@ -688,6 +797,45 @@ export default function Map({
               "line-dasharray": [2, 1.35],
             },
           });
+
+          map.addSource("mrt-route", {
+            type: "geojson",
+            data: buildRouteGeoJson(geoJson, mrtRouteSegmentsRef.current),
+          });
+
+          map.addLayer({
+            id: "mrt-route-casing-layer",
+            type: "line",
+            source: "mrt-route",
+            layout: {
+              visibility: sensorVisibilityRef.current.mrt ? "visible" : "none",
+              "line-cap": "round",
+              "line-join": "round",
+            },
+            paint: {
+              "line-color": "#dff7ff",
+              "line-width": 7.2,
+              "line-opacity": 0.45,
+            },
+          });
+
+          map.addLayer({
+            id: "mrt-route-layer",
+            type: "line",
+            source: "mrt-route",
+            layout: {
+              visibility: sensorVisibilityRef.current.mrt ? "visible" : "none",
+              "line-cap": "round",
+              "line-join": "round",
+            },
+            paint: {
+              "line-color": ["get", "color"],
+              "line-width": 4.8,
+              "line-opacity": 1,
+            },
+          });
+
+          applyMrtRouteFocus(map, mrtRouteSegmentsRef.current.length > 0);
 
           const stationLabelSet = new Set<string>();
           const stationFeatures = geoJson.features.flatMap((lineFeature) => {
@@ -758,6 +906,21 @@ export default function Map({
                 "text-halo-color": "#05151f",
                 "text-halo-width": 1,
               },
+            });
+
+            map.on("click", "mrt-stations-layer", (event) => {
+              const feature = event.features?.[0];
+              const stationName = feature?.properties?.name;
+              if (typeof stationName !== "string" || !stationName.trim()) return;
+              onMrtStationClickRef.current?.(stationName);
+            });
+
+            map.on("mouseenter", "mrt-stations-layer", () => {
+              map.getCanvas().style.cursor = "pointer";
+            });
+
+            map.on("mouseleave", "mrt-stations-layer", () => {
+              map.getCanvas().style.cursor = "";
             });
           }
         } catch {

@@ -5,6 +5,8 @@ import BusPanel from "@/app/components/BusPanel";
 import CameraPanel from "@/app/components/CameraPanel";
 import FlightPanel from "@/app/components/FlightPanel";
 import Map from "@/app/components/Map";
+import MrtRoutePanel, { MRT_ROUTE_DEFAULTS } from "@/app/components/MrtRoutePanel";
+import { planMrtRoute } from "@/lib/mrt-routing";
 import NewsPanel from "@/app/components/NewsPanel";
 import WeatherPanel from "@/app/components/WeatherPanel";
 import type { BusStop, FlightState, NewsItem, TrafficCamera, WeatherData } from "@/types";
@@ -38,6 +40,9 @@ export default function Home() {
   const [selectedStop, setSelectedStop] = useState<BusStop | null>(null);
   const [selectedCamera, setSelectedCamera] = useState<TrafficCamera | null>(null);
   const [selectedFlight, setSelectedFlight] = useState<FlightState | null>(null);
+  const [mrtStartStation, setMrtStartStation] = useState(MRT_ROUTE_DEFAULTS.start);
+  const [mrtEndStation, setMrtEndStation] = useState(MRT_ROUTE_DEFAULTS.end);
+  const [mrtMapPickTarget, setMrtMapPickTarget] = useState<"start" | "end">("start");
   const [error, setError] = useState<string | null>(null);
   const [now, setNow] = useState(new Date());
   const [bootComplete, setBootComplete] = useState(false);
@@ -179,6 +184,10 @@ export default function Home() {
     () => flights.filter((flight) => flight.direction === "transit").length,
     [flights],
   );
+  const mrtRoutePlan = useMemo(
+    () => planMrtRoute(mrtStartStation, mrtEndStation),
+    [mrtStartStation, mrtEndStation],
+  );
 
   const sensorRows = [
     {
@@ -318,6 +327,16 @@ export default function Home() {
               onStopClick={setSelectedStop}
               onCameraClick={setSelectedCamera}
               onFlightClick={setSelectedFlight}
+              onMrtStationClick={(stationName) => {
+                if (mrtMapPickTarget === "start") {
+                  setMrtStartStation(stationName);
+                  setMrtMapPickTarget("end");
+                } else {
+                  setMrtEndStation(stationName);
+                  setMrtMapPickTarget("start");
+                }
+              }}
+              mrtRouteSegments={mrtRoutePlan?.segments ?? []}
             />
             <div className="pointer-events-none absolute bottom-2 left-2 right-2 flex flex-wrap gap-2 rounded-sm border border-cyan-500/15 bg-[#03111f]/82 px-2 py-1 text-[10px] uppercase tracking-[0.12em] text-[#80a1b6]">
               <LegendDot tone="bg-[#63ffd6]" label="Inbound" />
@@ -329,7 +348,22 @@ export default function Home() {
             </div>
           </section>
 
-          <section className="grid min-h-0 grid-cols-1 gap-3 xl:grid-cols-2 2xl:grid-cols-3">
+          <section className="grid min-h-0 grid-cols-1 gap-3 xl:grid-cols-2 2xl:grid-cols-4">
+            <div className="min-h-0 overflow-auto">
+              <MrtRoutePanel
+                startStation={mrtStartStation}
+                endStation={mrtEndStation}
+                onStartChange={setMrtStartStation}
+                onEndChange={setMrtEndStation}
+                mapPickTarget={mrtMapPickTarget}
+                onMapPickTargetChange={setMrtMapPickTarget}
+                onReset={() => {
+                  setMrtStartStation(MRT_ROUTE_DEFAULTS.start);
+                  setMrtEndStation(MRT_ROUTE_DEFAULTS.end);
+                  setMrtMapPickTarget("start");
+                }}
+              />
+            </div>
             <div className="min-h-0 overflow-auto">
               <BusPanel busStops={busStops} selectedStop={selectedStop} onSelectStop={setSelectedStop} />
             </div>
