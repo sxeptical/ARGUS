@@ -137,37 +137,9 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    const inFlight: Record<string, boolean> = {};
-
-    const createPoller = (url: string, intervalMs: number, setter: (data: unknown) => void) => {
-      return setInterval(() => {
-        if (inFlight[url]) return;
-        inFlight[url] = true;
-        void (async () => {
-          try {
-            const response = await fetch(url);
-            if (response.ok) setter(await response.json());
-          } catch {
-            // Silently retry on next interval
-          } finally {
-            inFlight[url] = false;
-          }
-        })();
-      }, intervalMs);
-    };
-
-    const weatherTimer = createPoller("/api/weather", 5 * 60 * 1000, setWeather as (data: unknown) => void);
-    const newsTimer = createPoller("/api/news", 15 * 60 * 1000, setNews as (data: unknown) => void);
-    const camerasTimer = createPoller("/api/cameras", 60 * 1000, setCameras as (data: unknown) => void);
-    const flightsTimer = createPoller("/api/flights", 20 * 1000, setFlights as (data: unknown) => void);
-
     const clockTimer = setInterval(() => setNow(new Date()), 1000);
 
     return () => {
-      clearInterval(weatherTimer);
-      clearInterval(newsTimer);
-      clearInterval(camerasTimer);
-      clearInterval(flightsTimer);
       clearInterval(clockTimer);
     };
   }, []);

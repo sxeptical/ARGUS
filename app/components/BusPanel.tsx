@@ -67,13 +67,9 @@ export default function BusPanel({ busStops, selectedStop, onSelectStop }: BusPa
     };
 
     void loadArrivals();
-    const timer = setInterval(() => {
-      void loadArrivals();
-    }, 15_000);
 
     return () => {
       cancelled = true;
-      clearInterval(timer);
     };
   }, [selectedStop]);
 
