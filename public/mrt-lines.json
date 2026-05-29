@@ -150,6 +150,16 @@
           [103.7914, 1.2762],
           [103.8028, 1.2722],
           [103.8098, 1.2707],
+          [103.8215, 1.2655]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": { "name": "Circle Line Extension", "color": "#fa9e0d", "status": "future" },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
           [103.8215, 1.2655],
           [103.8296, 1.2698],
           [103.8370, 1.2741],
