@@ -413,16 +413,69 @@ function HeaderChip({ label, value, className }: { label: string; value: string;
 }
 
 function LoadingScreen({ now }: { now: Date }) {
-  const sources = ["LTA DataMall", "Traffic Cameras", "Weather Grid", "OSINT Stream", "Airspace Feed"];
+  const [progress, setProgress] = useState(0);
+  const [logIndex, setLogIndex] = useState(0);
+  const sources = [
+    { label: "LTA DataMall", icon: "🚌" },
+    { label: "Traffic Cameras", icon: "📷" },
+    { label: "Weather Grid", icon: "🌡️" },
+    { label: "OSINT Stream", icon: "📡" },
+    { label: "Airspace Feed", icon: "✈️" },
+  ];
+  const bootLogs = [
+    "Initializing signal surface...",
+    "Mounting LTA DataMall feed...",
+    "Establishing camera nodes...",
+    "Loading weather grid...",
+    "Fetching OSINT stream...",
+    "Connecting airspace feed...",
+    "Calibrating sensor grid...",
+    "System ready.",
+  ];
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setProgress((prev) => {
+        if (prev >= 100) {
+          clearInterval(interval);
+          return 100;
+        }
+        return prev + Math.random() * 10 + 2;
+      });
+    }, 160);
+    return () => clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setLogIndex((prev) => {
+        if (prev >= bootLogs.length - 1) return prev;
+        return prev + 1;
+      });
+    }, 350);
+    return () => clearInterval(interval);
+  }, [bootLogs.length]);
+
+  const onlineCount = Math.min(
+    Math.floor((progress / 100) * sources.length),
+    sources.length,
+  );
 
   return (
     <div className="grid h-screen place-items-center overflow-hidden bg-[#020913] px-4 text-terminal-text">
       <div className="absolute inset-0 bg-[linear-gradient(rgba(33,108,156,0.08)_1px,transparent_1px),linear-gradient(90deg,rgba(33,108,156,0.08)_1px,transparent_1px)] bg-[size:72px_72px]" />
-      <div className="relative w-full max-w-3xl rounded-md border border-cyan-400/25 bg-[#04111e]/95 p-5 shadow-[0_0_44px_rgba(42,166,255,0.16)]">
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_50%,rgba(42,166,255,0.08),transparent_60%)]" />
+
+      <div className="relative w-full max-w-3xl rounded-lg border border-cyan-400/25 bg-[#04111e]/95 p-6 shadow-[0_0_60px_rgba(42,166,255,0.18)] backdrop-blur-sm">
+        {/* Header */}
         <div className="mb-6 flex items-center justify-between gap-4 border-b border-cyan-500/20 pb-4">
           <div>
             <div className="[font-family:var(--font-rajdhani)] text-3xl font-semibold uppercase tracking-[0.22em] text-[#e8f5ff]">
               ARGUS MONITOR
+              <span
+                className="ml-1 inline-block h-5 w-2.5 translate-y-0.5 bg-[#3fd3ff]"
+                style={{ animation: "blink 1s step-end infinite" }}
+              />
             </div>
             <div className="mt-1 text-xs uppercase tracking-[0.18em] text-[#6d90a8]">
               Initializing Singapore signal surface
@@ -434,18 +487,72 @@ function LoadingScreen({ now }: { now: Date }) {
           </div>
         </div>
 
-        <div className="mb-5 h-1.5 overflow-hidden rounded bg-[#0a2237]">
-          <div className="h-full w-2/3 animate-pulse rounded bg-gradient-to-r from-[#35f0ce] via-[#3fb9ff] to-[#6e9dff]" />
+        {/* Progress bar */}
+        <div className="mb-4">
+          <div className="mb-1.5 flex justify-between text-[10px] uppercase tracking-[0.12em] text-[#6d90a8]">
+            <span>System Boot</span>
+            <span>{Math.min(Math.round(progress), 100)}%</span>
+          </div>
+          <div className="h-2 overflow-hidden rounded-full bg-[#0a2237]">
+            <div
+              className="h-full rounded-full bg-gradient-to-r from-[#35f0ce] via-[#3fb9ff] to-[#6e9dff] shadow-[0_0_12px_rgba(63,185,255,0.5)] transition-all duration-200 ease-out"
+              style={{ width: `${Math.min(progress, 100)}%` }}
+            />
+          </div>
         </div>
 
-        <div className="grid gap-2 sm:grid-cols-5">
-          {sources.map((source) => (
-            <div key={source} className="rounded-sm border border-cyan-500/20 bg-[#071629]/70 p-3">
-              <div className="mb-3 h-1.5 w-10 rounded bg-cyan-300/70" />
-              <div className="text-[11px] uppercase tracking-[0.12em] text-[#cfe6f5]">{source}</div>
-              <div className="mt-1 text-[10px] uppercase tracking-[0.1em] text-[#6d90a8]">Syncing</div>
+        {/* Boot log */}
+        <div className="mb-4 h-28 overflow-hidden rounded-sm border border-cyan-500/15 bg-[#020b14]/80 p-3 font-mono text-[11px] leading-relaxed">
+          {bootLogs.slice(0, logIndex + 1).map((log, i) => (
+            <div key={i} className="flex items-center gap-2">
+              <span className="text-[#3fd3ff]">{'>'}</span>
+              <span className={i === logIndex ? "text-[#cfe6f5]" : "text-[#7395a8]"}>
+                {log}
+              </span>
+              {i === logIndex && (
+                <span
+                  className="ml-0.5 inline-block h-3 w-2 bg-[#cfe6f5]"
+                  style={{ animation: "blink 1s step-end infinite" }}
+                />
+              )}
             </div>
           ))}
+        </div>
+
+        {/* Source cards */}
+        <div className="grid gap-2 sm:grid-cols-5">
+          {sources.map((source, i) => {
+            const isOnline = i < onlineCount;
+            return (
+              <div
+                key={source.label}
+                className={`rounded-sm border p-3 transition-all duration-500 ${
+                  isOnline
+                    ? "border-[#35f0ce]/30 bg-[#071629]/70"
+                    : "border-cyan-500/20 bg-[#071629]/70"
+                }`}
+                style={{ transitionDelay: `${i * 80}ms` }}
+              >
+                <div className="mb-2 flex items-center gap-2">
+                  <div className="h-1.5 w-8 rounded-full bg-cyan-300/70" />
+                  <div
+                    className={`h-1.5 w-1.5 rounded-full transition-all duration-300 ${
+                      isOnline ? "bg-[#35f0ce] shadow-[0_0_6px_rgba(53,240,206,0.8)]" : "bg-[#0a2237]"
+                    }`}
+                    style={{ transitionDelay: `${i * 80}ms` }}
+                  />
+                </div>
+                <div className="text-[11px] uppercase tracking-[0.12em] text-[#cfe6f5]">
+                  {source.label}
+                </div>
+                <div className="mt-1 text-[10px] uppercase tracking-[0.1em]">
+                  <span className={isOnline ? "text-[#35f0ce]" : "text-[#6d90a8]"}>
+                    {isOnline ? "Online" : "Syncing..."}
+                  </span>
+                </div>
+              </div>
+            );
+          })}
         </div>
       </div>
     </div>
