@@ -778,7 +778,6 @@ export default function Map({
               "line-color": "#020b14",
               "line-width": 6.2,
               "line-opacity": 0.72,
-              "line-dasharray": [2, 1.35],
             },
           });
 
@@ -794,7 +793,6 @@ export default function Map({
               "line-color": ["get", "color"],
               "line-width": 3.8,
               "line-opacity": 0.82,
-              "line-dasharray": [2, 1.35],
             },
           });
 
