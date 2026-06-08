@@ -215,12 +215,7 @@ function DeepBusDetail({
 }) {
   if (!bus) return null;
 
-  const loadColor =
-    bus.Load === "Seats Available"
-      ? "terminal-green"
-      : bus.Load === "Standing Available"
-        ? "terminal-yellow"
-        : "terminal-red";
+  const loadInfo = getLoadInfo(bus.Load);
 
   const typeLabel =
     bus.Type === "SD"
@@ -243,7 +238,7 @@ function DeepBusDetail({
         </div>
         <div className="flex justify-between">
           <span className="terminal-dim">Load</span>
-          <span className={loadColor}>{bus.Load || "—"}</span>
+          <span className={loadInfo.color} title={loadInfo.description}>{loadInfo.label}</span>
         </div>
         <div className="flex justify-between">
           <span className="terminal-dim">Type</span>
@@ -256,6 +251,39 @@ function DeepBusDetail({
       </div>
     </div>
   );
+}
+
+type LoadInfo = { label: string; color: string; description: string };
+
+function getLoadInfo(load?: string): LoadInfo {
+  const normalized = (load || "").trim().toUpperCase();
+
+  // Handle both abbreviations and full strings from LTA API
+  if (normalized === "SEA" || normalized === "SEATS AVAILABLE") {
+    return {
+      label: "Seats Avail.",
+      color: "terminal-green",
+      description: "Plenty of seats available",
+    };
+  }
+
+  if (normalized === "SDA" || normalized === "STANDING AVAILABLE") {
+    return {
+      label: "Standing Avail.",
+      color: "terminal-yellow",
+      description: "Seats full, standing space available",
+    };
+  }
+
+  if (normalized === "LSD" || normalized === "LIMITED STANDING") {
+    return {
+      label: "Limited Standing",
+      color: "terminal-red",
+      description: "Bus is crowded — limited standing space",
+    };
+  }
+
+  return { label: load || "—", color: "terminal-dim", description: "Unknown load status" };
 }
 
 function ArrivalSparkline() {
