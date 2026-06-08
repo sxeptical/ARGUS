@@ -215,75 +215,78 @@ function DeepBusDetail({
 }) {
   if (!bus) return null;
 
-  const loadInfo = getLoadInfo(bus.Load);
+  const loadColor = getLoadColor(bus.Load);
 
   const typeLabel =
     bus.Type === "SD"
-      ? "Single Deck"
+      ? "Single"
       : bus.Type === "DD"
-        ? "Double Deck"
+        ? "Double"
         : bus.Type === "BD"
           ? "Bendy"
           : bus.Type || "—";
 
-  const featureLabel = bus.Feature === "WAB" ? "Wheelchair" : bus.Feature || "—";
-
   return (
     <div className="space-y-1">
-      <div className="text-[11px] font-semibold text-[#8ccff0]">{label}</div>
-      <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-[11px]">
-        <div className="flex justify-between">
-          <span className="terminal-dim">ETA</span>
-          <span>{formatArrival(bus.EstimatedArrival)}</span>
+      <div className="flex items-center justify-between">
+        <div className="text-[11px] font-semibold text-[#8ccff0]">{label}</div>
+        <div className="flex items-center gap-1.5">
+          <LoadDot color={loadColor} />
+          <span className="text-[11px] terminal-dim">{typeLabel}</span>
         </div>
-        <div className="flex justify-between">
-          <span className="terminal-dim">Load</span>
-          <span className={loadInfo.color} title={loadInfo.description}>{loadInfo.label}</span>
-        </div>
-        <div className="flex justify-between">
-          <span className="terminal-dim">Type</span>
-          <span>{typeLabel}</span>
-        </div>
-        <div className="flex justify-between">
-          <span className="terminal-dim">Feature</span>
-          <span>{featureLabel}</span>
-        </div>
+      </div>
+      <div className="grid grid-cols-3 gap-2 text-[11px]">
+        <ArrivalCell label="ETA" value={formatArrival(bus.EstimatedArrival)} />
+        <ArrivalCell label="Load" value={<LoadBox color={loadColor} />} />
+        <ArrivalCell label="Feature" value={bus.Feature === "WAB" ? "♿" : "—"} />
       </div>
     </div>
   );
 }
 
-type LoadInfo = { label: string; color: string; description: string };
-
-function getLoadInfo(load?: string): LoadInfo {
+function getLoadColor(load?: string): string {
   const normalized = (load || "").trim().toUpperCase();
 
-  // Handle both abbreviations and full strings from LTA API
   if (normalized === "SEA" || normalized === "SEATS AVAILABLE") {
-    return {
-      label: "Seats Avail.",
-      color: "terminal-green",
-      description: "Plenty of seats available",
-    };
+    return "#54ffae"; // terminal-green
   }
 
   if (normalized === "SDA" || normalized === "STANDING AVAILABLE") {
-    return {
-      label: "Standing Avail.",
-      color: "terminal-yellow",
-      description: "Seats full, standing space available",
-    };
+    return "#ffd166"; // terminal-yellow
   }
 
   if (normalized === "LSD" || normalized === "LIMITED STANDING") {
-    return {
-      label: "Limited Standing",
-      color: "terminal-red",
-      description: "Bus is crowded — limited standing space",
-    };
+    return "#ff6b6b"; // terminal-red
   }
 
-  return { label: load || "—", color: "terminal-dim", description: "Unknown load status" };
+  return "#7f9b91"; // terminal-dim
+}
+
+function LoadDot({ color }: { color: string }) {
+  return (
+    <span
+      className="inline-block h-2 w-2 rounded-full"
+      style={{ backgroundColor: color, boxShadow: `0 0 6px ${color}` }}
+      title={
+        color === "#54ffae"
+          ? "Seats Available"
+          : color === "#ffd166"
+            ? "Standing Available"
+            : color === "#ff6b6b"
+              ? "Limited Standing"
+              : "Unknown"
+      }
+    />
+  );
+}
+
+function LoadBox({ color }: { color: string }) {
+  return (
+    <span
+      className="inline-block h-3 w-3 rounded-sm border border-white/20"
+      style={{ backgroundColor: color }}
+    />
+  );
 }
 
 function ArrivalSparkline() {
@@ -316,7 +319,7 @@ function ArrivalSparkline() {
   );
 }
 
-function ArrivalCell({ label, value }: { label: string; value: string }) {
+function ArrivalCell({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div>
       <div className="terminal-dim">{label}</div>
