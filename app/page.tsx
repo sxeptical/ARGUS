@@ -487,17 +487,53 @@ function LoadingScreen({ now }: { now: Date }) {
           </div>
         </div>
 
-        {/* Progress bar */}
-        <div className="mb-4">
-          <div className="mb-1.5 flex justify-between text-[10px] uppercase tracking-[0.12em] text-[#6d90a8]">
-            <span>System Boot</span>
-            <span>{Math.min(Math.round(progress), 100)}%</span>
+        {/* Circular Progress */}
+        <div className="mb-4 flex items-center gap-5">
+          <div className="relative h-20 w-20 shrink-0">
+            <svg className="h-full w-full -rotate-90" viewBox="0 0 36 36">
+              {/* Background ring */}
+              <circle
+                cx="18"
+                cy="18"
+                r="15.915"
+                fill="none"
+                stroke="#0a2237"
+                strokeWidth="3"
+              />
+              {/* Progress ring */}
+              <circle
+                cx="18"
+                cy="18"
+                r="15.915"
+                fill="none"
+                stroke="url(#grad)"
+                strokeWidth="3"
+                strokeDasharray={`${Math.min(progress, 100)} ${100 - Math.min(progress, 100)}`}
+                strokeLinecap="round"
+                className="transition-all duration-200 ease-out"
+              />
+              <defs>
+                <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="0%">
+                  <stop offset="0%" stopColor="#35f0ce" />
+                  <stop offset="50%" stopColor="#3fb9ff" />
+                  <stop offset="100%" stopColor="#6e9dff" />
+                </linearGradient>
+              </defs>
+            </svg>
+            <div className="absolute inset-0 flex flex-col items-center justify-center">
+              <span className="text-lg font-bold text-[#e8f5ff]">
+                {Math.min(Math.round(progress), 100)}%
+              </span>
+            </div>
           </div>
-          <div className="h-2 overflow-hidden rounded-full bg-[#0a2237]">
-            <div
-              className="h-full rounded-full bg-gradient-to-r from-[#35f0ce] via-[#3fb9ff] to-[#6e9dff] shadow-[0_0_12px_rgba(63,185,255,0.5)] transition-all duration-200 ease-out"
-              style={{ width: `${Math.min(progress, 100)}%` }}
-            />
+
+          <div className="flex-1">
+            <div className="mb-1 text-[10px] uppercase tracking-[0.12em] text-[#6d90a8]">
+              System Boot
+            </div>
+            <div className="text-[11px] text-[#8cb2c8]">
+              {bootLogs[Math.min(logIndex, bootLogs.length - 1)]}
+            </div>
           </div>
         </div>
 
