@@ -9,6 +9,7 @@ import MrtRoutePanel, { MRT_ROUTE_DEFAULTS } from "@/app/components/MrtRoutePane
 import { planMrtRoute } from "@/lib/mrt-routing";
 import NewsPanel from "@/app/components/NewsPanel";
 import WeatherPanel from "@/app/components/WeatherPanel";
+import { cachedClientFetch } from "@/lib/client-cache";
 import type { BusStop, FlightState, NewsItem, TrafficCamera, WeatherData } from "@/types";
 
 type SensorKey = "flights" | "cameras" | "busStops" | "mrt";
@@ -21,15 +22,6 @@ const DEFAULT_WEATHER: WeatherData = {
   forecast: "Loading...",
   lastUpdated: new Date().toISOString(),
 };
-
-async function describeFailedSource(response: Response, label: string): Promise<string> {
-  try {
-    const payload = (await response.json()) as { error?: string };
-    return payload.error ? `${label} (${payload.error})` : label;
-  } catch {
-    return label;
-  }
-}
 
 export default function Home() {
   const [busStops, setBusStops] = useState<BusStop[]>([]);
@@ -58,11 +50,11 @@ export default function Home() {
 
     void (async () => {
       const [busStopsRes, camerasRes, weatherRes, newsRes, flightsRes] = await Promise.allSettled([
-        fetch("/api/bus-stops"),
-        fetch("/api/cameras"),
-        fetch("/api/weather"),
-        fetch("/api/news"),
-        fetch("/api/flights"),
+        cachedClientFetch<BusStop[]>("/api/bus-stops", 5 * 60 * 1000),     // 5 min
+        cachedClientFetch<TrafficCamera[]>("/api/cameras", 30 * 1000),     // 30 sec
+        cachedClientFetch<WeatherData>("/api/weather", 2 * 60 * 1000),       // 2 min
+        cachedClientFetch<NewsItem[]>("/api/news", 5 * 60 * 1000),           // 5 min
+        cachedClientFetch<FlightState[]>("/api/flights", 15 * 1000),        // 15 sec
       ]);
 
       if (!mounted) return;
@@ -70,51 +62,31 @@ export default function Home() {
       const errors: string[] = [];
 
       if (busStopsRes.status === "fulfilled") {
-        if (busStopsRes.value.ok) {
-          setBusStops((await busStopsRes.value.json()) as BusStop[]);
-        } else {
-          errors.push(await describeFailedSource(busStopsRes.value, "bus stops"));
-        }
+        setBusStops(busStopsRes.value);
       } else {
         errors.push("bus stops");
       }
 
       if (camerasRes.status === "fulfilled") {
-        if (camerasRes.value.ok) {
-          setCameras((await camerasRes.value.json()) as TrafficCamera[]);
-        } else {
-          errors.push(await describeFailedSource(camerasRes.value, "cameras"));
-        }
+        setCameras(camerasRes.value);
       } else {
         errors.push("cameras");
       }
 
       if (weatherRes.status === "fulfilled") {
-        if (weatherRes.value.ok) {
-          setWeather((await weatherRes.value.json()) as WeatherData);
-        } else {
-          errors.push(await describeFailedSource(weatherRes.value, "weather"));
-        }
+        setWeather(weatherRes.value);
       } else {
         errors.push("weather");
       }
 
       if (newsRes.status === "fulfilled") {
-        if (newsRes.value.ok) {
-          setNews((await newsRes.value.json()) as NewsItem[]);
-        } else {
-          errors.push(await describeFailedSource(newsRes.value, "news"));
-        }
+        setNews(newsRes.value);
       } else {
         errors.push("news");
       }
 
       if (flightsRes.status === "fulfilled") {
-        if (flightsRes.value.ok) {
-          setFlights((await flightsRes.value.json()) as FlightState[]);
-        } else {
-          errors.push(await describeFailedSource(flightsRes.value, "flights"));
-        }
+        setFlights(flightsRes.value);
       } else {
         errors.push("flights");
       }
