@@ -1,5 +1,5 @@
 const DEFAULT_WINDOW_MS = 60 * 1000; // 1 minute
-const DEFAULT_MAX_REQUESTS = 30;
+const GLOBAL_MAX_REQUESTS = 300;
 
 interface WindowEntry {
   count: number;
@@ -22,9 +22,9 @@ function evictOldestIfNeeded(): void {
   if (oldestKey) ipWindows.delete(oldestKey);
 }
 
-export function checkRateLimit(
+export function checkGlobalRateLimit(
   ip: string,
-  maxRequests: number = DEFAULT_MAX_REQUESTS,
+  maxRequests: number = GLOBAL_MAX_REQUESTS,
   windowMs: number = DEFAULT_WINDOW_MS,
 ): { allowed: boolean; remaining: number; resetMs: number } {
   const now = Date.now();
