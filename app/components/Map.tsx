@@ -1,9 +1,7 @@
-"use client";
-
 import { useEffect, useRef } from "react";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
-import type { MrtRouteSegment } from "@/lib/mrt-routing";
+import { isRouteableMrtStation, type MrtRouteSegment } from "@/lib/mrt-routing";
 import type { BusStop, FlightState, MRTGeoJson, TrafficCamera } from "@/types";
 
 type MapProps = {
@@ -88,11 +86,7 @@ const MRT_LINE_STATIONS: Record<string, string[]> = {
     "Tampines",
     "Pasir Ris",
   ],
-  "Changi Airport Branch": [
-    "Tanah Merah",
-    "Expo",
-    "Changi Airport",
-  ],
+  "Changi Airport Branch": ["Tanah Merah", "Expo", "Changi Airport"],
   "North East Line": [
     "HarbourFront",
     "Outram Park",
@@ -252,10 +246,7 @@ const MRT_LINE_STATIONS: Record<string, string[]> = {
     "West Coast",
     "Jurong Lake District",
   ],
-  "Johor Bahru-Singapore RTS": [
-    "Bukit Chagar",
-    "Woodlands North",
-  ],
+  "Johor Bahru-Singapore RTS": ["Bukit Chagar", "Woodlands North"],
 };
 
 type MRTStationGeoJson = {
@@ -267,6 +258,7 @@ type MRTStationGeoJson = {
       label: string;
       line: string;
       color: string;
+      routeable: boolean;
     };
     geometry: {
       type: "Point";
@@ -307,6 +299,7 @@ function interpolateStations(
           label: stationName,
           line,
           color,
+          routeable: isRouteableMrtStation(stationName),
         },
         geometry: {
           type: "Point" as const,
@@ -321,7 +314,13 @@ function interpolateStations(
     return [
       {
         type: "Feature",
-        properties: { name: stationNames[0], label: stationNames[0], line, color },
+        properties: {
+          name: stationNames[0],
+          label: stationNames[0],
+          line,
+          color,
+          routeable: isRouteableMrtStation(stationNames[0]),
+        },
         geometry: {
           type: "Point",
           coordinates: [lng, lat],
@@ -357,9 +356,10 @@ function interpolateStations(
     }
 
     const currentSegmentLength = segmentLengths[segmentIndex];
-    const ratio = currentSegmentLength > 0
-      ? (targetDistance - traversed) / currentSegmentLength
-      : 0;
+    const ratio =
+      currentSegmentLength > 0
+        ? (targetDistance - traversed) / currentSegmentLength
+        : 0;
 
     const [startLng, startLat] = coordinates[segmentIndex];
     const [endLng, endLat] = coordinates[segmentIndex + 1];
@@ -373,6 +373,7 @@ function interpolateStations(
         label: stationName,
         line,
         color,
+        routeable: isRouteableMrtStation(stationName),
       },
       geometry: {
         type: "Point" as const,
@@ -390,13 +391,21 @@ function buildRouteGeoJson(
 
   for (const segment of routeSegments) {
     if (segment.stops <= 0) continue;
-    const lineFeature = mrtLines.features.find((feature) => feature.properties.name === segment.line);
+    const lineFeature = mrtLines.features.find(
+      (feature) => feature.properties.name === segment.line,
+    );
     if (!lineFeature) continue;
 
     const stationNames = MRT_LINE_STATIONS[segment.line] ?? [];
-    if (stationNames.length === 0 || stationNames.length !== lineFeature.geometry.coordinates.length) {
-      continue;
-    }
+    if (stationNames.length === 0) continue;
+
+    const stationFeatures = interpolateStations(
+      lineFeature.geometry.coordinates,
+      stationNames,
+      segment.line,
+      lineFeature.properties.color,
+    );
+    if (stationFeatures.length !== stationNames.length) continue;
 
     const fromIndex = stationNames.indexOf(segment.from);
     const toIndex = stationNames.indexOf(segment.to);
@@ -404,7 +413,9 @@ function buildRouteGeoJson(
 
     const startIndex = Math.min(fromIndex, toIndex);
     const endIndex = Math.max(fromIndex, toIndex);
-    const sliced = lineFeature.geometry.coordinates.slice(startIndex, endIndex + 1);
+    const sliced = stationFeatures
+      .slice(startIndex, endIndex + 1)
+      .map((feature) => feature.geometry.coordinates);
     const coordinates = fromIndex <= toIndex ? sliced : [...sliced].reverse();
     if (coordinates.length < 2) continue;
 
@@ -442,15 +453,15 @@ function buildPlaneIcon(size = 64): ImageData {
 
   context.beginPath();
   context.moveTo(0, -size * 0.34); // nose
-  context.lineTo(size * 0.08, -size * 0.10);
-  context.lineTo(size * 0.30, -size * 0.02); // right wing tip
+  context.lineTo(size * 0.08, -size * 0.1);
+  context.lineTo(size * 0.3, -size * 0.02); // right wing tip
   context.lineTo(size * 0.12, size * 0.02);
-  context.lineTo(size * 0.12, size * 0.30); // tail fin
+  context.lineTo(size * 0.12, size * 0.3); // tail fin
   context.lineTo(0, size * 0.24);
-  context.lineTo(-size * 0.12, size * 0.30);
+  context.lineTo(-size * 0.12, size * 0.3);
   context.lineTo(-size * 0.12, size * 0.02);
-  context.lineTo(-size * 0.30, -size * 0.02); // left wing tip
-  context.lineTo(-size * 0.08, -size * 0.10);
+  context.lineTo(-size * 0.3, -size * 0.02); // left wing tip
+  context.lineTo(-size * 0.08, -size * 0.1);
   context.closePath();
   context.fill();
 
@@ -471,8 +482,12 @@ export default function Map({
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const cameraMarkersRef = useRef<maplibregl.Marker[]>([]);
-  const busStopsRef = useRef<globalThis.Map<string, BusStop>>(new globalThis.Map());
-  const flightsRef = useRef<globalThis.Map<string, FlightState>>(new globalThis.Map());
+  const busStopsRef = useRef<globalThis.Map<string, BusStop>>(
+    new globalThis.Map(),
+  );
+  const flightsRef = useRef<globalThis.Map<string, FlightState>>(
+    new globalThis.Map(),
+  );
   const onStopClickRef = useRef(onStopClick);
   const onFlightClickRef = useRef(onFlightClick);
   const onMrtStationClickRef = useRef(onMrtStationClick);
@@ -494,22 +509,48 @@ export default function Map({
 
   const applyMrtRouteFocus = (map: maplibregl.Map, hasRoute: boolean) => {
     if (map.getLayer("mrt-lines-layer")) {
-      map.setPaintProperty("mrt-lines-layer", "line-opacity", hasRoute ? 0.15 : 0.96);
+      map.setPaintProperty(
+        "mrt-lines-layer",
+        "line-opacity",
+        hasRoute ? 0.15 : 0.96,
+      );
     }
     if (map.getLayer("mrt-lines-casing-layer")) {
-      map.setPaintProperty("mrt-lines-casing-layer", "line-opacity", hasRoute ? 0.12 : 0.84);
+      map.setPaintProperty(
+        "mrt-lines-casing-layer",
+        "line-opacity",
+        hasRoute ? 0.12 : 0.84,
+      );
     }
     if (map.getLayer("mrt-lines-future-layer")) {
-      map.setPaintProperty("mrt-lines-future-layer", "line-opacity", hasRoute ? 0.08 : 0.82);
+      map.setPaintProperty(
+        "mrt-lines-future-layer",
+        "line-opacity",
+        hasRoute ? 0.08 : 0.82,
+      );
     }
     if (map.getLayer("mrt-lines-future-casing-layer")) {
-      map.setPaintProperty("mrt-lines-future-casing-layer", "line-opacity", hasRoute ? 0.07 : 0.72);
+      map.setPaintProperty(
+        "mrt-lines-future-casing-layer",
+        "line-opacity",
+        hasRoute ? 0.07 : 0.72,
+      );
     }
     if (map.getLayer("mrt-stations-layer")) {
-      map.setPaintProperty("mrt-stations-layer", "circle-opacity", hasRoute ? 0.3 : 1);
+      map.setPaintProperty("mrt-stations-layer", "circle-opacity", [
+        "case",
+        ["get", "routeable"],
+        hasRoute ? 0.3 : 1,
+        hasRoute ? 0.12 : 0.35,
+      ]);
     }
     if (map.getLayer("mrt-stations-label-layer")) {
-      map.setPaintProperty("mrt-stations-label-layer", "text-opacity", hasRoute ? 0.35 : 1);
+      map.setPaintProperty("mrt-stations-label-layer", "text-opacity", [
+        "case",
+        ["get", "routeable"],
+        hasRoute ? 0.35 : 1,
+        hasRoute ? 0.08 : 0.45,
+      ]);
     }
   };
 
@@ -523,7 +564,11 @@ export default function Map({
 
     const setLayerVisibility = (layerId: string, visible: boolean) => {
       if (!map.getLayer(layerId)) return;
-      map.setLayoutProperty(layerId, "visibility", visible ? "visible" : "none");
+      map.setLayoutProperty(
+        layerId,
+        "visibility",
+        visible ? "visible" : "none",
+      );
     };
 
     setLayerVisibility("bus-stops-layer", sensorVisibility.busStops);
@@ -544,8 +589,13 @@ export default function Map({
     if (!map) return;
     mrtRouteSegmentsRef.current = mrtRouteSegments;
     if (!mrtLinesRef.current) return;
-    const routeGeoJson = buildRouteGeoJson(mrtLinesRef.current, mrtRouteSegmentsRef.current);
-    const routeSource = map.getSource("mrt-route") as maplibregl.GeoJSONSource | undefined;
+    const routeGeoJson = buildRouteGeoJson(
+      mrtLinesRef.current,
+      mrtRouteSegmentsRef.current,
+    );
+    const routeSource = map.getSource("mrt-route") as
+      | maplibregl.GeoJSONSource
+      | undefined;
     if (routeSource) {
       routeSource.setData(routeGeoJson);
     }
@@ -727,7 +777,8 @@ export default function Map({
       void (async () => {
         try {
           const response = await fetch("/mrt-lines.json");
-          if (!response.ok) throw new Error(`MRT fetch failed: ${response.status}`);
+          if (!response.ok)
+            throw new Error(`MRT fetch failed: ${response.status}`);
           const geoJson = (await response.json()) as MRTGeoJson;
           mrtLinesRef.current = geoJson;
 
@@ -798,9 +849,14 @@ export default function Map({
             },
           });
 
+          const initialRouteGeoJson = buildRouteGeoJson(
+            geoJson,
+            mrtRouteSegmentsRef.current,
+          );
+
           map.addSource("mrt-route", {
             type: "geojson",
-            data: buildRouteGeoJson(geoJson, mrtRouteSegmentsRef.current),
+            data: initialRouteGeoJson,
           });
 
           map.addLayer({
@@ -835,11 +891,12 @@ export default function Map({
             },
           });
 
-          applyMrtRouteFocus(map, mrtRouteSegmentsRef.current.length > 0);
+          applyMrtRouteFocus(map, initialRouteGeoJson.features.length > 0);
 
           const stationLabelSet = new Set<string>();
           const stationFeatures = geoJson.features.flatMap((lineFeature) => {
-            const stationNames = MRT_LINE_STATIONS[lineFeature.properties.name] ?? [];
+            const stationNames =
+              MRT_LINE_STATIONS[lineFeature.properties.name] ?? [];
             const features = interpolateStations(
               lineFeature.geometry.coordinates,
               stationNames,
@@ -879,13 +936,21 @@ export default function Map({
               type: "circle",
               source: "mrt-stations",
               layout: {
-                visibility: sensorVisibilityRef.current.mrt ? "visible" : "none",
+                visibility: sensorVisibilityRef.current.mrt
+                  ? "visible"
+                  : "none",
               },
               paint: {
                 "circle-radius": 4,
                 "circle-color": ["get", "color"],
+                "circle-opacity": ["case", ["get", "routeable"], 1, 0.35],
                 "circle-stroke-width": 1,
-                "circle-stroke-color": "#001018",
+                "circle-stroke-color": [
+                  "case",
+                  ["get", "routeable"],
+                  "#001018",
+                  "#64748b",
+                ],
               },
             });
 
@@ -895,7 +960,9 @@ export default function Map({
               source: "mrt-stations",
               minzoom: 11.5,
               layout: {
-                visibility: sensorVisibilityRef.current.mrt ? "visible" : "none",
+                visibility: sensorVisibilityRef.current.mrt
+                  ? "visible"
+                  : "none",
                 "text-field": ["get", "label"],
                 "text-size": 10,
                 "text-anchor": "top",
@@ -911,20 +978,27 @@ export default function Map({
             map.on("click", "mrt-stations-layer", (event) => {
               const feature = event.features?.[0];
               const stationName = feature?.properties?.name;
-              if (typeof stationName !== "string" || !stationName.trim()) return;
+              const routeable = feature?.properties?.routeable;
+              if (routeable !== true && routeable !== "true") return;
+              if (typeof stationName !== "string" || !stationName.trim())
+                return;
               onMrtStationClickRef.current?.(stationName);
             });
 
-            map.on("mouseenter", "mrt-stations-layer", () => {
-              map.getCanvas().style.cursor = "pointer";
+            map.on("mouseenter", "mrt-stations-layer", (event) => {
+              const routeable = event.features?.some((feature) => {
+                const value = feature.properties?.routeable;
+                return value === true || value === "true";
+              });
+              map.getCanvas().style.cursor = routeable ? "pointer" : "";
             });
 
             map.on("mouseleave", "mrt-stations-layer", () => {
               map.getCanvas().style.cursor = "";
             });
           }
-        } catch {
-          // MRT layer is cosmetic; continue without it
+        } catch (error) {
+          console.warn("MRT layer failed to initialize", error);
         }
       })();
     });
@@ -947,15 +1021,16 @@ export default function Map({
       busStops.map((stop) => [stop.BusStopCode, stop]),
     );
 
-    const busStopSource = map.getSource("bus-stops") as maplibregl.GeoJSONSource | undefined;
+    const busStopSource = map.getSource("bus-stops") as
+      | maplibregl.GeoJSONSource
+      | undefined;
     if (busStopSource) {
       busStopSource.setData({
         type: "FeatureCollection",
         features: (sensorVisibility.busStops ? busStops : [])
           .filter(
             (stop) =>
-              Number.isFinite(stop.Latitude) &&
-              Number.isFinite(stop.Longitude),
+              Number.isFinite(stop.Latitude) && Number.isFinite(stop.Longitude),
           )
           .map((stop) => ({
             type: "Feature" as const,
@@ -980,7 +1055,9 @@ export default function Map({
       flights.map((flight) => [flight.id, flight]),
     );
 
-    const flightsSource = map.getSource("flights") as maplibregl.GeoJSONSource | undefined;
+    const flightsSource = map.getSource("flights") as
+      | maplibregl.GeoJSONSource
+      | undefined;
     if (!flightsSource) return;
 
     flightsSource.setData({
@@ -1019,11 +1096,20 @@ export default function Map({
     }
 
     cameras.forEach((camera) => {
+      if (
+        !Number.isFinite(camera.Latitude) ||
+        !Number.isFinite(camera.Longitude)
+      ) {
+        return;
+      }
+
       const el = document.createElement("button");
       el.type = "button";
-      el.className = "h-3 w-3 rounded-full border border-terminal-bg bg-terminal-cyan";
+      el.className =
+        "h-5 w-5 rounded-full border-2 border-terminal-bg bg-terminal-cyan";
       el.style.boxShadow = "0 0 10px rgba(107, 230, 255, 0.7)";
       el.title = camera.location;
+      el.setAttribute("aria-label", `View traffic camera ${camera.location}`);
       el.addEventListener("click", () => onCameraClick(camera));
 
       const marker = new maplibregl.Marker({ element: el })

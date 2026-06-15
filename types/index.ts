@@ -27,10 +27,10 @@ export interface BusArrival {
 }
 
 export interface WeatherData {
-  temperature: number;
-  humidity: number;
-  psi: number;
-  psiStatus: "Good" | "Moderate" | "Unhealthy";
+  temperature: number | null;
+  humidity: number | null;
+  psi: number | null;
+  psiStatus: "Good" | "Moderate" | "Unhealthy" | "Unknown";
   forecast: string;
   lastUpdated: string;
 }

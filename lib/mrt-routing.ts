@@ -49,7 +49,9 @@ const ENTRY_EXIT_BUFFER_MINUTES = 2;
 function getTransferMinutes(station: string, lineCount: number): number {
   const override = MINUTES_PER_TRANSFER_OVERRIDE[station];
   if (override !== undefined) return override;
-  return lineCount >= 3 ? MINUTES_PER_TRANSFER_THREE_PLUS_LINE : MINUTES_PER_TRANSFER_TWO_LINE;
+  return lineCount >= 3
+    ? MINUTES_PER_TRANSFER_THREE_PLUS_LINE
+    : MINUTES_PER_TRANSFER_TWO_LINE;
 }
 
 const MRT_OPERATIONAL_LINE_STATIONS: Record<string, string[]> = {
@@ -167,13 +169,6 @@ const MRT_OPERATIONAL_LINE_STATIONS: Record<string, string[]> = {
     "Telok Blangah",
     "HarbourFront",
   ],
-  "Circle Line Extension": [
-    "HarbourFront",
-    "Keppel",
-    "Cantonment",
-    "Prince Edward Road",
-    "Marina Bay",
-  ],
   "Downtown Line": [
     "Bukit Panjang",
     "Cashew",
@@ -258,7 +253,10 @@ for (const [line, stations] of Object.entries(MRT_OPERATIONAL_LINE_STATIONS)) {
     const station = stations[index];
     const key = `${station}::${line}`;
     stationLineNodes.set(key, { key, station, line });
-    stationToNodeKeys.set(station, [...(stationToNodeKeys.get(station) ?? []), key]);
+    stationToNodeKeys.set(station, [
+      ...(stationToNodeKeys.get(station) ?? []),
+      key,
+    ]);
   }
 }
 
@@ -284,9 +282,13 @@ for (const [station, nodeKeys] of stationToNodeKeys.entries()) {
   }
 }
 
-export const MRT_STATION_NAMES = Array.from(stationToNodeKeys.keys()).sort((a, b) =>
-  a.localeCompare(b, "en-SG"),
+export const MRT_STATION_NAMES = Array.from(stationToNodeKeys.keys()).sort(
+  (a, b) => a.localeCompare(b, "en-SG"),
 );
+
+export function isRouteableMrtStation(station: string): boolean {
+  return stationToNodeKeys.has(station);
+}
 
 function makeRouteSegments(nodes: StationLineNode[]): {
   segments: MrtRouteSegment[];
@@ -311,7 +313,10 @@ function makeRouteSegments(nodes: StationLineNode[]): {
     const previous = nodes[index - 1];
     const current = nodes[index];
 
-    if (previous.station === current.station && previous.line !== current.line) {
+    if (
+      previous.station === current.station &&
+      previous.line !== current.line
+    ) {
       transferCount += 1;
       transferStations.push(current.station);
       if (active.stops > 0) {
@@ -434,16 +439,23 @@ export function planMrtRoute(start: string, end: string): MrtRoutePlan | null {
     }
   }
 
-  const { segments, transfers, transferStations } = makeRouteSegments(pathNodes);
+  const { segments, transfers, transferStations } =
+    makeRouteSegments(pathNodes);
   const travelMinutes = segments.reduce(
-    (sum, seg) => sum + seg.stops * (MINUTES_PER_STOP_BY_LINE[seg.line] ?? DEFAULT_MINUTES_PER_STOP),
+    (sum, seg) =>
+      sum +
+      seg.stops *
+        (MINUTES_PER_STOP_BY_LINE[seg.line] ?? DEFAULT_MINUTES_PER_STOP),
     0,
   );
   const transferMinutes = transferStations.reduce(
-    (sum, station) => sum + getTransferMinutes(station, stationToNodeKeys.get(station)?.length ?? 0),
+    (sum, station) =>
+      sum +
+      getTransferMinutes(station, stationToNodeKeys.get(station)?.length ?? 0),
     0,
   );
-  const estimatedMinutes = travelMinutes + transferMinutes + ENTRY_EXIT_BUFFER_MINUTES;
+  const estimatedMinutes =
+    travelMinutes + transferMinutes + ENTRY_EXIT_BUFFER_MINUTES;
 
   return {
     start,

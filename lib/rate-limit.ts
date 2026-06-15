@@ -26,13 +26,15 @@ export function checkGlobalRateLimit(
   ip: string,
   maxRequests: number = GLOBAL_MAX_REQUESTS,
   windowMs: number = DEFAULT_WINDOW_MS,
+  scope: string = "global",
 ): { allowed: boolean; remaining: number; resetMs: number } {
   const now = Date.now();
-  const entry = ipWindows.get(ip);
+  const key = `${scope}:${ip}`;
+  const entry = ipWindows.get(key);
 
   if (!entry || now - entry.windowStart > windowMs) {
     evictOldestIfNeeded();
-    ipWindows.set(ip, { count: 1, windowStart: now });
+    ipWindows.set(key, { count: 1, windowStart: now });
     return { allowed: true, remaining: maxRequests - 1, resetMs: windowMs };
   }
 
