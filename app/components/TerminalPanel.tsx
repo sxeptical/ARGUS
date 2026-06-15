@@ -1,5 +1,3 @@
-"use client";
-
 import { useId, useState } from "react";
 
 type TerminalPanelProps = {
@@ -33,10 +31,15 @@ export default function TerminalPanel({
           <span className="terminal-cyan">&gt;</span>
           {title}
         </span>
-        <span className="terminal-dim text-[11px]">{expanded ? "[-]" : "[+]"}</span>
+        <span className="terminal-dim text-[11px]">
+          {expanded ? "[-]" : "[+]"}
+        </span>
       </button>
       {expanded ? (
-        <div id={contentId} className={`terminal-content flex-1 overflow-auto ${contentClassName ?? ""}`}>
+        <div
+          id={contentId}
+          className={`terminal-content flex-1 overflow-auto ${contentClassName ?? ""}`}
+        >
           {children}
         </div>
       ) : null}

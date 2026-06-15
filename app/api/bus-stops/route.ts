@@ -1,24 +1,24 @@
-import { ExternalApiError, getBusStops } from "@/lib/api-clients";
-import { checkGlobalRateLimit, extractClientIp } from "@/lib/rate-limit";
+import { getBusStops } from "@/lib/api-clients";
+import {
+  getExternalApiErrorResponse,
+  getRateLimitResponse,
+} from "@/lib/route-utils";
 
 export async function GET(request: Request) {
-  const ip = extractClientIp(request);
-  const { allowed } = checkGlobalRateLimit(ip);
-  if (!allowed) {
-    return Response.json({ error: "Too many requests" }, { status: 429 });
-  }
+  const rateLimited = getRateLimitResponse(request, {
+    scope: "bus-stops",
+    maxRequests: 60,
+  });
+  if (rateLimited) return rateLimited;
 
   try {
     const data = await getBusStops();
     return Response.json(data);
   } catch (error) {
     console.error("Failed to fetch bus stops", error);
-    if (error instanceof ExternalApiError) {
-      return Response.json(
-        { error: "LTA API key is missing, invalid, or unauthorized" },
-        { status: error.status },
-      );
-    }
-    return Response.json({ error: "Failed to fetch bus stops" }, { status: 500 });
+    return (
+      getExternalApiErrorResponse(error, "Bus stop data") ??
+      Response.json({ error: "Failed to fetch bus stops" }, { status: 500 })
+    );
   }
 }

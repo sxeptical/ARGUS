@@ -5,23 +5,39 @@ import BusPanel from "@/app/components/BusPanel";
 import CameraPanel from "@/app/components/CameraPanel";
 import FlightPanel from "@/app/components/FlightPanel";
 import Map from "@/app/components/Map";
-import MrtRoutePanel, { MRT_ROUTE_DEFAULTS } from "@/app/components/MrtRoutePanel";
+import MrtRoutePanel, {
+  MRT_ROUTE_DEFAULTS,
+} from "@/app/components/MrtRoutePanel";
 import { planMrtRoute } from "@/lib/mrt-routing";
 import NewsPanel from "@/app/components/NewsPanel";
 import WeatherPanel from "@/app/components/WeatherPanel";
 import { cachedClientFetch } from "@/lib/client-cache";
-import type { BusStop, FlightState, NewsItem, TrafficCamera, WeatherData } from "@/types";
+import type {
+  BusStop,
+  FlightState,
+  NewsItem,
+  TrafficCamera,
+  WeatherData,
+} from "@/types";
 
 type SensorKey = "flights" | "cameras" | "busStops" | "mrt";
 
 const DEFAULT_WEATHER: WeatherData = {
-  temperature: 0,
-  humidity: 0,
-  psi: 0,
-  psiStatus: "Good",
+  temperature: null,
+  humidity: null,
+  psi: null,
+  psiStatus: "Unknown",
   forecast: "Loading...",
   lastUpdated: new Date().toISOString(),
 };
+
+const SOURCE_REFRESH_MS = {
+  busStops: 60 * 1000,
+  cameras: 60 * 1000,
+  weather: 5 * 60 * 1000,
+  news: 5 * 60 * 1000,
+  flights: 15 * 1000,
+} as const;
 
 export default function Home() {
   const [busStops, setBusStops] = useState<BusStop[]>([]);
@@ -30,15 +46,24 @@ export default function Home() {
   const [news, setNews] = useState<NewsItem[]>([]);
   const [flights, setFlights] = useState<FlightState[]>([]);
   const [selectedStop, setSelectedStop] = useState<BusStop | null>(null);
-  const [selectedCamera, setSelectedCamera] = useState<TrafficCamera | null>(null);
-  const [selectedFlight, setSelectedFlight] = useState<FlightState | null>(null);
-  const [mrtStartStation, setMrtStartStation] = useState(MRT_ROUTE_DEFAULTS.start);
+  const [selectedCamera, setSelectedCamera] = useState<TrafficCamera | null>(
+    null,
+  );
+  const [selectedFlight, setSelectedFlight] = useState<FlightState | null>(
+    null,
+  );
+  const [mrtStartStation, setMrtStartStation] = useState(
+    MRT_ROUTE_DEFAULTS.start,
+  );
   const [mrtEndStation, setMrtEndStation] = useState(MRT_ROUTE_DEFAULTS.end);
-  const [mrtMapPickTarget, setMrtMapPickTarget] = useState<"start" | "end">("start");
+  const [mrtMapPickTarget, setMrtMapPickTarget] = useState<"start" | "end">(
+    "start",
+  );
   const [error, setError] = useState<string | null>(null);
-  const [now, setNow] = useState(new Date());
   const [bootComplete, setBootComplete] = useState(false);
-  const [sensorVisibility, setSensorVisibility] = useState<Record<SensorKey, boolean>>({
+  const [sensorVisibility, setSensorVisibility] = useState<
+    Record<SensorKey, boolean>
+  >({
     flights: true,
     cameras: true,
     busStops: true,
@@ -47,72 +72,126 @@ export default function Home() {
 
   useEffect(() => {
     let mounted = true;
+    const failedSources = new Set<string>();
+    const timers: Array<ReturnType<typeof setInterval>> = [];
 
-    void (async () => {
-      const [busStopsRes, camerasRes, weatherRes, newsRes, flightsRes] = await Promise.allSettled([
-        cachedClientFetch<BusStop[]>("/api/bus-stops", 5 * 60 * 1000),     // 5 min
-        cachedClientFetch<TrafficCamera[]>("/api/cameras", 30 * 1000),     // 30 sec
-        cachedClientFetch<WeatherData>("/api/weather", 2 * 60 * 1000),       // 2 min
-        cachedClientFetch<NewsItem[]>("/api/news", 5 * 60 * 1000),           // 5 min
-        cachedClientFetch<FlightState[]>("/api/flights", 15 * 1000),        // 15 sec
-      ]);
-
+    const syncErrorState = () => {
       if (!mounted) return;
+      const errors = Array.from(failedSources);
+      setError(
+        errors.length > 0
+          ? `Some data sources failed: ${errors.join(", ")}`
+          : null,
+      );
+    };
 
-      const errors: string[] = [];
-
-      if (busStopsRes.status === "fulfilled") {
-        setBusStops(busStopsRes.value);
-      } else {
-        errors.push("bus stops");
+    const loadSource = async <T,>(
+      label: string,
+      url: string,
+      ttlMs: number,
+      setState: (value: T) => void,
+    ) => {
+      try {
+        const data = await cachedClientFetch<T>(url, ttlMs);
+        if (!mounted) return;
+        setState(data);
+        failedSources.delete(label);
+      } catch {
+        if (!mounted) return;
+        failedSources.add(label);
+      } finally {
+        syncErrorState();
       }
+    };
 
-      if (camerasRes.status === "fulfilled") {
-        setCameras(camerasRes.value);
-      } else {
-        errors.push("cameras");
-      }
+    const scheduleSource = <T,>(
+      label: string,
+      url: string,
+      intervalMs: number,
+      setState: (value: T) => void,
+    ) => {
+      const timer = setInterval(() => {
+        void loadSource<T>(label, url, intervalMs, setState);
+      }, intervalMs);
+      timers.push(timer);
+    };
 
-      if (weatherRes.status === "fulfilled") {
-        setWeather(weatherRes.value);
-      } else {
-        errors.push("weather");
-      }
+    void Promise.all([
+      loadSource<BusStop[]>(
+        "bus stops",
+        "/api/bus-stops",
+        SOURCE_REFRESH_MS.busStops,
+        setBusStops,
+      ),
+      loadSource<TrafficCamera[]>(
+        "cameras",
+        "/api/cameras",
+        SOURCE_REFRESH_MS.cameras,
+        setCameras,
+      ),
+      loadSource<WeatherData>(
+        "weather",
+        "/api/weather",
+        SOURCE_REFRESH_MS.weather,
+        setWeather,
+      ),
+      loadSource<NewsItem[]>(
+        "news",
+        "/api/news",
+        SOURCE_REFRESH_MS.news,
+        setNews,
+      ),
+      loadSource<FlightState[]>(
+        "flights",
+        "/api/flights",
+        SOURCE_REFRESH_MS.flights,
+        setFlights,
+      ),
+    ])
+      .catch((err: unknown) => {
+        if (!mounted) return;
+        setError(
+          err instanceof Error ? err.message : "Unknown dashboard error",
+        );
+      })
+      .finally(() => {
+        if (mounted) setBootComplete(true);
+      });
 
-      if (newsRes.status === "fulfilled") {
-        setNews(newsRes.value);
-      } else {
-        errors.push("news");
-      }
-
-      if (flightsRes.status === "fulfilled") {
-        setFlights(flightsRes.value);
-      } else {
-        errors.push("flights");
-      }
-
-      if (errors.length > 0) {
-        setError(`Some data sources failed: ${errors.join(", ")}`);
-      } else {
-        setError(null);
-      }
-      setBootComplete(true);
-    })().catch((err: unknown) => {
-      if (!mounted) return;
-      setError(err instanceof Error ? err.message : "Unknown dashboard error");
-      setBootComplete(true);
-    });
+    scheduleSource<BusStop[]>(
+      "bus stops",
+      "/api/bus-stops",
+      SOURCE_REFRESH_MS.busStops,
+      setBusStops,
+    );
+    scheduleSource<TrafficCamera[]>(
+      "cameras",
+      "/api/cameras",
+      SOURCE_REFRESH_MS.cameras,
+      setCameras,
+    );
+    scheduleSource<WeatherData>(
+      "weather",
+      "/api/weather",
+      SOURCE_REFRESH_MS.weather,
+      setWeather,
+    );
+    scheduleSource<NewsItem[]>(
+      "news",
+      "/api/news",
+      SOURCE_REFRESH_MS.news,
+      setNews,
+    );
+    scheduleSource<FlightState[]>(
+      "flights",
+      "/api/flights",
+      SOURCE_REFRESH_MS.flights,
+      setFlights,
+    );
 
     return () => {
       mounted = false;
-    };
-  }, []);
-
-  useEffect(() => {
-    const clockTimer = setInterval(() => setNow(new Date()), 1000);
-
-    return () => {
-      clearInterval(clockTimer);
+      timers.forEach((timer) => clearInterval(timer));
     };
   }, []);
 
@@ -165,22 +244,45 @@ export default function Home() {
   ];
 
   const sensorStatsRows = [
-    { label: "Inbound Flights", note: "approach vector", value: inboundFlights, tone: "text-[#63ffd6]" },
-    { label: "Outbound Flights", note: "departure vector", value: outboundFlights, tone: "text-[#ff9c7b]" },
-    { label: "Transit Flights", note: "crossing tracks", value: transitFlights, tone: "text-[#4fc8ff]" },
-    { label: "OSINT Feed", note: "news stream", value: news.length, tone: "text-[#79c9ff]" },
+    {
+      label: "Inbound Flights",
+      note: "approach vector",
+      value: inboundFlights,
+      tone: "text-[#63ffd6]",
+    },
+    {
+      label: "Outbound Flights",
+      note: "departure vector",
+      value: outboundFlights,
+      tone: "text-[#ff9c7b]",
+    },
+    {
+      label: "Transit Flights",
+      note: "crossing tracks",
+      value: transitFlights,
+      tone: "text-[#4fc8ff]",
+    },
+    {
+      label: "OSINT Feed",
+      note: "news stream",
+      value: news.length,
+      tone: "text-[#79c9ff]",
+    },
   ];
 
   const signalBars = [
     { label: "Incident Tempo", value: Math.min(100, news.length * 5) },
-    { label: "Mobility Density", value: Math.min(100, Math.round((busStops.length / 5500) * 100)) },
+    {
+      label: "Mobility Density",
+      value: Math.min(100, Math.round((busStops.length / 5500) * 100)),
+    },
     { label: "Air Inbound", value: Math.min(100, inboundFlights * 7) },
     { label: "Air Outbound", value: Math.min(100, outboundFlights * 7) },
     { label: "Sensor Uptime", value: 92 },
   ];
 
   if (!bootComplete) {
-    return <LoadingScreen now={now} />;
+    return <LoadingScreen />;
   }
 
   return (
@@ -193,13 +295,21 @@ export default function Home() {
             </div>
           </div>
           <div className="flex w-full items-center gap-2 overflow-x-auto pb-1 text-[11px] uppercase tracking-[0.14em] sm:w-auto sm:overflow-visible sm:pb-0">
-            <HeaderChip label="Visuals" value="Full" className="hidden sm:inline-flex" />
-            <HeaderChip label="Sweep" value="30.1s" className="hidden sm:inline-flex" />
             <HeaderChip
-              label={now.toLocaleDateString("en-SG", { month: "short", day: "numeric", year: "numeric" })}
-              value={now.toLocaleTimeString("en-SG")}
+              label="Visuals"
+              value="Full"
+              className="hidden sm:inline-flex"
             />
-            <HeaderChip label="Sources" value={`${news.length + flights.length}/${busStops.length}`} />
+            <HeaderChip
+              label="Sweep"
+              value="30.1s"
+              className="hidden sm:inline-flex"
+            />
+            <HeaderClock />
+            <HeaderChip
+              label="Sources"
+              value={`${news.length + flights.length}/${busStops.length}`}
+            />
             <span className="rounded-sm border border-red-400/50 bg-red-500/10 px-3 py-1 font-semibold text-red-100">
               High Alert
             </span>
@@ -208,7 +318,9 @@ export default function Home() {
       </header>
 
       {error ? (
-        <div className="rounded border border-red-400/40 bg-red-950/30 px-3 py-2 text-sm text-red-200">{error}</div>
+        <div className="rounded border border-red-400/40 bg-red-950/30 px-3 py-2 text-sm text-red-200">
+          {error}
+        </div>
       ) : null}
 
       <main className="grid grid-cols-1 gap-3 lg:min-h-0 lg:flex-1 xl:grid-cols-[260px_minmax(0,1fr)_320px]">
@@ -222,14 +334,21 @@ export default function Home() {
                 >
                   <div>
                     <div className="text-xs text-[#cfe6f5]">{row.label}</div>
-                    <div className="text-[10px] uppercase tracking-[0.1em] text-[#6d90a8]">{row.note}</div>
+                    <div className="text-[10px] uppercase tracking-widest text-[#6d90a8]">
+                      {row.note}
+                    </div>
                   </div>
                   <div className="flex items-center gap-2">
                     <button
                       type="button"
                       onClick={() =>
-                        setSensorVisibility((prev) => ({ ...prev, [row.key]: !prev[row.key] }))
+                        setSensorVisibility((prev) => ({
+                          ...prev,
+                          [row.key]: !prev[row.key],
+                        }))
                       }
+                      aria-label={`${sensorVisibility[row.key] ? "Hide" : "Show"} ${row.label}`}
+                      aria-pressed={sensorVisibility[row.key]}
                       className={`rounded-sm border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] ${
                         sensorVisibility[row.key]
                           ? "border-emerald-300/60 bg-emerald-400/15 text-emerald-200"
@@ -238,7 +357,11 @@ export default function Home() {
                     >
                       {sensorVisibility[row.key] ? "On" : "Off"}
                     </button>
-                    <div className={`min-w-8 text-right text-lg font-semibold ${row.tone}`}>{row.value}</div>
+                    <div
+                      className={`min-w-8 text-right text-lg font-semibold ${row.tone}`}
+                    >
+                      {row.value}
+                    </div>
                   </div>
                 </div>
               ))}
@@ -249,20 +372,28 @@ export default function Home() {
                 >
                   <div>
                     <div className="text-xs text-[#cfe6f5]">{row.label}</div>
-                    <div className="text-[10px] uppercase tracking-[0.1em] text-[#6d90a8]">{row.note}</div>
+                    <div className="text-[10px] uppercase tracking-widest text-[#6d90a8]">
+                      {row.note}
+                    </div>
                   </div>
-                  <div className={`text-lg font-semibold ${row.tone}`}>{row.value}</div>
+                  <div className={`text-lg font-semibold ${row.tone}`}>
+                    {row.value}
+                  </div>
                 </div>
               ))}
             </div>
           </IntelPanel>
 
           <WeatherPanel weather={weather} />
-          <FlightPanel flights={flights} selectedFlight={selectedFlight} onSelectFlight={setSelectedFlight} />
+          <FlightPanel
+            flights={flights}
+            selectedFlight={selectedFlight}
+            onSelectFlight={setSelectedFlight}
+          />
         </aside>
 
         <section className="order-1 grid gap-3 xl:order-2 xl:min-h-0 xl:grid-rows-[minmax(0,1fr)_minmax(240px,38%)]">
-          <section className="relative h-[46vh] min-h-[280px] overflow-hidden rounded-md border border-cyan-400/25 bg-[#04101a] shadow-[0_0_28px_rgba(18,149,226,0.14)] xl:h-auto xl:min-h-0">
+          <section className="relative h-[46vh] min-h-70 overflow-hidden rounded-md border border-cyan-400/25 bg-[#04101a] shadow-[0_0_28px_rgba(18,149,226,0.14)] xl:h-auto xl:min-h-0">
             <Map
               busStops={busStops}
               cameras={cameras}
@@ -309,7 +440,11 @@ export default function Home() {
               />
             </div>
             <div className="min-h-0 overflow-auto">
-              <BusPanel busStops={busStops} selectedStop={selectedStop} onSelectStop={setSelectedStop} />
+              <BusPanel
+                busStops={busStops}
+                selectedStop={selectedStop}
+                onSelectStop={setSelectedStop}
+              />
             </div>
             <div className="min-h-0 overflow-auto">
               <NewsPanel news={news} />
@@ -333,9 +468,15 @@ export default function Home() {
                 >
                   <div className="mb-1 flex items-center justify-between gap-2 text-[10px] uppercase tracking-[0.12em] text-[#74a7c7]">
                     <span>{item.source}</span>
-                    <span suppressHydrationWarning>{new Date(item.publishedAt).toLocaleTimeString("en-SG")}</span>
+                    <span suppressHydrationWarning>
+                      {new Date(item.publishedAt).toLocaleTimeString("en-SG", {
+                        timeZone: "Asia/Singapore",
+                      })}
+                    </span>
                   </div>
-                  <div className="line-clamp-3 text-xs text-[#d8ecf8]">{item.title}</div>
+                  <div className="line-clamp-3 text-xs text-[#d8ecf8]">
+                    {item.title}
+                  </div>
                 </a>
               ))}
             </div>
@@ -344,30 +485,54 @@ export default function Home() {
           <IntelPanel title="Signal Core" badge="Hot Metrics">
             <div className="space-y-2">
               {signalBars.map((item) => (
-                <SignalBar key={item.label} label={item.label} value={item.value} />
+                <SignalBar
+                  key={item.label}
+                  label={item.label}
+                  value={item.value}
+                />
               ))}
             </div>
           </IntelPanel>
 
-          <IntelPanel title="Target Focus" badge={selectedFlight ? "Flight Locked" : "Standby"}>
+          <IntelPanel
+            title="Target Focus"
+            badge={selectedFlight ? "Flight Locked" : "Standby"}
+          >
             {selectedFlight ? (
               <div className="space-y-2 text-xs">
                 <div className="rounded-sm border border-cyan-500/20 bg-[#061428]/70 p-2">
-                  <div className="text-sm font-semibold text-[#90f5ff]">{selectedFlight.callsign}</div>
-                  <div className="text-[11px] uppercase tracking-[0.1em] text-[#6f9eb8]">
+                  <div className="text-sm font-semibold text-[#90f5ff]">
+                    {selectedFlight.callsign}
+                  </div>
+                  <div className="text-[11px] uppercase tracking-widest text-[#6f9eb8]">
                     {selectedFlight.originCountry}
                   </div>
                 </div>
-                <KeyValue label="Direction" value={selectedFlight.direction.toUpperCase()} />
-                <KeyValue label="Altitude" value={formatAltitudeFeet(selectedFlight.altitude)} />
-                <KeyValue label="Speed" value={formatSpeedKmh(selectedFlight.velocity)} />
+                <KeyValue
+                  label="Direction"
+                  value={selectedFlight.direction.toUpperCase()}
+                />
+                <KeyValue
+                  label="Altitude"
+                  value={formatAltitudeFeet(selectedFlight.altitude)}
+                />
+                <KeyValue
+                  label="Speed"
+                  value={formatSpeedKmh(selectedFlight.velocity)}
+                />
                 <KeyValue
                   label="Track"
-                  value={selectedFlight.track !== null ? `${Math.round(selectedFlight.track)}°` : "N/A"}
+                  value={
+                    selectedFlight.track !== null
+                      ? `${Math.round(selectedFlight.track)}°`
+                      : "N/A"
+                  }
                 />
               </div>
             ) : (
-              <div className="text-xs text-[#789cb3]">Select a flight icon on the map to inspect its live vector.</div>
+              <div className="text-xs text-[#789cb3]">
+                Select a flight icon on the map to inspect its live vector.
+              </div>
             )}
           </IntelPanel>
         </aside>
@@ -376,15 +541,47 @@ export default function Home() {
   );
 }
 
-function HeaderChip({ label, value, className }: { label: string; value: string; className?: string }) {
+function HeaderClock() {
+  const [now, setNow] = useState(() => new Date());
+
+  useEffect(() => {
+    const clockTimer = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(clockTimer);
+  }, []);
+
   return (
-    <span className={`inline-flex rounded-sm border border-cyan-400/25 bg-[#051728]/70 px-2 py-1 text-[#9ec7df] ${className ?? ""}`}>
+    <HeaderChip
+      label={now.toLocaleDateString("en-SG", {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+        timeZone: "Asia/Singapore",
+      })}
+      value={now.toLocaleTimeString("en-SG", { timeZone: "Asia/Singapore" })}
+    />
+  );
+}
+
+function HeaderChip({
+  label,
+  value,
+  className,
+}: {
+  label: string;
+  value: string;
+  className?: string;
+}) {
+  return (
+    <span
+      className={`inline-flex rounded-sm border border-cyan-400/25 bg-[#051728]/70 px-2 py-1 text-[#9ec7df] ${className ?? ""}`}
+    >
       <span className="text-[#5c86a1]">{label}</span> {value}
     </span>
   );
 }
 
-function LoadingScreen({ now }: { now: Date }) {
+function LoadingScreen() {
+  const [bootTime] = useState(() => new Date());
   const [progress, setProgress] = useState(0);
   const [logIndex, setLogIndex] = useState(0);
   const sources = [
@@ -435,7 +632,7 @@ function LoadingScreen({ now }: { now: Date }) {
 
   return (
     <div className="grid h-screen place-items-center overflow-hidden bg-[#020913] px-4 text-terminal-text">
-      <div className="absolute inset-0 bg-[linear-gradient(rgba(33,108,156,0.08)_1px,transparent_1px),linear-gradient(90deg,rgba(33,108,156,0.08)_1px,transparent_1px)] bg-[size:72px_72px]" />
+      <div className="absolute inset-0 bg-[linear-gradient(rgba(33,108,156,0.08)_1px,transparent_1px),linear-gradient(90deg,rgba(33,108,156,0.08)_1px,transparent_1px)] bg-size-[72px_72px]" />
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_50%,rgba(42,166,255,0.08),transparent_60%)]" />
 
       <div className="relative w-full max-w-3xl rounded-lg border border-cyan-400/25 bg-[#04111e]/95 p-6 shadow-[0_0_60px_rgba(42,166,255,0.18)] backdrop-blur-sm">
@@ -455,7 +652,11 @@ function LoadingScreen({ now }: { now: Date }) {
           </div>
           <div className="hidden rounded-sm border border-cyan-400/25 bg-[#051728]/70 px-3 py-2 text-right text-[11px] uppercase tracking-[0.14em] text-[#9ec7df] sm:block">
             <div className="text-[#5c86a1]">Boot Time</div>
-            <div suppressHydrationWarning>{now.toLocaleTimeString("en-SG")}</div>
+            <div suppressHydrationWarning>
+              {bootTime.toLocaleTimeString("en-SG", {
+                timeZone: "Asia/Singapore",
+              })}
+            </div>
           </div>
         </div>
 
@@ -513,8 +714,10 @@ function LoadingScreen({ now }: { now: Date }) {
         <div className="mb-4 h-28 overflow-hidden rounded-sm border border-cyan-500/15 bg-[#020b14]/80 p-3 font-mono text-[11px] leading-relaxed">
           {bootLogs.slice(0, logIndex + 1).map((log, i) => (
             <div key={i} className="flex items-center gap-2">
-              <span className="text-[#3fd3ff]">{'>'}</span>
-              <span className={i === logIndex ? "text-[#cfe6f5]" : "text-[#7395a8]"}>
+              <span className="text-[#3fd3ff]">{">"}</span>
+              <span
+                className={i === logIndex ? "text-[#cfe6f5]" : "text-[#7395a8]"}
+              >
                 {log}
               </span>
               {i === logIndex && (
@@ -545,7 +748,9 @@ function LoadingScreen({ now }: { now: Date }) {
                   <div className="h-1.5 w-8 rounded-full bg-cyan-300/70" />
                   <div
                     className={`h-1.5 w-1.5 rounded-full transition-all duration-300 ${
-                      isOnline ? "bg-[#35f0ce] shadow-[0_0_6px_rgba(53,240,206,0.8)]" : "bg-[#0a2237]"
+                      isOnline
+                        ? "bg-[#35f0ce] shadow-[0_0_6px_rgba(53,240,206,0.8)]"
+                        : "bg-[#0a2237]"
                     }`}
                     style={{ transitionDelay: `${i * 80}ms` }}
                   />
@@ -553,8 +758,10 @@ function LoadingScreen({ now }: { now: Date }) {
                 <div className="text-[11px] uppercase tracking-[0.12em] text-[#cfe6f5]">
                   {source.label}
                 </div>
-                <div className="mt-1 text-[10px] uppercase tracking-[0.1em]">
-                  <span className={isOnline ? "text-[#35f0ce]" : "text-[#6d90a8]"}>
+                <div className="mt-1 text-[10px] uppercase tracking-widest">
+                  <span
+                    className={isOnline ? "text-[#35f0ce]" : "text-[#6d90a8]"}
+                  >
                     {isOnline ? "Online" : "Syncing..."}
                   </span>
                 </div>
@@ -594,13 +801,13 @@ function IntelPanel({
 function SignalBar({ label, value }: { label: string; value: number }) {
   return (
     <div className="rounded-sm border border-cyan-500/15 bg-[#071629]/65 p-2">
-      <div className="mb-1 flex items-center justify-between text-[11px] uppercase tracking-[0.1em] text-[#8cb2c8]">
+      <div className="mb-1 flex items-center justify-between text-[11px] uppercase tracking-widest text-[#8cb2c8]">
         <span>{label}</span>
         <span className="text-cyan-200">{value}</span>
       </div>
       <div className="h-1.5 w-full overflow-hidden rounded bg-[#0a2237]">
         <div
-          className="h-full rounded bg-gradient-to-r from-[#35f0ce] via-[#3fb9ff] to-[#6e9dff]"
+          className="h-full rounded bg-linear-to-r from-[#35f0ce] via-[#3fb9ff] to-[#6e9dff]"
           style={{ width: `${value}%` }}
         />
       </div>
@@ -611,7 +818,9 @@ function SignalBar({ label, value }: { label: string; value: number }) {
 function KeyValue({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex items-center justify-between rounded-sm border border-cyan-500/15 bg-[#071629]/65 px-2 py-1.5">
-      <span className="text-[11px] uppercase tracking-[0.1em] text-[#7ea4bc]">{label}</span>
+      <span className="text-[11px] uppercase tracking-widest text-[#7ea4bc]">
+        {label}
+      </span>
       <span className="text-xs text-[#d8ecf8]">{value}</span>
     </div>
   );

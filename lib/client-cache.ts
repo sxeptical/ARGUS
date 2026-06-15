@@ -4,6 +4,7 @@ type CacheEntry<T> = {
 };
 
 const cache = new Map<string, CacheEntry<unknown>>();
+const inFlight = new Map<string, Promise<unknown>>();
 
 const DEFAULT_TTL_MS = 15 * 1000; // 15 seconds
 
@@ -18,12 +19,25 @@ export async function cachedClientFetch<T>(
     return entry.data as T;
   }
 
-  const response = await fetch(url);
-  if (!response.ok) {
-    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+  const pending = inFlight.get(url);
+  if (pending) {
+    return pending as Promise<T>;
   }
 
-  const data = (await response.json()) as T;
-  cache.set(url, { data, expiry: now + ttlMs });
-  return data;
+  const request = fetch(url, { cache: "no-store" })
+    .then(async (response) => {
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      const data = (await response.json()) as T;
+      cache.set(url, { data, expiry: Date.now() + ttlMs });
+      return data;
+    })
+    .finally(() => {
+      inFlight.delete(url);
+    });
+
+  inFlight.set(url, request);
+  return request;
 }

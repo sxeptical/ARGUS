@@ -161,6 +161,7 @@ After editing env vars in Vercel, redeploy the project. Vercel deployments do no
 
 - Flight direction is best-effort. Aviationstack airport metadata is used when available; otherwise heading relative to Changi is used.
 - Serverless memory is not guaranteed across Vercel invocations, so cached fallbacks help during warm periods but should not be treated as durable storage.
+- The bundled cache and rate limiter are in-memory, per-runtime-instance protections. Use Redis/KV or another shared store if you need cross-instance enforcement in production.
 - API rate limits matter. Flight polling is the most likely source of quota pressure.
 
 ---

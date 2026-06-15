@@ -1,5 +1,3 @@
-"use client";
-
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import TerminalPanel from "@/app/components/TerminalPanel";
@@ -10,7 +8,10 @@ type CameraPanelProps = {
   selectedCamera: TrafficCamera | null;
 };
 
-export default function CameraPanel({ cameras, selectedCamera }: CameraPanelProps) {
+export default function CameraPanel({
+  cameras,
+  selectedCamera,
+}: CameraPanelProps) {
   const [expanded, setExpanded] = useState<TrafficCamera | null>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
@@ -60,7 +61,9 @@ export default function CameraPanel({ cameras, selectedCamera }: CameraPanelProp
 
   const displayCameras = useMemo(() => {
     if (selectedCamera) {
-      const rest = cameras.filter((camera) => camera.CameraID !== selectedCamera.CameraID).slice(0, 5);
+      const rest = cameras
+        .filter((camera) => camera.CameraID !== selectedCamera.CameraID)
+        .slice(0, 5);
       return [selectedCamera, ...rest];
     }
 
@@ -69,7 +72,16 @@ export default function CameraPanel({ cameras, selectedCamera }: CameraPanelProp
 
   return (
     <>
-      <TerminalPanel title="ROAD CAMERAS" contentClassName="min-h-40 sm:min-h-52">
+      <TerminalPanel
+        title="ROAD CAMERAS"
+        contentClassName="min-h-40 sm:min-h-52"
+      >
+        {displayCameras.length === 0 ? (
+          <div className="terminal-dim text-[11px]">
+            No traffic camera images are currently available.
+          </div>
+        ) : null}
+
         <div className="grid grid-cols-2 gap-2">
           {displayCameras.map((camera) => (
             <button
@@ -88,7 +100,9 @@ export default function CameraPanel({ cameras, selectedCamera }: CameraPanelProp
                 loading="lazy"
                 unoptimized
               />
-              <div className="truncate px-2 py-1 text-[11px] terminal-dim">{camera.location}</div>
+              <div className="truncate px-2 py-1 text-[11px] terminal-dim">
+                {camera.location}
+              </div>
             </button>
           ))}
         </div>

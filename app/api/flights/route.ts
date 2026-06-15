@@ -1,12 +1,12 @@
 import { getFlights } from "@/lib/api-clients";
-import { checkGlobalRateLimit, extractClientIp } from "@/lib/rate-limit";
+import { getRateLimitResponse } from "@/lib/route-utils";
 
 export async function GET(request: Request) {
-  const ip = extractClientIp(request);
-  const { allowed } = checkGlobalRateLimit(ip);
-  if (!allowed) {
-    return Response.json({ error: "Too many requests" }, { status: 429 });
-  }
+  const rateLimited = getRateLimitResponse(request, {
+    scope: "flights",
+    maxRequests: 60,
+  });
+  if (rateLimited) return rateLimited;
 
   try {
     const data = await getFlights();

@@ -43,10 +43,15 @@ function getAviationStackApiKey(): string {
   return apiKey;
 }
 
-function fetchWithTimeout(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+function fetchWithTimeout(
+  input: RequestInfo | URL,
+  init?: RequestInit,
+): Promise<Response> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
-  return fetch(input, { ...init, signal: controller.signal }).finally(() => clearTimeout(timer));
+  return fetch(input, { ...init, signal: controller.signal }).finally(() =>
+    clearTimeout(timer),
+  );
 }
 
 async function ltaFetch<T>(endpoint: string): Promise<T | null> {
@@ -75,25 +80,31 @@ async function ltaFetch<T>(endpoint: string): Promise<T | null> {
 const BUS_STOP_ID_RE = /^\d{5}$/;
 
 export async function getBusStops(): Promise<BusStop[]> {
-  return cachedFetch("bus-stops", async () => {
-    const allStops: BusStop[] = [];
-    let skip = 0;
-    const MAX_PAGES = 20;
+  return cachedFetch(
+    "bus-stops",
+    async () => {
+      const allStops: BusStop[] = [];
+      let skip = 0;
+      const MAX_PAGES = 20;
 
-    for (let pages = 0; pages < MAX_PAGES; pages++) {
-      const page = await ltaFetch<{ value: BusStop[] }>(`/BusStops?$skip=${skip}`);
-      if (!page || !Array.isArray(page.value)) break;
-      allStops.push(...page.value);
+      for (let pages = 0; pages < MAX_PAGES; pages++) {
+        const page = await ltaFetch<{ value: BusStop[] }>(
+          `/BusStops?$skip=${skip}`,
+        );
+        if (!page || !Array.isArray(page.value)) break;
+        allStops.push(...page.value);
 
-      if (page.value.length < 500) {
-        break;
+        if (page.value.length < 500) {
+          break;
+        }
+
+        skip += 500;
       }
 
-      skip += 500;
-    }
-
-    return allStops;
-  }, 24 * 60 * 60 * 1000);
+      return allStops;
+    },
+    24 * 60 * 60 * 1000,
+  );
 }
 
 export async function getBusArrivals(stopId: string): Promise<BusArrival[]> {
@@ -101,22 +112,26 @@ export async function getBusArrivals(stopId: string): Promise<BusArrival[]> {
     throw new Error("Invalid bus stop code");
   }
 
-  return cachedFetch(`bus-arrivals-${stopId}`, async () => {
-    const busStopCode = encodeURIComponent(stopId);
-    const primary = await ltaFetch<{ Services: BusArrival[] }>(
-      `/v3/BusArrival?BusStopCode=${busStopCode}`,
-    );
+  return cachedFetch(
+    `bus-arrivals-${stopId}`,
+    async () => {
+      const busStopCode = encodeURIComponent(stopId);
+      const primary = await ltaFetch<{ Services: BusArrival[] }>(
+        `/v3/BusArrival?BusStopCode=${busStopCode}`,
+      );
 
-    if (primary?.Services) {
-      return primary.Services;
-    }
+      if (primary?.Services) {
+        return primary.Services;
+      }
 
-    // Backward-compatibility fallback for older tenants/environments.
-    const fallback = await ltaFetch<{ Services: BusArrival[] }>(
-      `/BusArrivalv2?BusStopCode=${busStopCode}`,
-    );
-    return fallback?.Services ?? [];
-  }, 15 * 1000);
+      // Backward-compatibility fallback for older tenants/environments.
+      const fallback = await ltaFetch<{ Services: BusArrival[] }>(
+        `/BusArrivalv2?BusStopCode=${busStopCode}`,
+      );
+      return fallback?.Services ?? [];
+    },
+    15 * 1000,
+  );
 }
 
 type RawTrafficImage = {
@@ -130,6 +145,9 @@ type TrafficImageResponse =
   | { value: RawTrafficImage[] }
   | { value: Array<{ Cameras: RawTrafficImage[] }> };
 
+const SAFE_CAMERA_IMAGE_URL_RE =
+  /^https:\/\/(?:images\.data\.gov\.sg|datamall2\.mytransport\.sg)\//i;
+
 function hasCameras(
   entry: RawTrafficImage | { Cameras: RawTrafficImage[] },
 ): entry is { Cameras: RawTrafficImage[] } {
@@ -137,31 +155,48 @@ function hasCameras(
 }
 
 export async function getTrafficCameras(): Promise<TrafficCamera[]> {
-  return cachedFetch("traffic-cameras", async () => {
-    const payload = await ltaFetch<TrafficImageResponse>("/Traffic-Imagesv2");
-    if (!payload) return [];
+  return cachedFetch(
+    "traffic-cameras",
+    async () => {
+      const payload = await ltaFetch<TrafficImageResponse>("/Traffic-Imagesv2");
+      if (!payload) return [];
 
-    const value = payload.value ?? [];
-    const cameras = Array.isArray(value) && value.length > 0 && hasCameras(value[0])
-      ? value.flatMap((entry) => (hasCameras(entry) ? entry.Cameras : []))
-      : (value as RawTrafficImage[]);
+      const value = payload.value ?? [];
+      const cameras =
+        Array.isArray(value) && value.length > 0 && hasCameras(value[0])
+          ? value.flatMap((entry) => (hasCameras(entry) ? entry.Cameras : []))
+          : (value as RawTrafficImage[]);
 
-    return cameras.map((camera) => ({
-      ...camera,
-      location: `Camera ${camera.CameraID}`,
-    }));
-  }, 60 * 1000);
+      return cameras
+        .filter(
+          (camera) =>
+            typeof camera.CameraID === "string" &&
+            Number.isFinite(camera.Latitude) &&
+            Number.isFinite(camera.Longitude) &&
+            SAFE_CAMERA_IMAGE_URL_RE.test(camera.ImageLink),
+        )
+        .map((camera) => ({
+          ...camera,
+          location: `Camera ${camera.CameraID}`,
+        }));
+    },
+    60 * 1000,
+  );
 }
 
 type ForecastResponse = {
   area_metadata?: Array<{ name: string }>;
   items?: Array<{
+    timestamp?: string;
+    update_timestamp?: string;
     forecasts?: Array<{ area: string; forecast: string }>;
   }>;
 };
 
 type PsiResponse = {
   items?: Array<{
+    timestamp?: string;
+    update_timestamp?: string;
     readings?: {
       psi_twenty_four_hourly?: {
         national?: number;
@@ -172,54 +207,92 @@ type PsiResponse = {
 
 type TemperatureResponse = {
   items?: Array<{
+    timestamp?: string;
+    update_timestamp?: string;
     readings?: Array<{ value: number }>;
   }>;
 };
 
-function getPsiStatus(psi: number): "Good" | "Moderate" | "Unhealthy" {
+function getPsiStatus(
+  psi: number | null,
+): "Good" | "Moderate" | "Unhealthy" | "Unknown" {
+  if (psi === null) return "Unknown";
   if (psi <= 50) return "Good";
   if (psi <= 100) return "Moderate";
   return "Unhealthy";
 }
 
-function average(values: number[]): number {
-  if (values.length === 0) return 0;
-  return Math.round(values.reduce((acc, item) => acc + item, 0) / values.length);
+function average(values: number[]): number | null {
+  const finiteValues = values.filter((value) => Number.isFinite(value));
+  if (finiteValues.length === 0) return null;
+  return Math.round(
+    finiteValues.reduce((acc, item) => acc + item, 0) / finiteValues.length,
+  );
+}
+
+function latestIsoTimestamp(values: Array<string | undefined>): string {
+  const timestamps = values
+    .map((value) => (value ? Date.parse(value) : Number.NaN))
+    .filter((value) => Number.isFinite(value));
+
+  if (timestamps.length === 0) return new Date().toISOString();
+  return new Date(Math.max(...timestamps)).toISOString();
 }
 
 export async function getWeather(): Promise<WeatherData> {
-  return cachedFetch("weather", async () => {
-    const [forecastResponse, psiResponse, temperatureResponse] = await Promise.all([
-      fetchWithTimeout(`${DATA_GOV_BASE_URL}/2-hour-weather-forecast`, { cache: "no-store" }),
-      fetchWithTimeout(`${DATA_GOV_BASE_URL}/psi`, { cache: "no-store" }),
-      fetchWithTimeout(`${DATA_GOV_BASE_URL}/air-temperature`, { cache: "no-store" }),
-    ]);
+  return cachedFetch(
+    "weather",
+    async () => {
+      const [forecastResponse, psiResponse, temperatureResponse] =
+        await Promise.all([
+          fetchWithTimeout(`${DATA_GOV_BASE_URL}/2-hour-weather-forecast`, {
+            cache: "no-store",
+          }),
+          fetchWithTimeout(`${DATA_GOV_BASE_URL}/psi`, { cache: "no-store" }),
+          fetchWithTimeout(`${DATA_GOV_BASE_URL}/air-temperature`, {
+            cache: "no-store",
+          }),
+        ]);
 
-    if (!forecastResponse.ok || !psiResponse.ok || !temperatureResponse.ok) {
-      throw new Error("Failed to fetch weather resources from data.gov.sg");
-    }
+      if (!forecastResponse.ok || !psiResponse.ok || !temperatureResponse.ok) {
+        throw new Error("Failed to fetch weather resources from data.gov.sg");
+      }
 
-    const forecastData = (await forecastResponse.json()) as ForecastResponse;
-    const psiData = (await psiResponse.json()) as PsiResponse;
-    const temperatureData = (await temperatureResponse.json()) as TemperatureResponse;
+      const forecastData = (await forecastResponse.json()) as ForecastResponse;
+      const psiData = (await psiResponse.json()) as PsiResponse;
+      const temperatureData =
+        (await temperatureResponse.json()) as TemperatureResponse;
 
-    const area = forecastData.area_metadata?.[0]?.name ?? "Singapore";
-    const forecast =
-      forecastData.items?.[0]?.forecasts?.find((item) => item.area === area)?.forecast ??
-      "No forecast available";
+      const area = forecastData.area_metadata?.[0]?.name ?? "Singapore";
+      const forecast =
+        forecastData.items?.[0]?.forecasts?.find((item) => item.area === area)
+          ?.forecast ?? "No forecast available";
 
-    const psi = psiData.items?.[0]?.readings?.psi_twenty_four_hourly?.national ?? 0;
-    const readings = temperatureData.items?.[0]?.readings?.map((reading) => reading.value) ?? [];
+      const rawPsi =
+        psiData.items?.[0]?.readings?.psi_twenty_four_hourly?.national;
+      const psi = Number.isFinite(rawPsi) ? (rawPsi as number) : null;
+      const readings =
+        temperatureData.items?.[0]?.readings?.map((reading) => reading.value) ??
+        [];
 
-    return {
-      temperature: average(readings),
-      humidity: 0,
-      psi,
-      psiStatus: getPsiStatus(psi),
-      forecast,
-      lastUpdated: new Date().toISOString(),
-    };
-  }, 5 * 60 * 1000);
+      return {
+        temperature: average(readings),
+        humidity: null,
+        psi,
+        psiStatus: getPsiStatus(psi),
+        forecast,
+        lastUpdated: latestIsoTimestamp([
+          forecastData.items?.[0]?.update_timestamp,
+          forecastData.items?.[0]?.timestamp,
+          psiData.items?.[0]?.update_timestamp,
+          psiData.items?.[0]?.timestamp,
+          temperatureData.items?.[0]?.update_timestamp,
+          temperatureData.items?.[0]?.timestamp,
+        ]),
+      };
+    },
+    5 * 60 * 1000,
+  );
 }
 
 const SAFE_URL_RE = /^https?:\/\//i;
@@ -245,10 +318,17 @@ function parseRssItems(xml: string, source: string): NewsItem[] {
         title,
         source,
         url: link,
-        publishedAt: new Date(publishedAt || Date.now()).toISOString(),
+        publishedAt: toIsoDate(publishedAt),
       } satisfies NewsItem;
     })
     .filter((item): item is NewsItem => item !== null);
+}
+
+function toIsoDate(value: string): string {
+  const timestamp = value ? Date.parse(value) : Date.now();
+  return new Date(
+    Number.isFinite(timestamp) ? timestamp : Date.now(),
+  ).toISOString();
 }
 
 function extractRssTag(xml: string, tag: string): string {
@@ -264,48 +344,58 @@ function extractRssTag(xml: string, tag: string): string {
 }
 
 export async function getNews(): Promise<NewsItem[]> {
-  return cachedFetch("news", async () => {
-    const rssFeeds = [
-      { source: "The Straits Times", url: "https://www.straitstimes.com/news/singapore/rss.xml" },
-      { source: "CNA", url: "https://www.channelnewsasia.com/api/v1/rss-outbound-feed?_format=xml" },
-    ] as const;
+  return cachedFetch(
+    "news",
+    async () => {
+      const rssFeeds = [
+        {
+          source: "The Straits Times",
+          url: "https://www.straitstimes.com/news/singapore/rss.xml",
+        },
+        {
+          source: "CNA",
+          url: "https://www.channelnewsasia.com/api/v1/rss-outbound-feed?_format=xml",
+        },
+      ] as const;
 
-    const rssResults = await Promise.all(
-      rssFeeds.map(async ({ source, url }) => {
-        try {
-          const response = await fetchWithTimeout(url, { cache: "no-store" });
-          if (!response.ok) return [];
+      const rssResults = await Promise.all(
+        rssFeeds.map(async ({ source, url }) => {
+          try {
+            const response = await fetchWithTimeout(url, { cache: "no-store" });
+            if (!response.ok) return [];
 
-          const contentLength = response.headers.get("content-length");
-          if (contentLength && Number(contentLength) > MAX_RSS_BYTES) {
+            const contentLength = response.headers.get("content-length");
+            if (contentLength && Number(contentLength) > MAX_RSS_BYTES) {
+              return [];
+            }
+
+            const xml = await response.text();
+            if (xml.length > MAX_RSS_BYTES) return [];
+            return parseRssItems(xml, source);
+          } catch {
             return [];
           }
+        }),
+      );
 
-          const xml = await response.text();
-          if (xml.length > MAX_RSS_BYTES) return [];
-          return parseRssItems(xml, source);
-        } catch {
-          return [];
-        }
-      }),
-    );
+      const merged = rssResults.flat();
+      if (merged.length > 0) {
+        return merged
+          .sort((a, b) => +new Date(b.publishedAt) - +new Date(a.publishedAt))
+          .slice(0, 20);
+      }
 
-    const merged = rssResults.flat();
-    if (merged.length > 0) {
-      return merged
-        .sort((a, b) => +new Date(b.publishedAt) - +new Date(a.publishedAt))
-        .slice(0, 20);
-    }
-
-    return [
-      {
-        title: "News feeds are currently unavailable",
-        source: "System",
-        url: "#",
-        publishedAt: new Date().toISOString(),
-      },
-    ];
-  }, 15 * 60 * 1000);
+      return [
+        {
+          title: "News feeds are currently unavailable",
+          source: "System",
+          url: "#",
+          publishedAt: new Date().toISOString(),
+        },
+      ];
+    },
+    15 * 60 * 1000,
+  );
 }
 
 type AviationStackFlight = {
@@ -382,7 +472,7 @@ type OpenSkyResponse = {
 const SG_BOUNDS = {
   lamin: 1.15,
   lomin: 103.45,
-  lamax: 1.50,
+  lamax: 1.5,
   lomax: 104.15,
 };
 
@@ -392,33 +482,42 @@ const FLIGHTS_FALLBACK_MAX_AGE_MS = 10 * 60 * 1000; // 10 minutes
 const CHANGI_COORDS = { lat: 1.3644, lon: 103.9915 };
 
 export async function getFlights(): Promise<FlightState[]> {
-  return cachedFetch("flights-sg", async () => {
-    let flights: FlightState[] = [];
+  return cachedFetch(
+    "flights-sg",
+    async () => {
+      let flights: FlightState[] = [];
 
-    try {
-      flights = await Promise.any([
-        fetchFlightsFromAviationStack(),
-        fetchFlightsFromOpenSky(),
-      ]);
-    } catch {
-      // Both providers failed
-    }
+      try {
+        flights = await fetchFlightsFromAviationStack();
+      } catch (error) {
+        console.warn("Aviationstack flight provider unavailable", error);
+      }
 
-    const sorted = flights
-      .sort((a, b) => (b.velocity ?? 0) - (a.velocity ?? 0))
-      .slice(0, 120);
+      if (flights.length === 0) {
+        try {
+          flights = await fetchFlightsFromOpenSky();
+        } catch (error) {
+          console.warn("OpenSky flight provider unavailable", error);
+        }
+      }
 
-    if (sorted.length > 0) {
-      setCachedValue(FLIGHTS_FALLBACK_KEY, sorted);
-      return sorted;
-    }
+      const sorted = flights
+        .sort((a, b) => (b.velocity ?? 0) - (a.velocity ?? 0))
+        .slice(0, 120);
 
-    return cachedFetch<FlightState[]>(
-      FLIGHTS_FALLBACK_KEY,
-      async () => [],
-      FLIGHTS_FALLBACK_MAX_AGE_MS,
-    );
-  }, 15 * 1000);
+      if (sorted.length > 0) {
+        setCachedValue(FLIGHTS_FALLBACK_KEY, sorted);
+        return sorted;
+      }
+
+      return cachedFetch<FlightState[]>(
+        FLIGHTS_FALLBACK_KEY,
+        async () => [],
+        FLIGHTS_FALLBACK_MAX_AGE_MS,
+      );
+    },
+    15 * 1000,
+  );
 }
 const SG_AIRPORT_ICAO = new Set(["WSSS", "WSSL"]);
 const SG_AIRPORT_IATA = new Set(["SIN", "XSP"]);
@@ -433,7 +532,12 @@ function absoluteBearingDiff(a: number, b: number): number {
   return diff > 180 ? 360 - diff : diff;
 }
 
-function bearingDegrees(fromLat: number, fromLon: number, toLat: number, toLon: number): number {
+function bearingDegrees(
+  fromLat: number,
+  fromLon: number,
+  toLat: number,
+  toLon: number,
+): number {
   const fromLatRad = (fromLat * Math.PI) / 180;
   const fromLonRad = (fromLon * Math.PI) / 180;
   const toLatRad = (toLat * Math.PI) / 180;
@@ -472,13 +576,20 @@ function normalizeCode(code?: string | null): string {
   return (code ?? "").trim().toUpperCase();
 }
 
-function isSingaporeAirport(icao?: string | null, iata?: string | null): boolean {
+function isSingaporeAirport(
+  icao?: string | null,
+  iata?: string | null,
+): boolean {
   const normalizedIcao = normalizeCode(icao);
   const normalizedIata = normalizeCode(iata);
-  return SG_AIRPORT_ICAO.has(normalizedIcao) || SG_AIRPORT_IATA.has(normalizedIata);
+  return (
+    SG_AIRPORT_ICAO.has(normalizedIcao) || SG_AIRPORT_IATA.has(normalizedIata)
+  );
 }
 
-function toFlightStateFromAviationStack(item: AviationStackFlight): FlightState | null {
+function toFlightStateFromAviationStack(
+  item: AviationStackFlight,
+): FlightState | null {
   const live = item.live;
   const latitude = live?.latitude;
   const longitude = live?.longitude;
@@ -490,38 +601,60 @@ function toFlightStateFromAviationStack(item: AviationStackFlight): FlightState 
 
   const flightLatitude = latitude as number;
   const flightLongitude = longitude as number;
-  const flightTrack = Number.isFinite(live?.direction) ? (live?.direction as number) : null;
+  const flightTrack = Number.isFinite(live?.direction)
+    ? (live?.direction as number)
+    : null;
 
-  const depIsSingapore = isSingaporeAirport(item.departure?.icao, item.departure?.iata);
-  const arrIsSingapore = isSingaporeAirport(item.arrival?.icao, item.arrival?.iata);
-  const direction: FlightDirection = arrIsSingapore && !depIsSingapore
-    ? "inbound"
-    : depIsSingapore && !arrIsSingapore
-      ? "outbound"
-      : classifyFlightDirection(flightLatitude, flightLongitude, flightTrack);
+  const depIsSingapore = isSingaporeAirport(
+    item.departure?.icao,
+    item.departure?.iata,
+  );
+  const arrIsSingapore = isSingaporeAirport(
+    item.arrival?.icao,
+    item.arrival?.iata,
+  );
+  const direction: FlightDirection =
+    arrIsSingapore && !depIsSingapore
+      ? "inbound"
+      : depIsSingapore && !arrIsSingapore
+        ? "outbound"
+        : classifyFlightDirection(flightLatitude, flightLongitude, flightTrack);
 
-  const flightCode = item.flight?.icao?.trim()
-    || item.flight?.iata?.trim()
-    || `${item.airline?.iata?.trim() ?? ""}${item.flight?.number?.trim() ?? ""}`.trim();
-  const icao24 = item.aircraft?.icao24?.trim()
-    || item.aircraft?.registration?.trim()
-    || flightCode
-    || "unknown";
+  const flightCode =
+    item.flight?.icao?.trim() ||
+    item.flight?.iata?.trim() ||
+    `${item.airline?.iata?.trim() ?? ""}${item.flight?.number?.trim() ?? ""}`.trim();
+  const icao24 =
+    item.aircraft?.icao24?.trim() ||
+    item.aircraft?.registration?.trim() ||
+    flightCode ||
+    "unknown";
   const callsign = flightCode || icao24.toUpperCase();
 
   const velocityKmh = live?.speed_horizontal;
   const verticalKmh = live?.speed_vertical;
-  const velocity = Number.isFinite(velocityKmh) ? (velocityKmh as number) / 3.6 : null;
-  const verticalRate = Number.isFinite(verticalKmh) ? (verticalKmh as number) / 3.6 : null;
-  const altitude = Number.isFinite(live?.altitude) ? (live?.altitude as number) : null;
+  const velocity = Number.isFinite(velocityKmh)
+    ? (velocityKmh as number) / 3.6
+    : null;
+  const verticalRate = Number.isFinite(verticalKmh)
+    ? (verticalKmh as number) / 3.6
+    : null;
+  const altitude = Number.isFinite(live?.altitude)
+    ? (live?.altitude as number)
+    : null;
   const lastContactMs = live?.updated ? Date.parse(live.updated) : Number.NaN;
-  const lastContact = Number.isFinite(lastContactMs) ? Math.floor(lastContactMs / 1000) : null;
+  const lastContact = Number.isFinite(lastContactMs)
+    ? Math.floor(lastContactMs / 1000)
+    : null;
 
   return {
     id: `${callsign}-${lastContact ?? 0}`,
     icao24,
     callsign,
-    originCountry: item.departure?.airport?.trim() || item.airline?.name?.trim() || "Unknown",
+    originCountry:
+      item.departure?.airport?.trim() ||
+      item.airline?.name?.trim() ||
+      "Unknown",
     latitude: flightLatitude,
     longitude: flightLongitude,
     altitude,
@@ -534,7 +667,9 @@ function toFlightStateFromAviationStack(item: AviationStackFlight): FlightState 
   };
 }
 
-function toFlightStateFromOpenSky(row: NonNullable<OpenSkyResponse["states"]>[number]): FlightState | null {
+function toFlightStateFromOpenSky(
+  row: NonNullable<OpenSkyResponse["states"]>[number],
+): FlightState | null {
   const icao24 = row[0]?.trim() ?? "";
   const callsign = row[1]?.trim() ?? "";
   const originCountry = row[2]?.trim() ?? "Unknown";
@@ -547,14 +682,23 @@ function toFlightStateFromOpenSky(row: NonNullable<OpenSkyResponse["states"]>[nu
   const verticalRate = row[11];
   const lastContact = row[4];
 
-  if (!icao24 || !Number.isFinite(latitude) || !Number.isFinite(longitude) || onGround) {
+  if (
+    !icao24 ||
+    !Number.isFinite(latitude) ||
+    !Number.isFinite(longitude) ||
+    onGround
+  ) {
     return null;
   }
 
   const flightLatitude = latitude as number;
   const flightLongitude = longitude as number;
   const flightTrack = Number.isFinite(track) ? track : null;
-  const direction = classifyFlightDirection(flightLatitude, flightLongitude, flightTrack);
+  const direction = classifyFlightDirection(
+    flightLatitude,
+    flightLongitude,
+    flightTrack,
+  );
 
   return {
     id: callsign || icao24,
@@ -590,13 +734,16 @@ async function fetchFlightsFromAviationStack(): Promise<FlightState[]> {
         ...filter,
       });
 
-      const response = await fetch(`${AVIATIONSTACK_BASE_URL}/flights?${params.toString()}`, {
-        signal: AbortSignal.timeout(FLIGHT_TIMEOUT_MS),
-        cache: "no-store",
-        headers: {
-          Accept: "application/json",
+      const response = await fetch(
+        `${AVIATIONSTACK_BASE_URL}/flights?${params.toString()}`,
+        {
+          signal: AbortSignal.timeout(FLIGHT_TIMEOUT_MS),
+          cache: "no-store",
+          headers: {
+            Accept: "application/json",
+          },
         },
-      });
+      );
 
       if (!response.ok) {
         throw new Error(`Aviationstack request failed (${response.status})`);
@@ -643,13 +790,16 @@ async function fetchFlightsFromOpenSky(): Promise<FlightState[]> {
     lomax: String(SG_BOUNDS.lomax),
   });
 
-  const response = await fetch(`${OPENSKY_BASE_URL}/states/all?${params.toString()}`, {
-    signal: AbortSignal.timeout(FLIGHT_TIMEOUT_MS),
-    cache: "no-store",
-    headers: {
-      Accept: "application/json",
+  const response = await fetch(
+    `${OPENSKY_BASE_URL}/states/all?${params.toString()}`,
+    {
+      signal: AbortSignal.timeout(FLIGHT_TIMEOUT_MS),
+      cache: "no-store",
+      headers: {
+        Accept: "application/json",
+      },
     },
-  });
+  );
 
   if (response.status === 404) {
     return [];

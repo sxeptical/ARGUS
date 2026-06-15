@@ -1,5 +1,3 @@
-"use client";
-
 import { useEffect, useMemo, useState } from "react";
 import TerminalPanel from "@/app/components/TerminalPanel";
 import type { BusArrival, BusStop } from "@/types";
@@ -10,7 +8,11 @@ type BusPanelProps = {
   onSelectStop?: (stop: BusStop) => void;
 };
 
-export default function BusPanel({ busStops, selectedStop, onSelectStop }: BusPanelProps) {
+export default function BusPanel({
+  busStops,
+  selectedStop,
+  onSelectStop,
+}: BusPanelProps) {
   const [search, setSearch] = useState("");
   const [arrivals, setArrivals] = useState<BusArrival[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -37,20 +39,26 @@ export default function BusPanel({ busStops, selectedStop, onSelectStop }: BusPa
     let cancelled = false;
     const stopCode = selectedStop.BusStopCode;
 
-    const loadArrivals = async () => {
+    const loadArrivals = async (initialLoad = false) => {
       try {
         if (!cancelled) {
           setLoading(true);
-          setArrivals([]);
           setError(null);
-          setExpandedService(null);
+          if (initialLoad) {
+            setArrivals([]);
+            setExpandedService(null);
+          }
         }
+
         const response = await fetch(
           `/api/bus-arrivals?stopId=${encodeURIComponent(stopCode)}`,
+          { cache: "no-store" },
         );
 
         if (!response.ok) {
-          const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+          const payload = (await response.json().catch(() => null)) as {
+            error?: string;
+          } | null;
           throw new Error(payload?.error || "Unable to fetch bus arrivals");
         }
 
@@ -59,7 +67,7 @@ export default function BusPanel({ busStops, selectedStop, onSelectStop }: BusPa
         setArrivals(data);
       } catch (err) {
         if (cancelled) return;
-        setArrivals([]);
+        if (initialLoad) setArrivals([]);
         setError(err instanceof Error ? err.message : "Unknown error");
       } finally {
         if (!cancelled) {
@@ -68,10 +76,14 @@ export default function BusPanel({ busStops, selectedStop, onSelectStop }: BusPa
       }
     };
 
-    void loadArrivals();
+    void loadArrivals(true);
+    const refreshTimer = setInterval(() => {
+      void loadArrivals(false);
+    }, 15 * 1000);
 
     return () => {
       cancelled = true;
+      clearInterval(refreshTimer);
     };
   }, [selectedStop]);
 
@@ -79,7 +91,9 @@ export default function BusPanel({ busStops, selectedStop, onSelectStop }: BusPa
   const visibleArrivals = useMemo(() => {
     if (!activeStop) return [];
 
-    return [...arrivals].sort((a, b) => compareServiceNumbers(a.ServiceNo, b.ServiceNo));
+    return [...arrivals].sort((a, b) =>
+      compareServiceNumbers(a.ServiceNo, b.ServiceNo),
+    );
   }, [activeStop, arrivals]);
 
   return (
@@ -109,7 +123,9 @@ export default function BusPanel({ busStops, selectedStop, onSelectStop }: BusPa
                   setSearch("");
                 }}
               >
-                <span className="terminal-cyan text-[11px]">{stop.BusStopCode}</span>{" "}
+                <span className="terminal-cyan text-[11px]">
+                  {stop.BusStopCode}
+                </span>{" "}
                 <span>{stop.Description}</span>
               </button>
             ))}
@@ -118,20 +134,26 @@ export default function BusPanel({ busStops, selectedStop, onSelectStop }: BusPa
 
         {activeStop ? (
           <div className="rounded border border-terminal-border/60 bg-black/20 p-2">
-            <div className="terminal-green font-semibold">{activeStop.Description}</div>
+            <div className="terminal-green font-semibold">
+              {activeStop.Description}
+            </div>
             <div className="terminal-dim text-[11px]">
               {activeStop.BusStopCode} &bull; {activeStop.RoadName}
             </div>
           </div>
         ) : (
-          <div className="terminal-dim text-[11px]">Select a bus stop from the map to load arrivals.</div>
+          <div className="terminal-dim text-[11px]">
+            Select a bus stop from the map to load arrivals.
+          </div>
         )}
 
         {error ? <div className="terminal-red text-[12px]">{error}</div> : null}
 
         <div className="space-y-2">
           {loading ? (
-            <div className="terminal-dim text-[11px]">Loading bus arrivals...</div>
+            <div className="terminal-dim text-[11px]">
+              Loading bus arrivals...
+            </div>
           ) : null}
 
           {!loading && activeStop && !error && visibleArrivals.length === 0 ? (
@@ -176,13 +198,24 @@ function ServiceRow({
         aria-expanded={expanded}
       >
         <div className="mb-1 flex items-center justify-between">
-          <span className="terminal-cyan font-semibold">Service {service.ServiceNo}</span>
+          <span className="terminal-cyan font-semibold">
+            Service {service.ServiceNo}
+          </span>
           <span className="terminal-dim text-[11px]">{service.Operator}</span>
         </div>
         <div className="grid grid-cols-3 gap-2 text-[11px]">
-          <ArrivalCell label="Next" value={formatArrival(service.NextBus?.EstimatedArrival)} />
-          <ArrivalCell label="2nd" value={formatArrival(service.NextBus2?.EstimatedArrival)} />
-          <ArrivalCell label="3rd" value={formatArrival(service.NextBus3?.EstimatedArrival)} />
+          <ArrivalCell
+            label="Next"
+            value={formatArrival(service.NextBus?.EstimatedArrival)}
+          />
+          <ArrivalCell
+            label="2nd"
+            value={formatArrival(service.NextBus2?.EstimatedArrival)}
+          />
+          <ArrivalCell
+            label="3rd"
+            value={formatArrival(service.NextBus3?.EstimatedArrival)}
+          />
         </div>
       </button>
 
@@ -193,12 +226,21 @@ function ServiceRow({
       >
         <div className="border-t border-terminal-border/30 bg-black/20 p-2 space-y-2">
           <DeepBusDetail label="Next Bus" bus={service.NextBus} />
-          {service.NextBus2 ? <DeepBusDetail label="2nd Bus" bus={service.NextBus2} /> : null}
-          {service.NextBus3 ? <DeepBusDetail label="3rd Bus" bus={service.NextBus3} /> : null}
+          {service.NextBus2 ? (
+            <DeepBusDetail label="2nd Bus" bus={service.NextBus2} />
+          ) : null}
+          {service.NextBus3 ? (
+            <DeepBusDetail label="3rd Bus" bus={service.NextBus3} />
+          ) : null}
 
           <div className="pt-1 border-t border-terminal-border/20">
-            <div className="terminal-dim text-[10px] uppercase tracking-wider mb-1">Arrival Pattern</div>
-            <ArrivalSparkline />
+            <div className="terminal-dim text-[10px] uppercase tracking-wider mb-1">
+              Arrival Pattern
+            </div>
+            <div className="terminal-dim text-[11px]">
+              Historical interval data is not available from the live arrivals
+              feed.
+            </div>
           </div>
         </div>
       </div>
@@ -238,7 +280,10 @@ function DeepBusDetail({
       <div className="grid grid-cols-3 gap-2 text-[11px]">
         <ArrivalCell label="ETA" value={formatArrival(bus.EstimatedArrival)} />
         <ArrivalCell label="Load" value={<LoadBox color={loadColor} />} />
-        <ArrivalCell label="Feature" value={bus.Feature === "WAB" ? "♿" : "—"} />
+        <ArrivalCell
+          label="Feature"
+          value={bus.Feature === "WAB" ? "♿" : "—"}
+        />
       </div>
     </div>
   );
@@ -289,37 +334,13 @@ function LoadBox({ color }: { color: string }) {
   );
 }
 
-function ArrivalSparkline() {
-  // Mocked 10-point arrival interval history for demo
-  const points = [3, 5, 4, 6, 5, 7, 4, 5, 6, 5];
-  const max = Math.max(...points);
-  const min = Math.min(...points);
-  const range = max - min || 1;
-
-  const width = 200;
-  const barWidth = (width - 16) / points.length;
-
-  return (
-    <div className="flex items-end gap-1 h-8 px-1">
-      {points.map((val, i) => {
-        const h = ((val - min) / range) * 100;
-        return (
-          <div
-            key={i}
-            className="bg-terminal-cyan/60 rounded-t"
-            style={{
-              width: `${barWidth - 2}px`,
-              height: `${Math.max(h, 15)}%`,
-              opacity: 0.4 + (i / points.length) * 0.6,
-            }}
-          />
-        );
-      })}
-    </div>
-  );
-}
-
-function ArrivalCell({ label, value }: { label: string; value: React.ReactNode }) {
+function ArrivalCell({
+  label,
+  value,
+}: {
+  label: string;
+  value: React.ReactNode;
+}) {
   return (
     <div>
       <div className="terminal-dim">{label}</div>
@@ -349,7 +370,10 @@ function compareServiceNumbers(a: string, b: string): number {
   return parsedA.raw.localeCompare(parsedB.raw, "en-SG", { numeric: true });
 }
 
-function parseServiceNumber(serviceNo: string): { numeric: number; raw: string } {
+function parseServiceNumber(serviceNo: string): {
+  numeric: number;
+  raw: string;
+} {
   const match = serviceNo.match(/^\d+/);
   return {
     numeric: match ? Number.parseInt(match[0], 10) : Number.POSITIVE_INFINITY,
