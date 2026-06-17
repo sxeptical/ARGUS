@@ -46,6 +46,40 @@ const program = Effect.gen(function* () {
   }
   yield* Console.log("  ok: set + get round-trips");
 
+  yield* Console.log("Cache: concurrent calls share one producer run");
+  // Use a fresh key so we are not hitting the cached value from above.
+  let concurrentCalls = 0;
+  const slowProducer = Effect.gen(function* () {
+    concurrentCalls += 1;
+    yield* Effect.sleep("20 millis");
+    return "shared";
+  });
+  const concurrentResults = yield* Effect.all(
+    [
+      cache.get("concurrent-key", 60_000, slowProducer),
+      cache.get("concurrent-key", 60_000, slowProducer),
+      cache.get("concurrent-key", 60_000, slowProducer),
+    ],
+    { concurrency: "unbounded" },
+  );
+  if (concurrentCalls !== 1) {
+    throw new Error(
+      `concurrent producer should run once, ran ${concurrentCalls} times`,
+    );
+  }
+  if (
+    concurrentResults[0] !== "shared" ||
+    concurrentResults[1] !== "shared" ||
+    concurrentResults[2] !== "shared"
+  ) {
+    throw new Error(
+      `concurrent results wrong: ${JSON.stringify(concurrentResults)}`,
+    );
+  }
+  yield* Console.log(
+    `  ok: ${concurrentCalls} producer run, 3 callers all received "shared"`,
+  );
+
   // ---------- Rate limit ----------
   yield* Console.log("Rate limit: first 3 calls allowed, 4th blocked (window 60s, max 3)");
 
