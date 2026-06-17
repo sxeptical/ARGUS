@@ -22,6 +22,15 @@ import type {
 
 type SensorKey = "flights" | "cameras" | "busStops" | "mrt";
 
+type SourceStatus = "pending" | "loading" | "ok" | "error";
+
+type SourceState = {
+  readonly label: string;
+  readonly icon: string;
+  readonly status: SourceStatus;
+  readonly message?: string;
+};
+
 const DEFAULT_WEATHER: WeatherData = {
   temperature: null,
   humidity: null,
@@ -61,6 +70,15 @@ export default function Home() {
   );
   const [error, setError] = useState<string | null>(null);
   const [bootComplete, setBootComplete] = useState(false);
+  const [sourceStates, setSourceStates] = useState<Record<string, SourceState>>(
+    {
+      "bus stops": { label: "LTA Bus Network", icon: "🚌", status: "pending" },
+      cameras: { label: "Traffic Cameras", icon: "📷", status: "pending" },
+      weather: { label: "Weather Grid", icon: "🌡️", status: "pending" },
+      news: { label: "OSINT Stream", icon: "📡", status: "pending" },
+      flights: { label: "Airspace Feed", icon: "✈️", status: "pending" },
+    },
+  );
   const [sensorVisibility, setSensorVisibility] = useState<
     Record<SensorKey, boolean>
   >({
@@ -85,20 +103,47 @@ export default function Home() {
       );
     };
 
+    const updateSourceState = (
+      label: string,
+      status: SourceStatus,
+      message?: string,
+    ) => {
+      if (!mounted) return;
+      setSourceStates((prev) => {
+        const current = prev[label];
+        if (!current) return prev;
+        return {
+          ...prev,
+          [label]: {
+            ...current,
+            status,
+            message: message ?? current.message,
+          },
+        };
+      });
+    };
+
     const loadSource = async <T,>(
       label: string,
       url: string,
       ttlMs: number,
       setState: (value: T) => void,
     ) => {
+      updateSourceState(label, "loading");
       try {
         const data = await cachedClientFetch<T>(url, ttlMs);
         if (!mounted) return;
         setState(data);
         failedSources.delete(label);
-      } catch {
+        updateSourceState(label, "ok");
+      } catch (err) {
         if (!mounted) return;
         failedSources.add(label);
+        updateSourceState(
+          label,
+          "error",
+          err instanceof Error ? err.message : "Network error",
+        );
       } finally {
         syncErrorState();
       }
@@ -282,7 +327,7 @@ export default function Home() {
   ];
 
   if (!bootComplete) {
-    return <LoadingScreen />;
+    return <LoadingScreen sources={Object.values(sourceStates)} />;
   }
 
   return (
@@ -580,74 +625,86 @@ function HeaderChip({
   );
 }
 
-function LoadingScreen() {
+function LoadingScreen({ sources }: { sources: ReadonlyArray<SourceState> }) {
   const [bootTime] = useState(() => new Date());
-  const [progress, setProgress] = useState(0);
-  const [logIndex, setLogIndex] = useState(0);
-  const sources = [
-    { label: "LTA DataMall", icon: "🚌" },
-    { label: "Traffic Cameras", icon: "📷" },
-    { label: "Weather Grid", icon: "🌡️" },
-    { label: "OSINT Stream", icon: "📡" },
-    { label: "Airspace Feed", icon: "✈️" },
-  ];
-  const bootLogs = [
-    "Initializing signal surface...",
-    "Mounting LTA DataMall feed...",
-    "Establishing camera nodes...",
-    "Loading weather grid...",
-    "Fetching OSINT stream...",
-    "Connecting airspace feed...",
-    "Calibrating sensor grid...",
-    "System ready.",
-  ];
+  const [now, setNow] = useState(() => Date.now());
 
+  // Tick a clock so the "loading..." dots animate and so the offline message
+  // can show how long the dashboard has been waiting.
   useEffect(() => {
-    const interval = setInterval(() => {
-      setProgress((prev) => {
-        if (prev >= 100) {
-          clearInterval(interval);
-          return 100;
-        }
-        return prev + Math.random() * 10 + 2;
-      });
-    }, 160);
+    const interval = setInterval(() => setNow(Date.now()), 500);
     return () => clearInterval(interval);
   }, []);
 
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setLogIndex((prev) => {
-        if (prev >= bootLogs.length - 1) return prev;
-        return prev + 1;
-      });
-    }, 350);
-    return () => clearInterval(interval);
-  }, [bootLogs.length]);
+  const totalSources = sources.length;
+  const okCount = sources.filter((s) => s.status === "ok").length;
+  const errorCount = sources.filter((s) => s.status === "error").length;
+  const settledCount = sources.filter(
+    (s) => s.status === "ok" || s.status === "error",
+  ).length;
+  const progress = totalSources === 0 ? 0 : (settledCount / totalSources) * 100;
+  const allSettled = settledCount === totalSources;
+  const allOk = allSettled && errorCount === 0;
+  const allFailed = allSettled && okCount === 0;
+  const partial = allSettled && !allOk && !allFailed;
 
-  const onlineCount = Math.min(
-    Math.floor((progress / 100) * sources.length),
-    sources.length,
-  );
+  const headline = allOk
+    ? "System ready."
+    : allFailed
+      ? "Offline — no data sources responded."
+      : partial
+        ? `Partial signal — ${okCount}/${totalSources} sources online.`
+        : "Connecting to data sources...";
+
+  const headlineTone = allOk
+    ? "text-[#35f0ce]"
+    : allFailed
+      ? "text-red-300"
+      : partial
+        ? "text-amber-300"
+        : "text-[#cfe6f5]";
+
+  const secondsWaiting = Math.floor((now - bootTime.getTime()) / 1000);
+  const showOfflineHelp =
+    allFailed ||
+    (settledCount > 0 && errorCount > 0 && secondsWaiting >= 8);
 
   return (
     <div className="grid h-screen place-items-center overflow-hidden bg-[#020913] px-4 text-terminal-text">
       <div className="absolute inset-0 bg-[linear-gradient(rgba(33,108,156,0.08)_1px,transparent_1px),linear-gradient(90deg,rgba(33,108,156,0.08)_1px,transparent_1px)] bg-size-[72px_72px]" />
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_50%,rgba(42,166,255,0.08),transparent_60%)]" />
+      <div
+        className={`absolute inset-0 transition-colors duration-700 ${
+          allFailed
+            ? "bg-[radial-gradient(circle_at_50%_50%,rgba(255,80,80,0.10),transparent_60%)]"
+            : "bg-[radial-gradient(circle_at_50%_50%,rgba(42,166,255,0.08),transparent_60%)]"
+        }`}
+      />
 
-      <div className="relative w-full max-w-3xl rounded-lg border border-cyan-400/25 bg-[#04111e]/95 p-6 shadow-[0_0_60px_rgba(42,166,255,0.18)] backdrop-blur-sm">
+      <div
+        className={`relative w-full max-w-3xl rounded-lg border p-6 shadow-[0_0_60px_rgba(42,166,255,0.18)] backdrop-blur-sm transition-colors duration-500 ${
+          allFailed
+            ? "border-red-400/35 bg-[#1a0a0a]/95 shadow-[0_0_60px_rgba(255,80,80,0.18)]"
+            : partial
+              ? "border-amber-400/35 bg-[#1a1408]/95"
+              : "border-cyan-400/25 bg-[#04111e]/95"
+        }`}
+      >
         {/* Header */}
         <div className="mb-6 flex items-center justify-between gap-4 border-b border-cyan-500/20 pb-4">
           <div>
             <div className="[font-family:var(--font-rajdhani)] text-3xl font-semibold uppercase tracking-[0.22em] text-[#e8f5ff]">
               ARGUS MONITOR
-              <span
-                className="ml-1 inline-block h-5 w-2.5 translate-y-0.5 bg-[#3fd3ff]"
-                style={{ animation: "blink 1s step-end infinite" }}
-              />
+              {!allOk && (
+                <span
+                  className="ml-1 inline-block h-5 w-2.5 translate-y-0.5 bg-[#3fd3ff]"
+                  style={{ animation: "blink 1s step-end infinite" }}
+                />
+              )}
             </div>
             <div className="mt-1 text-xs uppercase tracking-[0.18em] text-[#6d90a8]">
-              Initializing Singapore signal surface
+              {allFailed
+                ? "Signal surface unreachable"
+                : "Initializing Singapore signal surface"}
             </div>
           </div>
           <div className="hidden rounded-sm border border-cyan-400/25 bg-[#051728]/70 px-3 py-2 text-right text-[11px] uppercase tracking-[0.14em] text-[#9ec7df] sm:block">
@@ -664,7 +721,6 @@ function LoadingScreen() {
         <div className="mb-4 flex items-center gap-5">
           <div className="relative h-20 w-20 shrink-0">
             <svg className="h-full w-full -rotate-90" viewBox="0 0 36 36">
-              {/* Background ring */}
               <circle
                 cx="18"
                 cy="18"
@@ -673,17 +729,22 @@ function LoadingScreen() {
                 stroke="#0a2237"
                 strokeWidth="3"
               />
-              {/* Progress ring */}
               <circle
                 cx="18"
                 cy="18"
                 r="15.915"
                 fill="none"
-                stroke="url(#grad)"
+                stroke={
+                  allFailed
+                    ? "url(#gradFail)"
+                    : partial
+                      ? "url(#gradPartial)"
+                      : "url(#grad)"
+                }
                 strokeWidth="3"
                 strokeDasharray={`${Math.min(progress, 100)} ${100 - Math.min(progress, 100)}`}
                 strokeLinecap="round"
-                className="transition-all duration-200 ease-out"
+                className="transition-all duration-300 ease-out"
               />
               <defs>
                 <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="0%">
@@ -691,10 +752,38 @@ function LoadingScreen() {
                   <stop offset="50%" stopColor="#3fb9ff" />
                   <stop offset="100%" stopColor="#6e9dff" />
                 </linearGradient>
+                <linearGradient
+                  id="gradPartial"
+                  x1="0%"
+                  y1="0%"
+                  x2="100%"
+                  y2="0%"
+                >
+                  <stop offset="0%" stopColor="#fbbf24" />
+                  <stop offset="100%" stopColor="#f59e0b" />
+                </linearGradient>
+                <linearGradient
+                  id="gradFail"
+                  x1="0%"
+                  y1="0%"
+                  x2="100%"
+                  y2="0%"
+                >
+                  <stop offset="0%" stopColor="#f87171" />
+                  <stop offset="100%" stopColor="#dc2626" />
+                </linearGradient>
               </defs>
             </svg>
             <div className="absolute inset-0 flex flex-col items-center justify-center">
-              <span className="text-lg font-bold text-[#e8f5ff]">
+              <span
+                className={`text-lg font-bold ${
+                  allFailed
+                    ? "text-red-300"
+                    : partial
+                      ? "text-amber-300"
+                      : "text-[#e8f5ff]"
+                }`}
+              >
                 {Math.min(Math.round(progress), 100)}%
               </span>
             </div>
@@ -704,66 +793,86 @@ function LoadingScreen() {
             <div className="mb-1 text-[10px] uppercase tracking-[0.12em] text-[#6d90a8]">
               System Boot
             </div>
-            <div className="text-[11px] text-[#8cb2c8]">
-              {bootLogs[Math.min(logIndex, bootLogs.length - 1)]}
+            <div className={`text-[12px] font-semibold ${headlineTone}`}>
+              {headline}
+            </div>
+            <div className="mt-1 text-[11px] text-[#8cb2c8]">
+              {okCount} of {totalSources} sources online
+              {errorCount > 0 ? ` · ${errorCount} failed` : ""}
             </div>
           </div>
         </div>
 
-        {/* Boot log */}
-        <div className="mb-4 h-28 overflow-hidden rounded-sm border border-cyan-500/15 bg-[#020b14]/80 p-3 font-mono text-[11px] leading-relaxed">
-          {bootLogs.slice(0, logIndex + 1).map((log, i) => (
-            <div key={i} className="flex items-center gap-2">
-              <span className="text-[#3fd3ff]">{">"}</span>
-              <span
-                className={i === logIndex ? "text-[#cfe6f5]" : "text-[#7395a8]"}
-              >
-                {log}
-              </span>
-              {i === logIndex && (
-                <span
-                  className="ml-0.5 inline-block h-3 w-2 bg-[#cfe6f5]"
-                  style={{ animation: "blink 1s step-end infinite" }}
-                />
-              )}
+        {/* Offline help block */}
+        {showOfflineHelp && (
+          <div
+            className={`mb-4 rounded-sm border p-3 text-[11px] leading-relaxed ${
+              allFailed
+                ? "border-red-400/30 bg-red-500/10 text-red-100"
+                : "border-amber-400/30 bg-amber-500/10 text-amber-100"
+            }`}
+          >
+            <div className="mb-1 font-semibold uppercase tracking-[0.14em]">
+              {allFailed ? "All sources unreachable" : "Some sources unreachable"}
             </div>
-          ))}
-        </div>
+            <div>
+              {allFailed
+                ? "The dashboard could not reach any of the data APIs. Check that the server is running and that the API routes are responding. The dashboard will keep retrying every few seconds."
+                : "One or more data sources are not responding. The dashboard will retry them on the next refresh. The signals that loaded successfully are still live."}
+            </div>
+          </div>
+        )}
 
         {/* Source cards */}
         <div className="grid gap-2 sm:grid-cols-5">
-          {sources.map((source, i) => {
-            const isOnline = i < onlineCount;
+          {sources.map((source) => {
+            const isOk = source.status === "ok";
+            const isError = source.status === "error";
+            const isLoading = source.status === "loading";
+            const dotClass = isOk
+              ? "bg-[#35f0ce] shadow-[0_0_6px_rgba(53,240,206,0.8)]"
+              : isError
+                ? "bg-red-400 shadow-[0_0_6px_rgba(248,113,113,0.8)]"
+                : isLoading
+                  ? "bg-[#3fb9ff] shadow-[0_0_6px_rgba(63,185,255,0.8)]"
+                  : "bg-[#0a2237]";
+            const borderClass = isOk
+              ? "border-[#35f0ce]/30"
+              : isError
+                ? "border-red-400/40"
+                : "border-cyan-500/20";
+            const statusLabel = isOk
+              ? "Online"
+              : isError
+                ? "Offline"
+                : isLoading
+                  ? "Syncing..."
+                  : "Queued";
+            const statusClass = isOk
+              ? "text-[#35f0ce]"
+              : isError
+                ? "text-red-300"
+                : isLoading
+                  ? "text-[#3fb9ff]"
+                  : "text-[#6d90a8]";
             return (
               <div
                 key={source.label}
-                className={`rounded-sm border p-3 transition-all duration-500 ${
-                  isOnline
-                    ? "border-[#35f0ce]/30 bg-[#071629]/70"
-                    : "border-cyan-500/20 bg-[#071629]/70"
-                }`}
-                style={{ transitionDelay: `${i * 80}ms` }}
+                className={`rounded-sm border bg-[#071629]/70 p-3 transition-all duration-500 ${borderClass}`}
               >
                 <div className="mb-2 flex items-center gap-2">
                   <div className="h-1.5 w-8 rounded-full bg-cyan-300/70" />
                   <div
-                    className={`h-1.5 w-1.5 rounded-full transition-all duration-300 ${
-                      isOnline
-                        ? "bg-[#35f0ce] shadow-[0_0_6px_rgba(53,240,206,0.8)]"
-                        : "bg-[#0a2237]"
+                    className={`h-1.5 w-1.5 rounded-full transition-all duration-300 ${dotClass} ${
+                      isLoading ? "animate-pulse" : ""
                     }`}
-                    style={{ transitionDelay: `${i * 80}ms` }}
                   />
                 </div>
                 <div className="text-[11px] uppercase tracking-[0.12em] text-[#cfe6f5]">
                   {source.label}
                 </div>
                 <div className="mt-1 text-[10px] uppercase tracking-widest">
-                  <span
-                    className={isOnline ? "text-[#35f0ce]" : "text-[#6d90a8]"}
-                  >
-                    {isOnline ? "Online" : "Syncing..."}
-                  </span>
+                  <span className={statusClass}>{statusLabel}</span>
                 </div>
               </div>
             );
