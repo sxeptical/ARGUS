@@ -57,7 +57,7 @@ const MAX_RSS_BYTES = 512 * 1024; // 512 KB
 const FLIGHTS_FALLBACK_KEY = "flights-sg-fallback";
 const FLIGHTS_FALLBACK_MAX_AGE_MS = 10 * 60 * 1000; // 10 minutes
 const SAFE_CAMERA_IMAGE_URL_RE =
-  /^https:\/\/(?:images\.data\.gov\.sg|datamall2\.mytransport\.sg)\//i;
+  /^https:\/\/(?:images\.data\.gov\.sg|datamall2\.mytransport\.sg|dm-traffic-camera-itsc\.s3\.ap-southeast-1\.amazonaws\.com)\//i;
 const SAFE_URL_RE = /^https?:\/\//i;
 export const BUS_STOP_ID_RE = /^\d{5}$/;
 const SG_BOUNDS = {
@@ -160,20 +160,13 @@ const httpGetJson = (
       );
     }
 
-    return yield* HttpClientResponse.schemaJson(decode)(response).pipe(
-      Effect.mapError((cause) => {
-        if (cause._tag === "ParseError") {
-          return fromParseError(service, cause);
-        }
-        return new ExternalApiError({
-          service,
-          status: response.status,
-          message:
-            cause instanceof Error
-              ? cause.message
-              : `${service} response read failed`,
-        });
-      }),
+    // `HttpClientResponse.schemaJson` wraps the body in
+    // `{ status, headers, body }` before decoding, which is the wrong shape
+    // for the LTA / Data.gov.sg / Aviationstack / OpenSky payloads. Read the
+    // body with `.json` and decode it directly with our Schema instead.
+    const body = yield* response.json;
+    return yield* Schema.decodeUnknown(decode)(body).pipe(
+      Effect.mapError((cause) => fromParseError(service, cause)),
     );
   });
 
