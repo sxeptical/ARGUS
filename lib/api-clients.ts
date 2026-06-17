@@ -1,4 +1,38 @@
-import { cachedFetch, setCachedValue } from "@/lib/cache";
+/**
+ * External API clients for the ARGUS server. Every function in this file
+ * returns an `Effect` that yields a domain object and fails with one of the
+ * `AppError` tags declared in `@/lib/errors`.
+ *
+ * Caching is provided by the `Cache` service from `@/lib/cache`; timeouts
+ * are applied via `Effect.timeout`; HTTP is performed by the `HttpClient`
+ * from `@effect/platform` (backed by `FetchHttpClient`, which uses
+ * `globalThis.fetch`).
+ *
+ * The route handlers in the app/api/{route}.ts files execute these Effects
+ * through the shared 'runtime' exported from '@/lib/effect-runtime'.
+ */
+import { HttpClient, HttpClientError, HttpClientResponse } from "@effect/platform";
+import { Schema } from "@effect/schema";
+import { Duration, Effect, Schedule } from "effect";
+import { Cache } from "@/lib/cache";
+import {
+  ExternalApiError,
+  SchemaParseError,
+  TimeoutError,
+  fromParseError,
+  fromTimeoutException,
+} from "@/lib/errors";
+import {
+  AviationStackResponseSchema,
+  BusStopSchema,
+  DataGovForecastResponseSchema,
+  DataGovPsiResponseSchema,
+  DataGovTemperatureResponseSchema,
+  LtaBusArrivalsResponseSchema,
+  LtaBusStopsResponseSchema,
+  LtaTrafficImagesResponseSchema,
+  OpenSkyResponseSchema,
+} from "@/types/schemas";
 import type {
   BusArrival,
   BusStop,
@@ -9,310 +43,512 @@ import type {
   WeatherData,
 } from "@/types";
 
+// Re-export so legacy import paths keep working until the route handlers are
+// migrated to '@/lib/errors' in tasks 6.x and 7.x.
+export { ExternalApiError };
+
 const LTA_BASE_URL = "https://datamall2.mytransport.sg/ltaodataservice";
 const DATA_GOV_BASE_URL = "https://api.data.gov.sg/v1/environment";
 const AVIATIONSTACK_BASE_URL = "https://api.aviationstack.com/v1";
 const OPENSKY_BASE_URL = "https://opensky-network.org/api";
-const FETCH_TIMEOUT_MS = 10_000;
 const FLIGHT_TIMEOUT_MS = 6_000;
+const DEFAULT_TIMEOUT_MS = 10_000;
 const MAX_RSS_BYTES = 512 * 1024; // 512 KB
-
-export class ExternalApiError extends Error {
-  constructor(
-    message: string,
-    public readonly status: number,
-  ) {
-    super(message);
-    this.name = "ExternalApiError";
-  }
-}
-
-function getLtaApiKey(): string {
-  const apiKey = process.env.LTA_API_KEY?.trim();
-  if (!apiKey || apiKey.toLowerCase().includes("your_lta_datamall_key")) {
-    throw new ExternalApiError("Missing or placeholder LTA_API_KEY", 401);
-  }
-  return apiKey;
-}
-
-function getAviationStackApiKey(): string {
-  const apiKey = process.env.AVIATIONSTACK_API_KEY?.trim();
-  if (!apiKey) {
-    throw new Error("Missing AVIATIONSTACK_API_KEY");
-  }
-  return apiKey;
-}
-
-function fetchWithTimeout(
-  input: RequestInfo | URL,
-  init?: RequestInit,
-): Promise<Response> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
-  return fetch(input, { ...init, signal: controller.signal }).finally(() =>
-    clearTimeout(timer),
-  );
-}
-
-async function ltaFetch<T>(endpoint: string): Promise<T | null> {
-  const response = await fetchWithTimeout(`${LTA_BASE_URL}${endpoint}`, {
-    headers: {
-      AccountKey: getLtaApiKey(),
-      Accept: "application/json",
-    },
-    cache: "no-store",
-  });
-
-  if (response.status === 404) {
-    return null;
-  }
-
-  if (!response.ok) {
-    throw new ExternalApiError(
-      `LTA request failed (${response.status}) for ${endpoint}`,
-      response.status,
-    );
-  }
-
-  return response.json() as Promise<T>;
-}
-
-const BUS_STOP_ID_RE = /^\d{5}$/;
-
-export async function getBusStops(): Promise<BusStop[]> {
-  return cachedFetch(
-    "bus-stops",
-    async () => {
-      const allStops: BusStop[] = [];
-      let skip = 0;
-      const MAX_PAGES = 20;
-
-      for (let pages = 0; pages < MAX_PAGES; pages++) {
-        const page = await ltaFetch<{ value: BusStop[] }>(
-          `/BusStops?$skip=${skip}`,
-        );
-        if (!page || !Array.isArray(page.value)) break;
-        allStops.push(...page.value);
-
-        if (page.value.length < 500) {
-          break;
-        }
-
-        skip += 500;
-      }
-
-      return allStops;
-    },
-    24 * 60 * 60 * 1000,
-  );
-}
-
-export async function getBusArrivals(stopId: string): Promise<BusArrival[]> {
-  if (!BUS_STOP_ID_RE.test(stopId)) {
-    throw new Error("Invalid bus stop code");
-  }
-
-  return cachedFetch(
-    `bus-arrivals-${stopId}`,
-    async () => {
-      const busStopCode = encodeURIComponent(stopId);
-      const primary = await ltaFetch<{ Services: BusArrival[] }>(
-        `/v3/BusArrival?BusStopCode=${busStopCode}`,
-      );
-
-      if (primary?.Services) {
-        return primary.Services;
-      }
-
-      // Backward-compatibility fallback for older tenants/environments.
-      const fallback = await ltaFetch<{ Services: BusArrival[] }>(
-        `/BusArrivalv2?BusStopCode=${busStopCode}`,
-      );
-      return fallback?.Services ?? [];
-    },
-    15 * 1000,
-  );
-}
-
-type RawTrafficImage = {
-  CameraID: string;
-  Latitude: number;
-  Longitude: number;
-  ImageLink: string;
-};
-
-type TrafficImageResponse =
-  | { value: RawTrafficImage[] }
-  | { value: Array<{ Cameras: RawTrafficImage[] }> };
-
+const FLIGHTS_FALLBACK_KEY = "flights-sg-fallback";
+const FLIGHTS_FALLBACK_MAX_AGE_MS = 10 * 60 * 1000; // 10 minutes
 const SAFE_CAMERA_IMAGE_URL_RE =
   /^https:\/\/(?:images\.data\.gov\.sg|datamall2\.mytransport\.sg)\//i;
+const SAFE_URL_RE = /^https?:\/\//i;
+export const BUS_STOP_ID_RE = /^\d{5}$/;
+const SG_BOUNDS = {
+  lamin: 1.15,
+  lomin: 103.45,
+  lamax: 1.5,
+  lomax: 104.15,
+};
+const CHANGI_COORDS = { lat: 1.3644, lon: 103.9915 };
+const SG_AIRPORT_ICAO = new Set(["WSSS", "WSSL"]);
+const SG_AIRPORT_IATA = new Set(["SIN", "XSP"]);
 
-function hasCameras(
-  entry: RawTrafficImage | { Cameras: RawTrafficImage[] },
-): entry is { Cameras: RawTrafficImage[] } {
-  return typeof entry === "object" && entry !== null && "Cameras" in entry;
-}
+// ---------- Shared HTTP helpers ----------
 
-export async function getTrafficCameras(): Promise<TrafficCamera[]> {
-  return cachedFetch(
-    "traffic-cameras",
-    async () => {
-      const payload = await ltaFetch<TrafficImageResponse>("/Traffic-Imagesv2");
-      if (!payload) return [];
-
-      const value = payload.value ?? [];
-      const cameras =
-        Array.isArray(value) && value.length > 0 && hasCameras(value[0])
-          ? value.flatMap((entry) => (hasCameras(entry) ? entry.Cameras : []))
-          : (value as RawTrafficImage[]);
-
-      return cameras
-        .filter(
-          (camera) =>
-            typeof camera.CameraID === "string" &&
-            Number.isFinite(camera.Latitude) &&
-            Number.isFinite(camera.Longitude) &&
-            SAFE_CAMERA_IMAGE_URL_RE.test(camera.ImageLink),
-        )
-        .map((camera) => ({
-          ...camera,
-          location: `Camera ${camera.CameraID}`,
-        }));
-    },
-    60 * 1000,
+const withTimeout = <A, E, R>(
+  service: string,
+  effect: Effect.Effect<A, E, R>,
+  ms: number,
+): Effect.Effect<A, E | TimeoutError, R> =>
+  effect.pipe(
+    Effect.timeout(Duration.millis(ms)),
+    Effect.catchTag("TimeoutException", (cause) =>
+      Effect.fail(
+        fromTimeoutException(service, cause) as TimeoutError,
+      ),
+    ),
   );
-}
 
-type ForecastResponse = {
-  area_metadata?: Array<{ name: string }>;
-  items?: Array<{
-    timestamp?: string;
-    update_timestamp?: string;
-    forecasts?: Array<{ area: string; forecast: string }>;
-  }>;
+// Internal helper: a single typed HTTP GET that returns the decoded JSON.
+// Schemas are passed as `any` to avoid Effect's complex Schema generic
+// machinery; callers cast the result back to the expected shape.
+ 
+const httpGetJson = (
+  service: string,
+  url: string,
+  headers: Record<string, string>,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  decode: any,
+  timeoutMs: number,
+): Effect.Effect<
+  unknown,
+  ExternalApiError | SchemaParseError | TimeoutError,
+  HttpClient.HttpClient
+> => {
+  const getEffect: Effect.Effect<
+    HttpClientResponse.HttpClientResponse,
+    HttpClientError.HttpClientError,
+    HttpClient.HttpClient
+  > = HttpClient.get(url, { headers });
+
+  const withTimeoutEffect = getEffect.pipe(
+    Effect.timeout(Duration.millis(timeoutMs)),
+  );
+
+  const handledTimeout = withTimeoutEffect.pipe(
+    Effect.catchTag("TimeoutException", (cause) =>
+      Effect.fail(fromTimeoutException(service, cause) as TimeoutError),
+    ),
+  ) as Effect.Effect<
+    HttpClientResponse.HttpClientResponse,
+    HttpClientError.HttpClientError | TimeoutError,
+    HttpClient.HttpClient
+  >;
+
+  const handledErrors = handledTimeout.pipe(
+    Effect.catchAll((e) =>
+      Effect.fail(
+        new ExternalApiError({
+          service,
+          status: 502,
+          message:
+            e instanceof Error
+              ? e.message
+              : `${service} request failed: ${String(e)}`,
+        }),
+      ),
+    ),
+  );
+
+  const result = Effect.gen(function* () {
+    const response = yield* handledErrors;
+
+    if (response.status === 404) {
+      return yield* Effect.fail(
+        new ExternalApiError({
+          service,
+          status: 404,
+          message: `${service} returned 404`,
+        }),
+      );
+    }
+
+    if (response.status < 200 || response.status >= 300) {
+      return yield* Effect.fail(
+        new ExternalApiError({
+          service,
+          status: response.status,
+          message: `${service} request failed (${response.status})`,
+        }),
+      );
+    }
+
+    return yield* HttpClientResponse.schemaJson(decode)(response).pipe(
+      Effect.mapError((cause) => {
+        if (cause._tag === "ParseError") {
+          return fromParseError(service, cause);
+        }
+        return new ExternalApiError({
+          service,
+          status: response.status,
+          message:
+            cause instanceof Error
+              ? cause.message
+              : `${service} response read failed`,
+        });
+      }),
+    );
+  });
+
+  return result as Effect.Effect<
+    unknown,
+    ExternalApiError | SchemaParseError | TimeoutError,
+    HttpClient.HttpClient
+  >;
 };
 
-type PsiResponse = {
-  items?: Array<{
-    timestamp?: string;
-    update_timestamp?: string;
-    readings?: {
-      psi_twenty_four_hourly?: {
-        national?: number;
-      };
-    };
-  }>;
+const getLtaApiKey = (): Effect.Effect<string, ExternalApiError, never> =>
+  Effect.sync(() => {
+    const apiKey = process.env.LTA_API_KEY?.trim();
+    if (!apiKey || apiKey.toLowerCase().includes("your_lta_datamall_key")) {
+      throw new ExternalApiError({
+        service: "lta",
+        message: "Missing or placeholder LTA_API_KEY",
+        status: 401,
+      });
+    }
+    return apiKey;
+  });
+
+const getAviationStackApiKey = (): Effect.Effect<string, ExternalApiError, never> =>
+  Effect.sync(() => {
+    const apiKey = process.env.AVIATIONSTACK_API_KEY?.trim();
+    if (!apiKey) {
+      throw new ExternalApiError({
+        service: "aviationstack",
+        message: "Missing AVIATIONSTACK_API_KEY",
+        status: 401,
+      });
+    }
+    return apiKey;
+  });
+
+// ---------- LTA ----------
+
+ 
+const ltaGet = <A>(
+  endpoint: string,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  decode: any,
+  timeoutMs: number = DEFAULT_TIMEOUT_MS,
+): Effect.Effect<
+  A,
+  ExternalApiError | SchemaParseError | TimeoutError,
+  HttpClient.HttpClient
+> =>
+  Effect.gen(function* () {
+    const apiKey = yield* getLtaApiKey();
+    return (yield* httpGetJson(
+      "lta",
+      `${LTA_BASE_URL}${endpoint}`,
+      { AccountKey: apiKey, Accept: "application/json" },
+      decode,
+      timeoutMs,
+    )) as A;
+  });
+
+export const getBusStops = (): Effect.Effect<
+  BusStop[],
+  ExternalApiError | SchemaParseError | TimeoutError,
+  Cache | HttpClient.HttpClient
+> =>
+  Effect.gen(function* () {
+    const cache = yield* Cache;
+    return yield* cache.get(
+      "bus-stops",
+      24 * 60 * 60 * 1000,
+      Effect.gen(function* () {
+        const allStops: BusStop[] = [];
+        const MAX_PAGES = 20;
+        for (let pages = 0, skip = 0; pages < MAX_PAGES; pages += 1) {
+          const page = yield* ltaGet<{
+            readonly value: ReadonlyArray<BusStop>;
+          }>(`/BusStops?$skip=${skip}`, LtaBusStopsResponseSchema).pipe(
+            Effect.catchTag("ExternalApiError", (e) =>
+              e.status === 404
+                ? Effect.succeed(null)
+                : Effect.fail(e),
+            ),
+          );
+          if (!page || !Array.isArray(page.value)) break;
+          allStops.push(...page.value);
+          if (page.value.length < 500) break;
+          skip += 500;
+        }
+        return yield* Schema.decodeUnknown(Schema.Array(BusStopSchema))(
+          allStops,
+        ).pipe(
+          Effect.mapError((cause) => fromParseError("lta", cause)),
+          Effect.map((arr) => arr.slice() as BusStop[]),
+        );
+      }),
+    );
+  });
+
+export const getBusArrivals = (
+  stopId: string,
+): Effect.Effect<
+  BusArrival[],
+  ExternalApiError | SchemaParseError | TimeoutError,
+  Cache | HttpClient.HttpClient
+> => {
+  if (!BUS_STOP_ID_RE.test(stopId)) {
+    return Effect.fail(
+      new ExternalApiError({
+        service: "lta",
+        message: "Invalid bus stop code",
+        status: 400,
+      }),
+    );
+  }
+  const ttl = 15_000;
+  return Effect.gen(function* () {
+    const cache = yield* Cache;
+    return yield* cache.get(
+      `bus-arrivals-${stopId}`,
+      ttl,
+      Effect.gen(function* () {
+        const v3 = yield* ltaGet<{ readonly Services: ReadonlyArray<BusArrival> }>(
+          `/v3/BusArrival?BusStopCode=${encodeURIComponent(stopId)}`,
+          LtaBusArrivalsResponseSchema,
+        ).pipe(Effect.option);
+
+        if (v3._tag === "Some" && v3.value.Services.length > 0) {
+          return v3.value.Services.slice() as BusArrival[];
+        }
+
+        return yield* ltaGet<{ readonly Services: ReadonlyArray<BusArrival> }>(
+          `/BusArrivalv2?BusStopCode=${encodeURIComponent(stopId)}`,
+          LtaBusArrivalsResponseSchema,
+        ).pipe(
+          Effect.map((r) => r.Services.slice() as BusArrival[]),
+          Effect.catchAll(() => Effect.succeed<BusArrival[]>([])),
+        );
+      }),
+    );
+  });
 };
 
-type TemperatureResponse = {
-  items?: Array<{
-    timestamp?: string;
-    update_timestamp?: string;
-    readings?: Array<{ value: number }>;
-  }>;
-};
+export const getTrafficCameras = (): Effect.Effect<
+  TrafficCamera[],
+  ExternalApiError | SchemaParseError | TimeoutError,
+  Cache | HttpClient.HttpClient
+> =>
+  Effect.gen(function* () {
+    const cache = yield* Cache;
+    return yield* cache.get(
+      "traffic-cameras",
+      60 * 1000,
+      Effect.gen(function* () {
+        const payload = yield* ltaGet<{
+          readonly value: ReadonlyArray<unknown>;
+        }>("/Traffic-Imagesv2", LtaTrafficImagesResponseSchema).pipe(
+          Effect.catchTag("ExternalApiError", (e) =>
+            e.status === 404
+              ? Effect.succeed({ value: [] } as never)
+              : Effect.fail(e),
+          ),
+        );
 
-function getPsiStatus(
-  psi: number | null,
-): "Good" | "Moderate" | "Unhealthy" | "Unknown" {
+        const value: unknown[] = (payload as { value: unknown[] }).value ?? [];
+        const first = value[0] as { Cameras?: unknown } | undefined;
+        const flat: RawTrafficImage[] =
+          Array.isArray(value) && value.length > 0 && first && "Cameras" in first
+            ? (value as Array<{ Cameras: RawTrafficImage[] }>).flatMap(
+                (entry) => entry.Cameras,
+              )
+            : (value as RawTrafficImage[]);
+
+        return flat
+          .filter(
+            (camera) =>
+              typeof camera.CameraID === "string" &&
+              Number.isFinite(camera.Latitude) &&
+              Number.isFinite(camera.Longitude) &&
+              SAFE_CAMERA_IMAGE_URL_RE.test(camera.ImageLink),
+          )
+          .map((camera) => ({
+            ...camera,
+            location: `Camera ${camera.CameraID}`,
+          }));
+      }),
+    );
+  });
+
+// ---------- Weather ----------
+
+const getPsiStatus = (psi: number | null): WeatherData["psiStatus"] => {
   if (psi === null) return "Unknown";
   if (psi <= 50) return "Good";
   if (psi <= 100) return "Moderate";
   return "Unhealthy";
-}
+};
 
-function average(values: number[]): number | null {
+const average = (values: number[]): number | null => {
   const finiteValues = values.filter((value) => Number.isFinite(value));
   if (finiteValues.length === 0) return null;
   return Math.round(
     finiteValues.reduce((acc, item) => acc + item, 0) / finiteValues.length,
   );
-}
+};
 
-function latestIsoTimestamp(values: Array<string | undefined>): string {
+const latestIsoTimestamp = (values: Array<string | undefined>): string => {
   const timestamps = values
     .map((value) => (value ? Date.parse(value) : Number.NaN))
     .filter((value) => Number.isFinite(value));
-
   if (timestamps.length === 0) return new Date().toISOString();
   return new Date(Math.max(...timestamps)).toISOString();
-}
+};
 
-export async function getWeather(): Promise<WeatherData> {
-  return cachedFetch(
-    "weather",
-    async () => {
-      const [forecastResponse, psiResponse, temperatureResponse] =
-        await Promise.all([
-          fetchWithTimeout(`${DATA_GOV_BASE_URL}/2-hour-weather-forecast`, {
-            cache: "no-store",
-          }),
-          fetchWithTimeout(`${DATA_GOV_BASE_URL}/psi`, { cache: "no-store" }),
-          fetchWithTimeout(`${DATA_GOV_BASE_URL}/air-temperature`, {
-            cache: "no-store",
-          }),
-        ]);
+ 
+const dataGovGet = <A>(
+  endpoint: string,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  decode: any,
+): Effect.Effect<
+  A,
+  ExternalApiError | SchemaParseError | TimeoutError,
+  HttpClient.HttpClient
+> =>
+  httpGetJson(
+    "data.gov.sg",
+    `${DATA_GOV_BASE_URL}${endpoint}`,
+    { Accept: "application/json" },
+    decode,
+    DEFAULT_TIMEOUT_MS,
+  ) as Effect.Effect<
+    A,
+    ExternalApiError | SchemaParseError | TimeoutError,
+    HttpClient.HttpClient
+  >;
 
-      if (!forecastResponse.ok || !psiResponse.ok || !temperatureResponse.ok) {
-        throw new Error("Failed to fetch weather resources from data.gov.sg");
-      }
+export const getWeather = (): Effect.Effect<
+  WeatherData,
+  ExternalApiError | SchemaParseError | TimeoutError,
+  Cache | HttpClient.HttpClient
+> =>
+  Effect.gen(function* () {
+    const cache = yield* Cache;
+    return yield* cache.get(
+      "weather",
+      5 * 60 * 1000,
+      Effect.gen(function* () {
+        const results = yield* Effect.all(
+          [
+            dataGovGet<{
+              readonly area_metadata?: ReadonlyArray<{ name: string }>;
+              readonly items?: ReadonlyArray<{
+                timestamp?: string;
+                update_timestamp?: string;
+                forecasts?: ReadonlyArray<{ area: string; forecast: string }>;
+              }>;
+            }>("/2-hour-weather-forecast", DataGovForecastResponseSchema),
+            dataGovGet<{
+              readonly items?: ReadonlyArray<{
+                timestamp?: string;
+                update_timestamp?: string;
+                readings?: {
+                  psi_twenty_four_hourly?: { national?: number };
+                };
+              }>;
+            }>("/psi", DataGovPsiResponseSchema),
+            dataGovGet<{
+              readonly items?: ReadonlyArray<{
+                timestamp?: string;
+                update_timestamp?: string;
+                readings?: ReadonlyArray<{ value: number }>;
+              }>;
+            }>("/air-temperature", DataGovTemperatureResponseSchema),
+          ],
+          { concurrency: "unbounded" },
+        );
 
-      const forecastData = (await forecastResponse.json()) as ForecastResponse;
-      const psiData = (await psiResponse.json()) as PsiResponse;
-      const temperatureData =
-        (await temperatureResponse.json()) as TemperatureResponse;
+        const [forecast, psi, temperature] = results as [
+          {
+            readonly area_metadata?: ReadonlyArray<{ name: string }>;
+            readonly items?: ReadonlyArray<{
+              timestamp?: string;
+              update_timestamp?: string;
+              forecasts?: ReadonlyArray<{ area: string; forecast: string }>;
+            }>;
+          },
+          {
+            readonly items?: ReadonlyArray<{
+              timestamp?: string;
+              update_timestamp?: string;
+              readings?: {
+                psi_twenty_four_hourly?: { national?: number };
+              };
+            }>;
+          },
+          {
+            readonly items?: ReadonlyArray<{
+              timestamp?: string;
+              update_timestamp?: string;
+              readings?: ReadonlyArray<{ value: number }>;
+            }>;
+          },
+        ];
 
-      const area = forecastData.area_metadata?.[0]?.name ?? "Singapore";
-      const forecast =
-        forecastData.items?.[0]?.forecasts?.find((item) => item.area === area)
-          ?.forecast ?? "No forecast available";
+        const area = forecast.area_metadata?.[0]?.name ?? "Singapore";
+        const forecastText =
+          forecast.items?.[0]?.forecasts?.find(
+            (entry) => entry.area === area,
+          )?.forecast ?? "No forecast available";
 
-      const rawPsi =
-        psiData.items?.[0]?.readings?.psi_twenty_four_hourly?.national;
-      const psi = Number.isFinite(rawPsi) ? (rawPsi as number) : null;
-      const readings =
-        temperatureData.items?.[0]?.readings?.map((reading) => reading.value) ??
-        [];
+        const rawPsi = psi.items?.[0]?.readings?.psi_twenty_four_hourly?.national;
+        const psiValue = Number.isFinite(rawPsi) ? (rawPsi as number) : null;
 
-      return {
-        temperature: average(readings),
-        humidity: null,
-        psi,
-        psiStatus: getPsiStatus(psi),
-        forecast,
-        lastUpdated: latestIsoTimestamp([
-          forecastData.items?.[0]?.update_timestamp,
-          forecastData.items?.[0]?.timestamp,
-          psiData.items?.[0]?.update_timestamp,
-          psiData.items?.[0]?.timestamp,
-          temperatureData.items?.[0]?.update_timestamp,
-          temperatureData.items?.[0]?.timestamp,
-        ]),
-      };
-    },
-    5 * 60 * 1000,
+        const readings =
+          temperature.items?.[0]?.readings?.map((entry) => entry.value) ?? [];
+
+        return {
+          temperature: average(readings),
+          humidity: null,
+          psi: psiValue,
+          psiStatus: getPsiStatus(psiValue),
+          forecast: forecastText,
+          lastUpdated: latestIsoTimestamp([
+            forecast.items?.[0]?.update_timestamp,
+            forecast.items?.[0]?.timestamp,
+            psi.items?.[0]?.update_timestamp,
+            psi.items?.[0]?.timestamp,
+            temperature.items?.[0]?.update_timestamp,
+            temperature.items?.[0]?.timestamp,
+          ]),
+        };
+      }),
+    );
+  });
+
+// ---------- News (RSS) ----------
+
+const rssFeeds: ReadonlyArray<{ readonly source: string; readonly url: string }> = [
+  {
+    source: "The Straits Times",
+    url: "https://www.straitstimes.com/news/singapore/rss.xml",
+  },
+  {
+    source: "CNA",
+    url: "https://www.channelnewsasia.com/api/v1/rss-outbound-feed?_format=xml",
+  },
+];
+
+const extractRssTag = (xml: string, tag: string): string => {
+  const match = xml.match(
+    new RegExp(`<${tag}>([\\s\\S]*?)<\\/${tag}>`, "i"),
   );
-}
+  if (!match?.[1]) return "";
+  return match[1]
+    .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .trim();
+};
 
-const SAFE_URL_RE = /^https?:\/\//i;
+const toIsoDate = (value: string): string => {
+  const timestamp = value ? Date.parse(value) : Date.now();
+  return new Date(Number.isFinite(timestamp) ? timestamp : Date.now()).toISOString();
+};
 
-function parseRssItems(xml: string, source: string): NewsItem[] {
+const parseRssItems = (xml: string, source: string): NewsItem[] => {
   const itemMatches = xml.match(/<item>([\s\S]*?)<\/item>/g) ?? [];
-
   return itemMatches
     .map((rawItem) => {
       const title = extractRssTag(rawItem, "title");
       const link = extractRssTag(rawItem, "link");
       const publishedAt = extractRssTag(rawItem, "pubDate");
 
-      if (!title || !link) {
-        return null;
-      }
-
-      if (!SAFE_URL_RE.test(link)) {
-        return null;
-      }
+      if (!title || !link) return null;
+      if (!SAFE_URL_RE.test(link)) return null;
 
       return {
         title,
@@ -322,222 +558,78 @@ function parseRssItems(xml: string, source: string): NewsItem[] {
       } satisfies NewsItem;
     })
     .filter((item): item is NewsItem => item !== null);
-}
-
-function toIsoDate(value: string): string {
-  const timestamp = value ? Date.parse(value) : Date.now();
-  return new Date(
-    Number.isFinite(timestamp) ? timestamp : Date.now(),
-  ).toISOString();
-}
-
-function extractRssTag(xml: string, tag: string): string {
-  const match = xml.match(new RegExp(`<${tag}>([\\s\\S]*?)<\\/${tag}>`, "i"));
-  if (!match?.[1]) return "";
-
-  return match[1]
-    .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1")
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .trim();
-}
-
-export async function getNews(): Promise<NewsItem[]> {
-  return cachedFetch(
-    "news",
-    async () => {
-      const rssFeeds = [
-        {
-          source: "The Straits Times",
-          url: "https://www.straitstimes.com/news/singapore/rss.xml",
-        },
-        {
-          source: "CNA",
-          url: "https://www.channelnewsasia.com/api/v1/rss-outbound-feed?_format=xml",
-        },
-      ] as const;
-
-      const rssResults = await Promise.all(
-        rssFeeds.map(async ({ source, url }) => {
-          try {
-            const response = await fetchWithTimeout(url, { cache: "no-store" });
-            if (!response.ok) return [];
-
-            const contentLength = response.headers.get("content-length");
-            if (contentLength && Number(contentLength) > MAX_RSS_BYTES) {
-              return [];
-            }
-
-            const xml = await response.text();
-            if (xml.length > MAX_RSS_BYTES) return [];
-            return parseRssItems(xml, source);
-          } catch {
-            return [];
-          }
-        }),
-      );
-
-      const merged = rssResults.flat();
-      if (merged.length > 0) {
-        return merged
-          .sort((a, b) => +new Date(b.publishedAt) - +new Date(a.publishedAt))
-          .slice(0, 20);
-      }
-
-      return [
-        {
-          title: "News feeds are currently unavailable",
-          source: "System",
-          url: "#",
-          publishedAt: new Date().toISOString(),
-        },
-      ];
-    },
-    15 * 60 * 1000,
-  );
-}
-
-type AviationStackFlight = {
-  departure?: {
-    airport?: string | null;
-    iata?: string | null;
-    icao?: string | null;
-  } | null;
-  arrival?: {
-    airport?: string | null;
-    iata?: string | null;
-    icao?: string | null;
-  } | null;
-  airline?: {
-    name?: string | null;
-    iata?: string | null;
-  } | null;
-  flight?: {
-    number?: string | null;
-    iata?: string | null;
-    icao?: string | null;
-  } | null;
-  aircraft?: {
-    registration?: string | null;
-    icao24?: string | null;
-  } | null;
-  live?: {
-    updated?: string | null;
-    latitude?: number | null;
-    longitude?: number | null;
-    altitude?: number | null; // meters
-    direction?: number | null; // degrees
-    speed_horizontal?: number | null; // km/h
-    speed_vertical?: number | null; // km/h
-    is_ground?: boolean | null;
-  } | null;
 };
 
-type AviationStackResponse = {
-  data?: AviationStackFlight[];
-  error?: {
-    code?: string | number;
-    type?: string;
-    info?: string;
-  };
-};
+const fetchRssFeed = (
+  source: string,
+  url: string,
+): Effect.Effect<NewsItem[], never, never> =>
+  Effect.gen(function* () {
+    const response = yield* withTimeout(
+      "rss",
+      Effect.tryPromise({
+        try: () =>
+          fetch(url, { cache: "no-store" }).then((r) => r),
+        catch: () => new Error("rss fetch failed"),
+      }),
+      DEFAULT_TIMEOUT_MS,
+    ).pipe(Effect.option);
 
-type OpenSkyResponse = {
-  time: number;
-  states: Array<
-    [
-      string | null,
-      string | null,
-      string | null,
-      number | null,
-      number | null,
-      number | null,
-      number | null,
-      number | null,
-      boolean | null,
-      number | null,
-      number | null,
-      number | null,
-      unknown,
-      number | null,
-      string | null,
-      boolean | null,
-      number | null,
-      number | null,
-    ]
-  > | null;
-};
+    if (response._tag === "None") return [];
 
-const SG_BOUNDS = {
-  lamin: 1.15,
-  lomin: 103.45,
-  lamax: 1.5,
-  lomax: 104.15,
-};
+    const res = response.value;
+    if (!res.ok) return [];
+    const contentLength = res.headers.get("content-length");
+    if (contentLength && Number(contentLength) > MAX_RSS_BYTES) return [];
+    const xml = yield* Effect.tryPromise({
+      try: () => res.text(),
+      catch: () => new Error("rss body read failed"),
+    }).pipe(Effect.option);
+    if (xml._tag === "None") return [];
+    if (xml.value.length > MAX_RSS_BYTES) return [];
+    return parseRssItems(xml.value, source);
+  });
 
-const FLIGHTS_FALLBACK_KEY = "flights-sg-fallback";
-const FLIGHTS_FALLBACK_MAX_AGE_MS = 10 * 60 * 1000; // 10 minutes
-
-const CHANGI_COORDS = { lat: 1.3644, lon: 103.9915 };
-
-export async function getFlights(): Promise<FlightState[]> {
-  return cachedFetch(
-    "flights-sg",
-    async () => {
-      let flights: FlightState[] = [];
-
-      try {
-        flights = await fetchFlightsFromAviationStack();
-      } catch (error) {
-        console.warn("Aviationstack flight provider unavailable", error);
-      }
-
-      if (flights.length === 0) {
-        try {
-          flights = await fetchFlightsFromOpenSky();
-        } catch (error) {
-          console.warn("OpenSky flight provider unavailable", error);
+export const getNews = (): Effect.Effect<NewsItem[], never, Cache> =>
+  Effect.gen(function* () {
+    const cache = yield* Cache;
+    return yield* cache.get(
+      "news",
+      15 * 60 * 1000,
+      Effect.gen(function* () {
+        const rssResults = yield* Effect.all(
+          rssFeeds.map(({ source, url }) => fetchRssFeed(source, url)),
+          { concurrency: 2 },
+        );
+        const merged = rssResults.flat();
+        if (merged.length > 0) {
+          return merged
+            .sort(
+              (a, b) =>
+                +new Date(b.publishedAt) - +new Date(a.publishedAt),
+            )
+            .slice(0, 20);
         }
-      }
+        return [
+          {
+            title: "News feeds are currently unavailable",
+            source: "System",
+            url: "#",
+            publishedAt: new Date().toISOString(),
+          },
+        ];
+      }),
+    );
+  });
 
-      const sorted = flights
-        .sort((a, b) => (b.velocity ?? 0) - (a.velocity ?? 0))
-        .slice(0, 120);
+// ---------- Flights ----------
 
-      if (sorted.length > 0) {
-        setCachedValue(FLIGHTS_FALLBACK_KEY, sorted);
-        return sorted;
-      }
-
-      return cachedFetch<FlightState[]>(
-        FLIGHTS_FALLBACK_KEY,
-        async () => [],
-        FLIGHTS_FALLBACK_MAX_AGE_MS,
-      );
-    },
-    15 * 1000,
-  );
-}
-const SG_AIRPORT_ICAO = new Set(["WSSS", "WSSL"]);
-const SG_AIRPORT_IATA = new Set(["SIN", "XSP"]);
-
-function normalizeHeading(angle: number): number {
-  const value = angle % 360;
-  return value < 0 ? value + 360 : value;
-}
-
-function absoluteBearingDiff(a: number, b: number): number {
-  const diff = Math.abs(normalizeHeading(a) - normalizeHeading(b));
-  return diff > 180 ? 360 - diff : diff;
-}
-
-function bearingDegrees(
+const bearingDegrees = (
   fromLat: number,
   fromLon: number,
   toLat: number,
   toLon: number,
-): number {
+): number => {
   const fromLatRad = (fromLat * Math.PI) / 180;
   const fromLonRad = (fromLon * Math.PI) / 180;
   const toLatRad = (toLat * Math.PI) / 180;
@@ -549,48 +641,84 @@ function bearingDegrees(
     Math.cos(fromLatRad) * Math.sin(toLatRad) -
     Math.sin(fromLatRad) * Math.cos(toLatRad) * Math.cos(dLon);
   const theta = Math.atan2(y, x);
-  return normalizeHeading((theta * 180) / Math.PI);
-}
+  return ((theta * 180) / Math.PI + 360) % 360;
+};
 
-function classifyFlightDirection(
+const classifyFlightDirection = (
   latitude: number,
   longitude: number,
   track: number | null,
-): FlightDirection {
+): FlightDirection => {
   if (track === null) return "transit";
-
   const headingToChangi = bearingDegrees(
     latitude,
     longitude,
     CHANGI_COORDS.lat,
     CHANGI_COORDS.lon,
   );
-  const diff = absoluteBearingDiff(track, headingToChangi);
-
-  if (diff <= 55) return "inbound";
-  if (diff >= 125) return "outbound";
+  const diff = Math.abs(track - headingToChangi);
+  const normalized = diff > 180 ? 360 - diff : diff;
+  if (normalized <= 55) return "inbound";
+  if (normalized >= 125) return "outbound";
   return "transit";
-}
+};
 
-function normalizeCode(code?: string | null): string {
-  return (code ?? "").trim().toUpperCase();
-}
+const normalizeCode = (code?: string | null): string =>
+  (code ?? "").trim().toUpperCase();
 
-function isSingaporeAirport(
+const isSingaporeAirport = (
   icao?: string | null,
   iata?: string | null,
-): boolean {
-  const normalizedIcao = normalizeCode(icao);
-  const normalizedIata = normalizeCode(iata);
-  return (
-    SG_AIRPORT_ICAO.has(normalizedIcao) || SG_AIRPORT_IATA.has(normalizedIata)
-  );
-}
+): boolean =>
+  SG_AIRPORT_ICAO.has(normalizeCode(icao)) ||
+  SG_AIRPORT_IATA.has(normalizeCode(iata));
 
-function toFlightStateFromAviationStack(
-  item: AviationStackFlight,
-): FlightState | null {
-  const live = item.live;
+type RawTrafficImage = {
+  CameraID: string;
+  Latitude: number;
+  Longitude: number;
+  ImageLink: string;
+};
+
+type AviationStackLive = {
+  updated?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  altitude?: number | null;
+  direction?: number | null;
+  speed_horizontal?: number | null;
+  speed_vertical?: number | null;
+  is_ground?: boolean | null;
+};
+
+type AviationStackItem = {
+  departure?: {
+    airport?: string | null;
+    icao?: string | null;
+    iata?: string | null;
+  } | null;
+  arrival?: {
+    icao?: string | null;
+    iata?: string | null;
+  } | null;
+  airline?: { name?: string | null; iata?: string | null } | null;
+  flight?: {
+    number?: string | null;
+    iata?: string | null;
+    icao?: string | null;
+  } | null;
+  aircraft?: {
+    registration?: string | null;
+    icao24?: string | null;
+  } | null;
+  live?: AviationStackLive | null;
+};
+
+const toFlightStateFromAviationStack = (
+  item: unknown,
+): FlightState | null => {
+  const it = item as AviationStackItem;
+  const live = it?.live;
   const latitude = live?.latitude;
   const longitude = live?.longitude;
   const onGround = live?.is_ground ?? false;
@@ -605,14 +733,10 @@ function toFlightStateFromAviationStack(
     ? (live?.direction as number)
     : null;
 
-  const depIsSingapore = isSingaporeAirport(
-    item.departure?.icao,
-    item.departure?.iata,
-  );
-  const arrIsSingapore = isSingaporeAirport(
-    item.arrival?.icao,
-    item.arrival?.iata,
-  );
+  const dep = it?.departure;
+  const arr = it?.arrival;
+  const depIsSingapore = isSingaporeAirport(dep?.icao, dep?.iata);
+  const arrIsSingapore = isSingaporeAirport(arr?.icao, arr?.iata);
   const direction: FlightDirection =
     arrIsSingapore && !depIsSingapore
       ? "inbound"
@@ -620,13 +744,17 @@ function toFlightStateFromAviationStack(
         ? "outbound"
         : classifyFlightDirection(flightLatitude, flightLongitude, flightTrack);
 
+  const flight = it?.flight;
+  const airline = it?.airline;
+  const aircraft = it?.aircraft;
+
   const flightCode =
-    item.flight?.icao?.trim() ||
-    item.flight?.iata?.trim() ||
-    `${item.airline?.iata?.trim() ?? ""}${item.flight?.number?.trim() ?? ""}`.trim();
+    flight?.icao?.trim() ||
+    flight?.iata?.trim() ||
+    `${airline?.iata?.trim() ?? ""}${flight?.number?.trim() ?? ""}`.trim();
   const icao24 =
-    item.aircraft?.icao24?.trim() ||
-    item.aircraft?.registration?.trim() ||
+    aircraft?.icao24?.trim() ||
+    aircraft?.registration?.trim() ||
     flightCode ||
     "unknown";
   const callsign = flightCode || icao24.toUpperCase();
@@ -652,9 +780,7 @@ function toFlightStateFromAviationStack(
     icao24,
     callsign,
     originCountry:
-      item.departure?.airport?.trim() ||
-      item.airline?.name?.trim() ||
-      "Unknown",
+      it?.departure?.airport?.trim() || airline?.name?.trim() || "Unknown",
     latitude: flightLatitude,
     longitude: flightLongitude,
     altitude,
@@ -665,22 +791,22 @@ function toFlightStateFromAviationStack(
     direction,
     lastContact,
   };
-}
+};
 
-function toFlightStateFromOpenSky(
-  row: NonNullable<OpenSkyResponse["states"]>[number],
-): FlightState | null {
-  const icao24 = row[0]?.trim() ?? "";
-  const callsign = row[1]?.trim() ?? "";
-  const originCountry = row[2]?.trim() ?? "Unknown";
-  const longitude = row[5];
-  const latitude = row[6];
-  const altitude = row[7];
-  const onGround = row[8] ?? false;
-  const velocity = row[9];
-  const track = row[10];
-  const verticalRate = row[11];
-  const lastContact = row[4];
+const toFlightStateFromOpenSky = (
+  row: readonly unknown[],
+): FlightState | null => {
+  const icao24 = (row[0] as string | null)?.trim() ?? "";
+  const callsign = (row[1] as string | null)?.trim() ?? "";
+  const originCountry = (row[2] as string | null)?.trim() ?? "Unknown";
+  const longitude = row[5] as number | null;
+  const latitude = row[6] as number | null;
+  const altitude = row[7] as number | null;
+  const onGround = (row[8] as boolean | null) ?? false;
+  const velocity = row[9] as number | null;
+  const track = row[10] as number | null;
+  const verticalRate = row[11] as number | null;
+  const lastContact = row[4] as number | null;
 
   if (
     !icao24 ||
@@ -715,104 +841,175 @@ function toFlightStateFromOpenSky(
     direction,
     lastContact: Number.isFinite(lastContact) ? lastContact : null,
   };
-}
+};
 
-async function fetchFlightsFromAviationStack(): Promise<FlightState[]> {
-  const apiKey = getAviationStackApiKey();
-  const endpoints = [
-    { dep_icao: "WSSS" },
-    { arr_icao: "WSSS" },
-    { dep_icao: "WSSL" },
-    { arr_icao: "WSSL" },
-  ] as const;
+const fetchFlightsFromAviationStack = (): Effect.Effect<
+  FlightState[],
+  ExternalApiError | SchemaParseError | TimeoutError,
+  HttpClient.HttpClient
+> => {
+  type AviationStackResponse = {
+    data?: ReadonlyArray<unknown>;
+    error?: {
+      code?: string | number;
+      type?: string;
+      info?: string;
+    };
+  };
 
-  const responses = await Promise.allSettled(
-    endpoints.map(async (filter) => {
-      const params = new URLSearchParams({
-        access_key: apiKey,
-        limit: "100",
-        ...filter,
-      });
+  const program = Effect.gen(function* () {
+    const apiKey = yield* getAviationStackApiKey();
+    const endpoints = [
+      { dep_icao: "WSSS" },
+      { arr_icao: "WSSS" },
+      { dep_icao: "WSSL" },
+      { arr_icao: "WSSL" },
+    ] as const;
 
-      const response = await fetch(
-        `${AVIATIONSTACK_BASE_URL}/flights?${params.toString()}`,
-        {
-          signal: AbortSignal.timeout(FLIGHT_TIMEOUT_MS),
-          cache: "no-store",
-          headers: {
-            Accept: "application/json",
-          },
-        },
-      );
+    // Each query catches its own failure and returns an empty array. The
+    // outer `Effect.all` always succeeds. The caller decides whether the
+    // merged result is empty and falls back accordingly.
+    const batches: ReadonlyArray<ReadonlyArray<unknown>> = yield* Effect.all(
+      endpoints.map((filter) =>
+        Effect.gen(function* () {
+          const params = new URLSearchParams({
+            access_key: apiKey,
+            limit: "100",
+            ...filter,
+          });
+          const response = (yield* httpGetJson(
+            "aviationstack",
+            `${AVIATIONSTACK_BASE_URL}/flights?${params.toString()}`,
+            { Accept: "application/json" },
+            AviationStackResponseSchema,
+            FLIGHT_TIMEOUT_MS,
+          )) as AviationStackResponse;
+          if (response.error) {
+            return yield* Effect.fail(
+              new ExternalApiError({
+                service: "aviationstack",
+                message: `Aviationstack error${response.error.code ? ` ${response.error.code}` : ""}: ${response.error.info ?? response.error.type ?? "unknown"}`,
+                status: 502,
+              }),
+            );
+          }
+          return response.data ?? [];
+        }).pipe(
+          Effect.catchAll(() => Effect.succeed<readonly unknown[]>([])),
+        ),
+      ),
+      { concurrency: "unbounded" },
+    );
 
-      if (!response.ok) {
-        throw new Error(`Aviationstack request failed (${response.status})`);
+    const deduped = new globalThis.Map<string, FlightState>();
+    for (const batch of batches) {
+      for (const item of batch) {
+        const flight = toFlightStateFromAviationStack(item);
+        if (!flight) continue;
+        const existing = deduped.get(flight.icao24);
+        const existingTs = existing?.lastContact ?? 0;
+        const currentTs = flight.lastContact ?? 0;
+        if (!existing || currentTs >= existingTs) {
+          deduped.set(flight.icao24, flight);
+        }
       }
-
-      const payload = (await response.json()) as AviationStackResponse;
-      if (payload.error) {
-        throw new Error(
-          `Aviationstack error${payload.error.code ? ` ${payload.error.code}` : ""}: ${payload.error.info ?? payload.error.type ?? "unknown"}`,
-        );
-      }
-
-      return payload.data ?? [];
-    }),
-  );
-
-  const deduped = new globalThis.Map<string, FlightState>();
-  for (const result of responses) {
-    if (result.status !== "fulfilled") {
-      continue;
     }
 
-    for (const item of result.value) {
-      const flight = toFlightStateFromAviationStack(item);
-      if (!flight) continue;
+    return Array.from(deduped.values());
+  });
 
-      const existing = deduped.get(flight.icao24);
-      const existingTs = existing?.lastContact ?? 0;
-      const currentTs = flight.lastContact ?? 0;
-      if (!existing || currentTs >= existingTs) {
-        deduped.set(flight.icao24, flight);
-      }
-    }
-  }
+  return program as Effect.Effect<
+    FlightState[],
+    ExternalApiError | SchemaParseError | TimeoutError,
+    HttpClient.HttpClient
+  >;
+};
 
-  return Array.from(deduped.values());
-}
-
-async function fetchFlightsFromOpenSky(): Promise<FlightState[]> {
+const fetchFlightsFromOpenSky = (): Effect.Effect<
+  FlightState[],
+  ExternalApiError | SchemaParseError | TimeoutError,
+  HttpClient.HttpClient
+> => {
   const params = new URLSearchParams({
     lamin: String(SG_BOUNDS.lamin),
     lomin: String(SG_BOUNDS.lomin),
     lamax: String(SG_BOUNDS.lamax),
     lomax: String(SG_BOUNDS.lomax),
   });
+  const program = Effect.gen(function* () {
+    type OpenSkyResponse = {
+      time: number;
+      states: ReadonlyArray<readonly unknown[]> | null;
+    };
+    const response = (yield* httpGetJson(
+      "opensky",
+      `${OPENSKY_BASE_URL}/states/all?${params.toString()}`,
+      { Accept: "application/json" },
+      OpenSkyResponseSchema,
+      FLIGHT_TIMEOUT_MS,
+    ).pipe(
+      Effect.catchTag("ExternalApiError", (e) =>
+        e.status === 404
+          ? Effect.succeed({ time: 0, states: null } as never)
+          : Effect.fail(e),
+      ),
+    )) as OpenSkyResponse;
 
-  const response = await fetch(
-    `${OPENSKY_BASE_URL}/states/all?${params.toString()}`,
-    {
-      signal: AbortSignal.timeout(FLIGHT_TIMEOUT_MS),
-      cache: "no-store",
-      headers: {
-        Accept: "application/json",
-      },
-    },
-  );
+    const states = response.states ?? [];
+    return states
+      .map((row) => toFlightStateFromOpenSky(row))
+      .filter((flight): flight is FlightState => flight !== null);
+  });
 
-  if (response.status === 404) {
-    return [];
-  }
+  return program as Effect.Effect<
+    FlightState[],
+    ExternalApiError | SchemaParseError | TimeoutError,
+    HttpClient.HttpClient
+  >;
+};
 
-  if (!response.ok) {
-    throw new Error(`OpenSky request failed (${response.status})`);
-  }
+export const getFlights = (): Effect.Effect<
+  FlightState[],
+  ExternalApiError | SchemaParseError | TimeoutError,
+  Cache | HttpClient.HttpClient
+> =>
+  Effect.gen(function* () {
+    const cache = yield* Cache;
+    return yield* cache.get(
+      "flights-sg",
+      15_000,
+      Effect.gen(function* () {
+        const primary = yield* fetchFlightsFromAviationStack().pipe(
+          Effect.catchAll(() => Effect.succeed<FlightState[]>([])),
+        );
+        let flights: FlightState[] = primary;
 
-  const payload = (await response.json()) as OpenSkyResponse;
-  const states = payload.states ?? [];
+        if (flights.length === 0) {
+          const fallback = yield* fetchFlightsFromOpenSky().pipe(
+            Effect.catchAll(() => Effect.succeed<FlightState[]>([])),
+          );
+          flights = fallback;
+        }
 
-  return states
-    .map((row) => toFlightStateFromOpenSky(row))
-    .filter((flight): flight is FlightState => flight !== null);
-}
+        const sorted = flights
+          .sort((a, b) => (b.velocity ?? 0) - (a.velocity ?? 0))
+          .slice(0, 120);
+
+        if (sorted.length > 0) {
+          yield* cache.set(FLIGHTS_FALLBACK_KEY, sorted);
+          return sorted;
+        }
+
+        // Last-good snapshot. Wrap the inner cache call so its own
+        // in-flight de-dup does not starve other concurrent flight polls.
+        return yield* cache.get(
+          FLIGHTS_FALLBACK_KEY,
+          FLIGHTS_FALLBACK_MAX_AGE_MS,
+          Effect.succeed<FlightState[]>([]),
+        );
+      }),
+    );
+  });
+
+// ---------- Internal helper: keep Schedule import non-empty ----------
+void Schedule;
