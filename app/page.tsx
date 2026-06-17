@@ -627,13 +627,13 @@ function HeaderChip({
 
 function LoadingScreen({ sources }: { sources: ReadonlyArray<SourceState> }) {
   const [bootTime] = useState(() => new Date());
-  const [now, setNow] = useState(() => Date.now());
-
-  // Tick a clock so the "loading..." dots animate and so the offline message
-  // can show how long the dashboard has been waiting.
+  // Latch after 8s so partial-failure help text shows even when the rest
+  // of the screen content is otherwise static. Single timeout, no interval,
+  // so we only re-render once.
+  const [helpReady, setHelpReady] = useState(false);
   useEffect(() => {
-    const interval = setInterval(() => setNow(Date.now()), 500);
-    return () => clearInterval(interval);
+    const timer = setTimeout(() => setHelpReady(true), 8000);
+    return () => clearTimeout(timer);
   }, []);
 
   const totalSources = sources.length;
@@ -664,10 +664,7 @@ function LoadingScreen({ sources }: { sources: ReadonlyArray<SourceState> }) {
         ? "text-amber-300"
         : "text-[#cfe6f5]";
 
-  const secondsWaiting = Math.floor((now - bootTime.getTime()) / 1000);
-  const showOfflineHelp =
-    allFailed ||
-    (settledCount > 0 && errorCount > 0 && secondsWaiting >= 8);
+  const showOfflineHelp = allFailed || (settledCount > 0 && errorCount > 0 && helpReady);
 
   return (
     <div className="grid h-screen place-items-center overflow-hidden bg-[#020913] px-4 text-terminal-text">
@@ -868,8 +865,13 @@ function LoadingScreen({ sources }: { sources: ReadonlyArray<SourceState> }) {
                     }`}
                   />
                 </div>
-                <div className="text-[11px] uppercase tracking-[0.12em] text-[#cfe6f5]">
-                  {source.label}
+                <div className="flex items-center gap-1.5 text-[11px] uppercase tracking-[0.12em] text-[#cfe6f5]">
+                  {source.icon ? (
+                    <span aria-hidden="true" className="text-[12px]">
+                      {source.icon}
+                    </span>
+                  ) : null}
+                  <span>{source.label}</span>
                 </div>
                 <div className="mt-1 text-[10px] uppercase tracking-widest">
                   <span className={statusClass}>{statusLabel}</span>

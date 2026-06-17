@@ -104,35 +104,14 @@ export const RateLimitLive: Layer.Layer<RateLimit, never, never> = Layer.effect(
   make,
 );
 
-// ---------- Legacy sync API (transitional) ----------
-//
-// `lib/route-utils.ts` still imports the pre-change `checkGlobalRateLimit`
-// and `extractClientIp`. These are kept until tasks 6.x rewrite the route
-// utility on top of the new service.
-
-export function checkGlobalRateLimit(
-  ip: string,
-  maxRequests: number = GLOBAL_MAX_REQUESTS,
-  windowMs: number = DEFAULT_WINDOW_MS,
-  scope: string = "global",
-): { allowed: boolean; remaining: number; resetMs: number } {
-  const state: WindowState = { ipWindows: ipWindowsLegacy };
-  const now = Date.now();
-  const key = `${scope}:${ip}`;
-  evictOldestIfNeeded(state.ipWindows);
-  const entry = state.ipWindows.get(key);
-  if (!entry || now - entry.windowStart > windowMs) {
-    state.ipWindows.set(key, { count: 1, windowStart: now });
-    return { allowed: true, remaining: maxRequests - 1, resetMs: windowMs };
-  }
-  entry.count += 1;
-  const remaining = Math.max(0, maxRequests - entry.count);
-  const resetMs = Math.max(0, entry.windowStart + windowMs - now);
-  return { allowed: entry.count <= maxRequests, remaining, resetMs };
-}
-
-const ipWindowsLegacy = new Map<string, WindowEntry>();
-
+/**
+ * Extract the originating client IP from the request. Trusts the
+ * `x-forwarded-for` header set by trusted proxies (Vercel, Cloudflare);
+ * falls back to `x-real-ip` and then to a sentinel value. In a deployment
+ * behind a hostile or unknown proxy chain, callers should ignore the result
+ * or rate-limit on a less-spoofable signal (e.g. an authenticated
+ * `x-argus-token`).
+ */
 export function extractClientIp(request: Request): string {
   const forwarded = request.headers.get("x-forwarded-for");
   if (forwarded) return forwarded.split(",")[0].trim();

@@ -11,9 +11,9 @@
  * The route handlers in the app/api/{route}.ts files execute these Effects
  * through the shared 'runtime' exported from '@/lib/effect-runtime'.
  */
-import { HttpClient, HttpClientError, HttpClientResponse } from "@effect/platform";
+import { HttpClient } from "@effect/platform";
 import { Schema } from "@effect/schema";
-import { Duration, Effect, Schedule } from "effect";
+import { Duration, Effect } from "effect";
 import { Cache } from "@/lib/cache";
 import {
   ExternalApiError,
@@ -59,7 +59,6 @@ const FLIGHTS_FALLBACK_MAX_AGE_MS = 10 * 60 * 1000; // 10 minutes
 const SAFE_CAMERA_IMAGE_URL_RE =
   /^https:\/\/(?:images\.data\.gov\.sg|datamall2\.mytransport\.sg|dm-traffic-camera-itsc\.s3\.ap-southeast-1\.amazonaws\.com)\//i;
 const SAFE_URL_RE = /^https?:\/\//i;
-export const BUS_STOP_ID_RE = /^\d{5}$/;
 const SG_BOUNDS = {
   lamin: 1.15,
   lomin: 103.45,
@@ -89,7 +88,6 @@ const withTimeout = <A, E, R>(
 // Internal helper: a single typed HTTP GET that returns the decoded JSON.
 // Schemas are passed as `any` to avoid Effect's complex Schema generic
 // machinery; callers cast the result back to the expected shape.
- 
 const httpGetJson = (
   service: string,
   url: string,
@@ -102,27 +100,18 @@ const httpGetJson = (
   ExternalApiError | SchemaParseError | TimeoutError,
   HttpClient.HttpClient
 > => {
-  const getEffect: Effect.Effect<
-    HttpClientResponse.HttpClientResponse,
-    HttpClientError.HttpClientError,
-    HttpClient.HttpClient
-  > = HttpClient.get(url, { headers });
-
-  const withTimeoutEffect = getEffect.pipe(
+  // Apply the shared timeout, then map transport-level failures
+  // (HttpClientError, request aborts) into ExternalApiError. The timeout
+  // and the transport-error mapping share the same `catchAll` because we
+  // need both to flow into the typed-error channel.
+  const request = HttpClient.get(url, { headers }).pipe(
     Effect.timeout(Duration.millis(timeoutMs)),
   );
 
-  const handledTimeout = withTimeoutEffect.pipe(
+  const response = request.pipe(
     Effect.catchTag("TimeoutException", (cause) =>
       Effect.fail(fromTimeoutException(service, cause) as TimeoutError),
     ),
-  ) as Effect.Effect<
-    HttpClientResponse.HttpClientResponse,
-    HttpClientError.HttpClientError | TimeoutError,
-    HttpClient.HttpClient
-  >;
-
-  const handledErrors = handledTimeout.pipe(
     Effect.catchAll((e) =>
       Effect.fail(
         new ExternalApiError({
@@ -137,10 +126,10 @@ const httpGetJson = (
     ),
   );
 
-  const result = Effect.gen(function* () {
-    const response = yield* handledErrors;
+  return Effect.gen(function* () {
+    const ok = yield* response;
 
-    if (response.status === 404) {
+    if (ok.status === 404) {
       return yield* Effect.fail(
         new ExternalApiError({
           service,
@@ -150,12 +139,12 @@ const httpGetJson = (
       );
     }
 
-    if (response.status < 200 || response.status >= 300) {
+    if (ok.status < 200 || ok.status >= 300) {
       return yield* Effect.fail(
         new ExternalApiError({
           service,
-          status: response.status,
-          message: `${service} request failed (${response.status})`,
+          status: ok.status,
+          message: `${service} request failed (${ok.status})`,
         }),
       );
     }
@@ -164,13 +153,11 @@ const httpGetJson = (
     // `{ status, headers, body }` before decoding, which is the wrong shape
     // for the LTA / Data.gov.sg / Aviationstack / OpenSky payloads. Read the
     // body with `.json` and decode it directly with our Schema instead.
-    const body = yield* response.json;
+    const body = yield* ok.json;
     return yield* Schema.decodeUnknown(decode)(body).pipe(
       Effect.mapError((cause) => fromParseError(service, cause)),
     );
-  });
-
-  return result as Effect.Effect<
+  }) as Effect.Effect<
     unknown,
     ExternalApiError | SchemaParseError | TimeoutError,
     HttpClient.HttpClient
@@ -178,27 +165,31 @@ const httpGetJson = (
 };
 
 const getLtaApiKey = (): Effect.Effect<string, ExternalApiError, never> =>
-  Effect.sync(() => {
+  Effect.gen(function* () {
     const apiKey = process.env.LTA_API_KEY?.trim();
     if (!apiKey || apiKey.toLowerCase().includes("your_lta_datamall_key")) {
-      throw new ExternalApiError({
-        service: "lta",
-        message: "Missing or placeholder LTA_API_KEY",
-        status: 401,
-      });
+      return yield* Effect.fail(
+        new ExternalApiError({
+          service: "lta",
+          message: "Missing or placeholder LTA_API_KEY",
+          status: 401,
+        }),
+      );
     }
     return apiKey;
   });
 
 const getAviationStackApiKey = (): Effect.Effect<string, ExternalApiError, never> =>
-  Effect.sync(() => {
+  Effect.gen(function* () {
     const apiKey = process.env.AVIATIONSTACK_API_KEY?.trim();
     if (!apiKey) {
-      throw new ExternalApiError({
-        service: "aviationstack",
-        message: "Missing AVIATIONSTACK_API_KEY",
-        status: 401,
-      });
+      return yield* Effect.fail(
+        new ExternalApiError({
+          service: "aviationstack",
+          message: "Missing AVIATIONSTACK_API_KEY",
+          status: 401,
+        }),
+      );
     }
     return apiKey;
   });
@@ -272,15 +263,9 @@ export const getBusArrivals = (
   ExternalApiError | SchemaParseError | TimeoutError,
   Cache | HttpClient.HttpClient
 > => {
-  if (!BUS_STOP_ID_RE.test(stopId)) {
-    return Effect.fail(
-      new ExternalApiError({
-        service: "lta",
-        message: "Invalid bus stop code",
-        status: 400,
-      }),
-    );
-  }
+  // `stopId` is validated by the route handler (see `BUS_STOP_ID_RE` in
+  // `@/lib/route-utils`). The LTA endpoint itself accepts a wider range
+  // than 5 digits, so we pass it through unchanged here.
   const ttl = 15_000;
   return Effect.gen(function* () {
     const cache = yield* Cache;
@@ -288,19 +273,23 @@ export const getBusArrivals = (
       `bus-arrivals-${stopId}`,
       ttl,
       Effect.gen(function* () {
-        const v3 = yield* ltaGet<{ readonly Services: ReadonlyArray<BusArrival> }>(
-          `/v3/BusArrival?BusStopCode=${encodeURIComponent(stopId)}`,
-          LtaBusArrivalsResponseSchema,
-        ).pipe(Effect.option);
+        // The v3 endpoint is canonical. It returns `Services: []` for stops
+        // with no live arrivals — that is a valid, successful response,
+        // not an error. The v2 endpoint was the legacy shape; LTA removed
+        // it, so it is kept here as a best-effort fallback that swallows
+        // both `ExternalApiError` 404 and `SchemaParseError` (the v2
+        // endpoint now returns plain text which fails JSON decoding).
+        const v3 = yield* ltaGet<{
+          readonly Services: ReadonlyArray<BusArrival>;
+        }>(`/v3/BusArrival?BusStopCode=${encodeURIComponent(stopId)}`, LtaBusArrivalsResponseSchema);
 
-        if (v3._tag === "Some" && v3.value.Services.length > 0) {
-          return v3.value.Services.slice() as BusArrival[];
+        if (v3.Services.length > 0) {
+          return v3.Services.slice() as BusArrival[];
         }
 
-        return yield* ltaGet<{ readonly Services: ReadonlyArray<BusArrival> }>(
-          `/BusArrivalv2?BusStopCode=${encodeURIComponent(stopId)}`,
-          LtaBusArrivalsResponseSchema,
-        ).pipe(
+        return yield* ltaGet<{
+          readonly Services: ReadonlyArray<BusArrival>;
+        }>(`/BusArrivalv2?BusStopCode=${encodeURIComponent(stopId)}`, LtaBusArrivalsResponseSchema).pipe(
           Effect.map((r) => r.Services.slice() as BusArrival[]),
           Effect.catchAll(() => Effect.succeed<BusArrival[]>([])),
         );
@@ -325,7 +314,7 @@ export const getTrafficCameras = (): Effect.Effect<
         }>("/Traffic-Imagesv2", LtaTrafficImagesResponseSchema).pipe(
           Effect.catchTag("ExternalApiError", (e) =>
             e.status === 404
-              ? Effect.succeed({ value: [] } as never)
+              ? Effect.succeed({ value: [] as ReadonlyArray<unknown> })
               : Effect.fail(e),
           ),
         );
@@ -972,14 +961,21 @@ export const getFlights = (): Effect.Effect<
       "flights-sg",
       15_000,
       Effect.gen(function* () {
+        // Only swallow `ExternalApiError` (an upstream provider returned a
+        // usable but empty result, e.g. 404). `TimeoutError` and
+        // `SchemaParseError` propagate so the route can return 502/504.
         const primary = yield* fetchFlightsFromAviationStack().pipe(
-          Effect.catchAll(() => Effect.succeed<FlightState[]>([])),
+          Effect.catchTag("ExternalApiError", () =>
+            Effect.succeed<FlightState[]>([]),
+          ),
         );
         let flights: FlightState[] = primary;
 
         if (flights.length === 0) {
           const fallback = yield* fetchFlightsFromOpenSky().pipe(
-            Effect.catchAll(() => Effect.succeed<FlightState[]>([])),
+            Effect.catchTag("ExternalApiError", () =>
+              Effect.succeed<FlightState[]>([]),
+            ),
           );
           flights = fallback;
         }
@@ -1004,5 +1000,3 @@ export const getFlights = (): Effect.Effect<
     );
   });
 
-// ---------- Internal helper: keep Schedule import non-empty ----------
-void Schedule;

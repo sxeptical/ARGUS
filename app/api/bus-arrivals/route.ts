@@ -1,5 +1,5 @@
-import { getBusArrivals, BUS_STOP_ID_RE } from "@/lib/api-clients";
-import { handle } from "@/lib/route-utils";
+import { getBusArrivals } from "@/lib/api-clients";
+import { BUS_STOP_ID_RE, handle } from "@/lib/route-utils";
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);

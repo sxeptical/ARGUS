@@ -86,28 +86,6 @@ export const FlightStateSchema = Schema.Struct({
   lastContact: Schema.NullOr(Schema.Number),
 });
 
-const MRTGeoJsonGeometrySchema = Schema.Struct({
-  type: Schema.Literal("LineString"),
-  coordinates: Schema.Array(Schema.Array(Schema.Number)),
-});
-
-const MRTGeoJsonPropertiesSchema = Schema.Struct({
-  name: Schema.String,
-  color: Schema.String,
-  status: Schema.optional(Schema.Literal("operational", "future")),
-});
-
-const MRTGeoJsonFeatureSchema = Schema.Struct({
-  type: Schema.Literal("Feature"),
-  properties: MRTGeoJsonPropertiesSchema,
-  geometry: MRTGeoJsonGeometrySchema,
-});
-
-export const MRTGeoJsonSchema = Schema.Struct({
-  type: Schema.Literal("FeatureCollection"),
-  features: Schema.Array(MRTGeoJsonFeatureSchema),
-});
-
 // ---------- Upstream response wrappers ----------
 
 export const LtaBusStopsResponseSchema = Schema.Struct({
@@ -241,9 +219,10 @@ export const AviationStackResponseSchema = Schema.Struct({
 // ---------- OpenSky ----------
 
 /**
- * OpenSky state vectors are a positional 18-tuple. We declare the fields we
- * actually read (positions 0-11) and mark the rest as `Schema.Unknown` so the
- * decode is robust to upstream adding or reordering columns.
+ * OpenSky state vectors are a positional 18-tuple. We declare every position
+ * (0-17) so the decoder validates the array length; positions we don't read
+ * are typed as `Schema.Unknown` so the decode is robust to upstream adding
+ * or reordering columns.
  */
 const OpenSkyNullableString = Schema.NullOr(Schema.String);
 const OpenSkyNullableNumber = Schema.NullOr(Schema.Number);

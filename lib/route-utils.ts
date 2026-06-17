@@ -20,6 +20,9 @@ export type RateLimitDecision = import("@/lib/rate-limit").RateLimitDecision;
 export type RateLimitOptions = import("@/lib/rate-limit").RateLimitOptions;
 export { extractClientIp };
 
+// 5-digit LTA bus stop code, as accepted by the LTA BusArrival endpoint.
+export const BUS_STOP_ID_RE = /^\d{5}$/;
+
 type AppError = ExternalApiError | SchemaParseError | TimeoutError;
 
 const errorToResponse = (
@@ -31,14 +34,11 @@ const errorToResponse = (
     if (error.status === 429) {
       headers["Retry-After"] = "60";
     }
+    // 4xx (including 429) -> 503 (we treat the upstream as "temporarily
+    // unavailable" since the request itself was well-formed); 5xx -> 502;
+    // anything else -> 503 as a safe default.
     const status =
-      error.status === 429
-        ? 503
-        : error.status >= 500
-          ? 502
-          : error.status >= 400
-            ? 503
-            : 503;
+      error.status >= 500 ? 502 : 503;
     return Response.json(
       { error: `${serviceLabel} is temporarily unavailable` },
       { status, headers },
@@ -64,16 +64,29 @@ export async function handle<A, R>(
   program: Effect.Effect<A, AppError, R>,
 ): Promise<Response> {
   const ip = extractClientIp(request);
-  const decision = await runtime.runPromise(
-    Effect.gen(function* () {
-      const rl = yield* RateLimit;
-      return yield* rl.check(ip, {
-        scope,
-        maxRequests: options.maxRequests,
-        windowMs: options.windowMs,
-      });
-    }),
-  );
+
+  // Run the rate-limit check on the shared runtime. If the runtime itself
+  // fails (e.g. layer construction error, fiber cancellation) we return 500
+  // rather than letting the unhandled rejection crash the server process.
+  let decision: import("@/lib/rate-limit").RateLimitDecision;
+  try {
+    decision = await runtime.runPromise(
+      Effect.gen(function* () {
+        const rl = yield* RateLimit;
+        return yield* rl.check(ip, {
+          scope,
+          maxRequests: options.maxRequests,
+          windowMs: options.windowMs,
+        });
+      }),
+    );
+  } catch (error) {
+    console.error(`[${scope}] rate-limit check failed`, error);
+    return Response.json(
+      { error: "Internal server error" },
+      { status: 500 },
+    );
+  }
 
   if (!decision.allowed) {
     const retryAfterSeconds = Math.max(1, Math.ceil(decision.resetMs / 1000));
