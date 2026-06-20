@@ -18,6 +18,7 @@ import type {
   NewsItem,
   TrafficCamera,
   WeatherData,
+  WeatherHistoryPoint,
 } from "@/types";
 
 type SensorKey = "flights" | "cameras" | "busStops" | "mrt";
@@ -26,10 +27,12 @@ type SourceStatus = "pending" | "loading" | "ok" | "error";
 
 type SourceState = {
   readonly label: string;
-  readonly icon: string;
   readonly status: SourceStatus;
   readonly message?: string;
 };
+
+const WEATHER_HISTORY_STORAGE_KEY = "argus.weather.history.v1";
+const WEATHER_HISTORY_MAX_POINTS = 288; // 24 hours at a 5-minute cadence
 
 const DEFAULT_WEATHER: WeatherData = {
   temperature: null,
@@ -48,10 +51,92 @@ const SOURCE_REFRESH_MS = {
   flights: 15 * 1000,
 } as const;
 
+function isWeatherHistoryPoint(value: unknown): value is WeatherHistoryPoint {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as Partial<WeatherHistoryPoint>;
+  return (
+    typeof candidate.timestamp === "string" &&
+    (candidate.temperature === null ||
+      typeof candidate.temperature === "number") &&
+    (candidate.humidity === null || typeof candidate.humidity === "number") &&
+    (candidate.psi === null || typeof candidate.psi === "number")
+  );
+}
+
+function readWeatherHistory(): WeatherHistoryPoint[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(WEATHER_HISTORY_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter(isWeatherHistoryPoint)
+      .sort((a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp))
+      .slice(-WEATHER_HISTORY_MAX_POINTS);
+  } catch {
+    return [];
+  }
+}
+
+function writeWeatherHistory(history: WeatherHistoryPoint[]): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(
+      WEATHER_HISTORY_STORAGE_KEY,
+      JSON.stringify(history.slice(-WEATHER_HISTORY_MAX_POINTS)),
+    );
+  } catch {
+    // Ignore storage quota / private browsing failures. The live dashboard
+    // should keep working even when local history cannot be persisted.
+  }
+}
+
+function appendWeatherHistory(
+  history: WeatherHistoryPoint[],
+  weather: WeatherData,
+): WeatherHistoryPoint[] {
+  const hasReading =
+    weather.temperature !== null ||
+    weather.humidity !== null ||
+    weather.psi !== null;
+  if (!hasReading) return history;
+
+  const point: WeatherHistoryPoint = {
+    timestamp: weather.lastUpdated,
+    temperature: weather.temperature,
+    humidity: weather.humidity,
+    psi: weather.psi,
+  };
+  const existingIndex = history.findIndex(
+    (item) => item.timestamp === point.timestamp,
+  );
+  if (
+    existingIndex >= 0 &&
+    history[existingIndex].temperature === point.temperature &&
+    history[existingIndex].humidity === point.humidity &&
+    history[existingIndex].psi === point.psi
+  ) {
+    return history;
+  }
+
+  const next =
+    existingIndex >= 0
+      ? history.map((item, index) => (index === existingIndex ? point : item))
+      : [...history, point];
+
+  return next
+    .sort((a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp))
+    .slice(-WEATHER_HISTORY_MAX_POINTS);
+}
+
 export default function Home() {
   const [busStops, setBusStops] = useState<BusStop[]>([]);
   const [cameras, setCameras] = useState<TrafficCamera[]>([]);
   const [weather, setWeather] = useState<WeatherData>(DEFAULT_WEATHER);
+  const [weatherHistory, setWeatherHistory] = useState<WeatherHistoryPoint[]>(
+    [],
+  );
   const [news, setNews] = useState<NewsItem[]>([]);
   const [flights, setFlights] = useState<FlightState[]>([]);
   const [selectedStop, setSelectedStop] = useState<BusStop | null>(null);
@@ -72,11 +157,11 @@ export default function Home() {
   const [bootComplete, setBootComplete] = useState(false);
   const [sourceStates, setSourceStates] = useState<Record<string, SourceState>>(
     {
-      "bus stops": { label: "LTA Bus Network", icon: "🚌", status: "pending" },
-      cameras: { label: "Traffic Cameras", icon: "📷", status: "pending" },
-      weather: { label: "Weather Grid", icon: "🌡️", status: "pending" },
-      news: { label: "OSINT Stream", icon: "📡", status: "pending" },
-      flights: { label: "Airspace Feed", icon: "✈️", status: "pending" },
+      "bus stops": { label: "LTA Bus Network", status: "pending" },
+      cameras: { label: "Traffic Cameras", status: "pending" },
+      weather: { label: "Weather Grid", status: "pending" },
+      news: { label: "OSINT Stream", status: "pending" },
+      flights: { label: "Airspace Feed", status: "pending" },
     },
   );
   const [sensorVisibility, setSensorVisibility] = useState<
@@ -178,7 +263,15 @@ export default function Home() {
         "weather",
         "/api/weather",
         SOURCE_REFRESH_MS.weather,
-        setWeather,
+        (value) => {
+          setWeather(value);
+          setWeatherHistory((previous) => {
+            const next = appendWeatherHistory(previous, value);
+            if (next === previous) return previous;
+            writeWeatherHistory(next);
+            return next;
+          });
+        },
       ),
       loadSource<NewsItem[]>(
         "news",
@@ -219,7 +312,15 @@ export default function Home() {
       "weather",
       "/api/weather",
       SOURCE_REFRESH_MS.weather,
-      setWeather,
+      (value) => {
+        setWeather(value);
+        setWeatherHistory((previous) => {
+          const next = appendWeatherHistory(previous, value);
+          if (next === previous) return previous;
+          writeWeatherHistory(next);
+          return next;
+        });
+      },
     );
     scheduleSource<NewsItem[]>(
       "news",
@@ -238,6 +339,11 @@ export default function Home() {
       mounted = false;
       timers.forEach((timer) => clearInterval(timer));
     };
+  }, []);
+
+  useEffect(() => {
+    const timer = setTimeout(() => setWeatherHistory(readWeatherHistory()), 0);
+    return () => clearTimeout(timer);
   }, []);
 
   const inboundFlights = useMemo(
@@ -429,7 +535,7 @@ export default function Home() {
             </div>
           </IntelPanel>
 
-          <WeatherPanel weather={weather} />
+          <WeatherPanel weather={weather} history={weatherHistory} />
           <FlightPanel
             flights={flights}
             selectedFlight={selectedFlight}
@@ -866,11 +972,6 @@ function LoadingScreen({ sources }: { sources: ReadonlyArray<SourceState> }) {
                   />
                 </div>
                 <div className="flex items-center gap-1.5 text-[11px] uppercase tracking-[0.12em] text-[#cfe6f5]">
-                  {source.icon ? (
-                    <span aria-hidden="true" className="text-[12px]">
-                      {source.icon}
-                    </span>
-                  ) : null}
                   <span>{source.label}</span>
                 </div>
                 <div className="mt-1 text-[10px] uppercase tracking-widest">

@@ -8,6 +8,92 @@ type BusPanelProps = {
   onSelectStop?: (stop: BusStop) => void;
 };
 
+type BusArrivalHistoryPoint = {
+  timestamp: string;
+  nextMinutes: number | null;
+  secondMinutes: number | null;
+  thirdMinutes: number | null;
+};
+
+type BusArrivalHistoryStore = Record<string, BusArrivalHistoryPoint[]>;
+
+const BUS_ARRIVAL_HISTORY_STORAGE_KEY = "argus.bus-arrival-history.v1";
+const BUS_ARRIVAL_HISTORY_SAMPLE_MS = 5 * 60 * 1000;
+const BUS_ARRIVAL_HISTORY_MAX_POINTS_PER_SERVICE = 288;
+
+function getArrivalHistoryKey(stopCode: string, serviceNo: string): string {
+  return `${stopCode}:${serviceNo}`;
+}
+
+function readBusArrivalHistory(): BusArrivalHistoryStore {
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = window.localStorage.getItem(BUS_ARRIVAL_HISTORY_STORAGE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return {};
+    }
+    return parsed as BusArrivalHistoryStore;
+  } catch {
+    return {};
+  }
+}
+
+function writeBusArrivalHistory(history: BusArrivalHistoryStore): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(
+      BUS_ARRIVAL_HISTORY_STORAGE_KEY,
+      JSON.stringify(history),
+    );
+  } catch {
+    // Keep live arrivals working even when localStorage is unavailable.
+  }
+}
+
+function minutesUntil(iso?: string, now = Date.now()): number | null {
+  if (!iso) return null;
+  const timestamp = Date.parse(iso);
+  if (!Number.isFinite(timestamp)) return null;
+  return Math.max(0, Math.round((timestamp - now) / 60_000));
+}
+
+function appendBusArrivalHistory(
+  history: BusArrivalHistoryStore,
+  stopCode: string,
+  arrivals: BusArrival[],
+): BusArrivalHistoryStore {
+  const now = Date.now();
+  let changed = false;
+  const next: BusArrivalHistoryStore = { ...history };
+
+  for (const service of arrivals) {
+    const key = getArrivalHistoryKey(stopCode, service.ServiceNo);
+    const existing = next[key] ?? [];
+    const latest = existing[existing.length - 1];
+    if (
+      latest &&
+      now - Date.parse(latest.timestamp) < BUS_ARRIVAL_HISTORY_SAMPLE_MS
+    ) {
+      continue;
+    }
+
+    next[key] = [
+      ...existing,
+      {
+        timestamp: new Date(now).toISOString(),
+        nextMinutes: minutesUntil(service.NextBus?.EstimatedArrival, now),
+        secondMinutes: minutesUntil(service.NextBus2?.EstimatedArrival, now),
+        thirdMinutes: minutesUntil(service.NextBus3?.EstimatedArrival, now),
+      },
+    ].slice(-BUS_ARRIVAL_HISTORY_MAX_POINTS_PER_SERVICE);
+    changed = true;
+  }
+
+  return changed ? next : history;
+}
+
 export default function BusPanel({
   busStops,
   selectedStop,
@@ -18,6 +104,9 @@ export default function BusPanel({
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [expandedService, setExpandedService] = useState<string | null>(null);
+  const [arrivalHistory, setArrivalHistory] = useState<BusArrivalHistoryStore>(
+    {},
+  );
 
   const filteredStops = useMemo(() => {
     if (!search.trim()) return [];
@@ -32,6 +121,14 @@ export default function BusPanel({
       )
       .slice(0, 8);
   }, [busStops, search]);
+
+  useEffect(() => {
+    const timer = setTimeout(
+      () => setArrivalHistory(readBusArrivalHistory()),
+      0,
+    );
+    return () => clearTimeout(timer);
+  }, []);
 
   useEffect(() => {
     if (!selectedStop) return;
@@ -65,6 +162,12 @@ export default function BusPanel({
         const data = (await response.json()) as BusArrival[];
         if (cancelled) return;
         setArrivals(data);
+        setArrivalHistory((previous) => {
+          const next = appendBusArrivalHistory(previous, stopCode, data);
+          if (next === previous) return previous;
+          writeBusArrivalHistory(next);
+          return next;
+        });
       } catch (err) {
         if (cancelled) return;
         if (initialLoad) setArrivals([]);
@@ -88,6 +191,7 @@ export default function BusPanel({
   }, [selectedStop]);
 
   const activeStop = selectedStop;
+  const activeStopCode = activeStop?.BusStopCode;
   const visibleArrivals = useMemo(() => {
     if (!activeStop) return [];
 
@@ -166,6 +270,13 @@ export default function BusPanel({
             <ServiceRow
               key={service.ServiceNo}
               service={service}
+              history={
+                activeStopCode
+                  ? arrivalHistory[
+                      getArrivalHistoryKey(activeStopCode, service.ServiceNo)
+                    ] ?? []
+                  : []
+              }
               expanded={expandedService === service.ServiceNo}
               onToggle={() =>
                 setExpandedService((prev) =>
@@ -182,10 +293,12 @@ export default function BusPanel({
 
 function ServiceRow({
   service,
+  history,
   expanded,
   onToggle,
 }: {
   service: BusArrival;
+  history: BusArrivalHistoryPoint[];
   expanded: boolean;
   onToggle: () => void;
 }) {
@@ -237,10 +350,7 @@ function ServiceRow({
             <div className="terminal-dim text-[10px] uppercase tracking-wider mb-1">
               Arrival Pattern
             </div>
-            <div className="terminal-dim text-[11px]">
-              Historical interval data is not available from the live arrivals
-              feed.
-            </div>
+            <ArrivalPatternDetail history={history} />
           </div>
         </div>
       </div>
@@ -285,6 +395,66 @@ function DeepBusDetail({
           value={bus.Feature === "WAB" ? "♿" : "—"}
         />
       </div>
+    </div>
+  );
+}
+
+function ArrivalPatternDetail({ history }: { history: BusArrivalHistoryPoint[] }) {
+  const values = history
+    .map((point) => point.nextMinutes)
+    .filter((value): value is number => Number.isFinite(value));
+
+  if (values.length === 0) {
+    return (
+      <div className="terminal-dim text-[11px]">
+        No local pattern yet. This browser stores one arrival snapshot every 5
+        minutes while the stop is selected.
+      </div>
+    );
+  }
+
+  const latest = values[values.length - 1];
+  const average = Math.round(
+    values.reduce((sum, value) => sum + value, 0) / values.length,
+  );
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+
+  return (
+    <div className="space-y-1 text-[11px] terminal-dim">
+      <div className="grid grid-cols-2 gap-x-2 gap-y-0.5 text-[10px]">
+        <span>Latest wait: {latest} min</span>
+        <span>Avg wait: {average} min</span>
+        <span>Min wait: {min} min</span>
+        <span>Max wait: {max} min</span>
+      </div>
+      <MiniArrivalTrend values={values} />
+      <div className="text-[10px] opacity-75">
+        {values.length} local samples. Stored in this browser only.
+      </div>
+    </div>
+  );
+}
+
+function MiniArrivalTrend({ values }: { values: number[] }) {
+  const recent = values.slice(-24);
+  const min = Math.min(...recent);
+  const max = Math.max(...recent);
+  const range = max - min;
+
+  return (
+    <div className="flex h-8 items-end gap-0.5 rounded border border-terminal-border/20 bg-black/20 px-1 py-1">
+      {recent.map((value, index) => {
+        const height = range === 0 ? 50 : 18 + ((value - min) / range) * 82;
+        return (
+          <div
+            key={`${index}-${value}`}
+            className="w-full min-w-0 rounded-t bg-[#90f5ff] opacity-80"
+            style={{ height: `${height}%` }}
+            title={`${value} min`}
+          />
+        );
+      })}
     </div>
   );
 }

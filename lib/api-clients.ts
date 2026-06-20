@@ -26,6 +26,7 @@ import {
   AviationStackResponseSchema,
   BusStopSchema,
   DataGovForecastResponseSchema,
+  DataGovHumidityResponseSchema,
   DataGovPsiResponseSchema,
   DataGovTemperatureResponseSchema,
   LtaBusArrivalsResponseSchema,
@@ -361,6 +362,26 @@ const average = (values: number[]): number | null => {
   );
 };
 
+type RegionalReading = Partial<
+  Record<"national" | "north" | "east" | "west" | "central" | "south", number>
+>;
+
+const nationalOrMaxRegional = (
+  readings: RegionalReading | undefined,
+): number | null => {
+  if (!readings) return null;
+  if (Number.isFinite(readings.national)) return readings.national as number;
+  const regionalValues = [
+    readings.north,
+    readings.east,
+    readings.west,
+    readings.central,
+    readings.south,
+  ].filter((value): value is number => Number.isFinite(value));
+  if (regionalValues.length === 0) return null;
+  return Math.max(...regionalValues);
+};
+
 const latestIsoTimestamp = (values: Array<string | undefined>): string => {
   const timestamps = values
     .map((value) => (value ? Date.parse(value) : Number.NaN))
@@ -417,7 +438,7 @@ export const getWeather = (): Effect.Effect<
                 timestamp?: string;
                 update_timestamp?: string;
                 readings?: {
-                  psi_twenty_four_hourly?: { national?: number };
+                  psi_twenty_four_hourly?: RegionalReading;
                 };
               }>;
             }>("/psi", DataGovPsiResponseSchema),
@@ -428,11 +449,18 @@ export const getWeather = (): Effect.Effect<
                 readings?: ReadonlyArray<{ value: number }>;
               }>;
             }>("/air-temperature", DataGovTemperatureResponseSchema),
+            dataGovGet<{
+              readonly items?: ReadonlyArray<{
+                timestamp?: string;
+                update_timestamp?: string;
+                readings?: ReadonlyArray<{ value: number }>;
+              }>;
+            }>("/relative-humidity", DataGovHumidityResponseSchema),
           ],
           { concurrency: "unbounded" },
         );
 
-        const [forecast, psi, temperature] = results as [
+        const [forecast, psi, temperature, humidity] = results as [
           {
             readonly area_metadata?: ReadonlyArray<{ name: string }>;
             readonly items?: ReadonlyArray<{
@@ -446,8 +474,15 @@ export const getWeather = (): Effect.Effect<
               timestamp?: string;
               update_timestamp?: string;
               readings?: {
-                psi_twenty_four_hourly?: { national?: number };
+                psi_twenty_four_hourly?: RegionalReading;
               };
+            }>;
+          },
+          {
+            readonly items?: ReadonlyArray<{
+              timestamp?: string;
+              update_timestamp?: string;
+              readings?: ReadonlyArray<{ value: number }>;
             }>;
           },
           {
@@ -465,15 +500,18 @@ export const getWeather = (): Effect.Effect<
             (entry) => entry.area === area,
           )?.forecast ?? "No forecast available";
 
-        const rawPsi = psi.items?.[0]?.readings?.psi_twenty_four_hourly?.national;
-        const psiValue = Number.isFinite(rawPsi) ? (rawPsi as number) : null;
+        const psiValue = nationalOrMaxRegional(
+          psi.items?.[0]?.readings?.psi_twenty_four_hourly,
+        );
 
-        const readings =
+        const temperatureReadings =
           temperature.items?.[0]?.readings?.map((entry) => entry.value) ?? [];
+        const humidityReadings =
+          humidity.items?.[0]?.readings?.map((entry) => entry.value) ?? [];
 
         return {
-          temperature: average(readings),
-          humidity: null,
+          temperature: average(temperatureReadings),
+          humidity: average(humidityReadings),
           psi: psiValue,
           psiStatus: getPsiStatus(psiValue),
           forecast: forecastText,
@@ -484,6 +522,8 @@ export const getWeather = (): Effect.Effect<
             psi.items?.[0]?.timestamp,
             temperature.items?.[0]?.update_timestamp,
             temperature.items?.[0]?.timestamp,
+            humidity.items?.[0]?.update_timestamp,
+            humidity.items?.[0]?.timestamp,
           ]),
         };
       }),
@@ -999,4 +1039,3 @@ export const getFlights = (): Effect.Effect<
       }),
     );
   });
-

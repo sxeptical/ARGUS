@@ -1,5 +1,5 @@
 import TerminalPanel from "@/app/components/TerminalPanel";
-import type { WeatherData } from "@/types";
+import type { WeatherData, WeatherHistoryPoint } from "@/types";
 import { useState, type ReactNode } from "react";
 
 function formatTime(iso: string): string {
@@ -14,9 +14,10 @@ function formatMetric(value: number | null, unit: string): string {
 
 type WeatherPanelProps = {
   weather: WeatherData;
+  history: WeatherHistoryPoint[];
 };
 
-export default function WeatherPanel({ weather }: WeatherPanelProps) {
+export default function WeatherPanel({ weather, history }: WeatherPanelProps) {
   const psiClass =
     weather.psiStatus === "Good"
       ? "terminal-green"
@@ -36,20 +37,22 @@ export default function WeatherPanel({ weather }: WeatherPanelProps) {
           label="Temperature"
           value={formatMetric(weather.temperature, "°C")}
         >
-          <TemperatureDetail current={weather.temperature} />
+          <TemperatureDetail current={weather.temperature} history={history} />
         </ExpandableRow>
 
         <ExpandableRow
           label="Humidity"
           value={formatMetric(weather.humidity, "%")}
         >
-          <div className="text-[11px] terminal-dim">
-            Relative humidity is not available from the current dashboard feed.
-          </div>
+          <HumidityDetail current={weather.humidity} history={history} />
         </ExpandableRow>
 
         <ExpandableRow label="PSI" value={psiValue} valueClass={psiClass}>
-          <PsiDetail psi={weather.psi} status={weather.psiStatus} />
+          <PsiDetail
+            psi={weather.psi}
+            status={weather.psiStatus}
+            history={history}
+          />
         </ExpandableRow>
 
         <div className="space-y-1 pt-1">
@@ -103,7 +106,15 @@ function ExpandableRow({
   );
 }
 
-function TemperatureDetail({ current }: { current: number | null }) {
+type WeatherMetric = "temperature" | "humidity" | "psi";
+
+function TemperatureDetail({
+  current,
+  history,
+}: {
+  current: number | null;
+  history: WeatherHistoryPoint[];
+}) {
   return (
     <div className="space-y-1 text-[11px] terminal-dim">
       <div>
@@ -111,9 +122,38 @@ function TemperatureDetail({ current }: { current: number | null }) {
           ? "No station temperature readings are currently available."
           : `Average of available Singapore station readings: ${current}°C.`}
       </div>
+      <MetricHistorySummary
+        history={history}
+        metric="temperature"
+        unit="°C"
+        label="Local temperature trend"
+        barClass="bg-[#3fd3ff]"
+      />
+    </div>
+  );
+}
+
+function HumidityDetail({
+  current,
+  history,
+}: {
+  current: number | null;
+  history: WeatherHistoryPoint[];
+}) {
+  return (
+    <div className="space-y-1 text-[11px] terminal-dim">
       <div>
-        Historical temperature trend data is not included in the current feed.
+        {current === null
+          ? "No relative humidity readings are currently available."
+          : `Average of available Singapore humidity readings: ${current}%.`}
       </div>
+      <MetricHistorySummary
+        history={history}
+        metric="humidity"
+        unit="%"
+        label="Local humidity trend"
+        barClass="bg-[#35f0ce]"
+      />
     </div>
   );
 }
@@ -121,9 +161,11 @@ function TemperatureDetail({ current }: { current: number | null }) {
 function PsiDetail({
   psi,
   status,
+  history,
 }: {
   psi: number | null;
   status: WeatherData["psiStatus"];
+  history: WeatherHistoryPoint[];
 }) {
   return (
     <div className="space-y-2">
@@ -158,6 +200,106 @@ function PsiDetail({
           color="unhealthy"
         />
       </div>
+
+      <MetricHistorySummary
+        history={history}
+        metric="psi"
+        unit=""
+        label="Local PSI trend"
+        barClass="bg-[#ffd166]"
+      />
+    </div>
+  );
+}
+
+function MetricHistorySummary({
+  history,
+  metric,
+  unit,
+  label,
+  barClass,
+}: {
+  history: WeatherHistoryPoint[];
+  metric: WeatherMetric;
+  unit: string;
+  label: string;
+  barClass: string;
+}) {
+  const points = history
+    .map((point) => ({ timestamp: point.timestamp, value: point[metric] }))
+    .filter((point): point is { timestamp: string; value: number } =>
+      Number.isFinite(point.value),
+    );
+
+  if (points.length === 0) {
+    return (
+      <div>
+        No local history yet. New readings are stored in this browser every 5
+        minutes.
+      </div>
+    );
+  }
+
+  const values = points.map((point) => point.value);
+  const latest = values[values.length - 1];
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const average = Math.round(
+    values.reduce((sum, value) => sum + value, 0) / values.length,
+  );
+  const firstTimestamp = points[0].timestamp;
+
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center justify-between gap-2 text-[10px] uppercase tracking-[0.1em] text-[#8cb2c8]">
+        <span>{label}</span>
+        <span>{points.length} samples</span>
+      </div>
+      <MiniTrend values={values} barClass={barClass} />
+      <div className="grid grid-cols-2 gap-x-2 gap-y-0.5 text-[10px]">
+        <span>
+          Latest: {latest}
+          {unit}
+        </span>
+        <span>
+          Avg: {average}
+          {unit}
+        </span>
+        <span>
+          Min: {min}
+          {unit}
+        </span>
+        <span>
+          Max: {max}
+          {unit}
+        </span>
+      </div>
+      <div className="text-[10px] opacity-75">
+        Since {formatTime(firstTimestamp)}. Stored locally in this browser.
+      </div>
+    </div>
+  );
+}
+
+function MiniTrend({ values, barClass }: { values: number[]; barClass: string }) {
+  const recent = values.slice(-24);
+  const min = Math.min(...recent);
+  const max = Math.max(...recent);
+  const range = max - min;
+
+  return (
+    <div className="flex h-8 items-end gap-0.5 rounded border border-terminal-border/20 bg-black/20 px-1 py-1">
+      {recent.map((value, index) => {
+        const height = range === 0 ? 50 : 18 + ((value - min) / range) * 82;
+        return (
+          <div
+            key={`${index}-${value}`}
+            className={`w-full min-w-0 rounded-t opacity-80 ${barClass}`}
+            style={{ height: `${height}%` }}
+            title={`${value}`}
+          />
+        );
+      })}
     </div>
   );
 }
