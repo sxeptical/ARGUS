@@ -135,7 +135,14 @@ export const DataGovForecastResponseSchema = Schema.Struct({
 
 const PsiReadingSchema = Schema.Struct({
   psi_twenty_four_hourly: Schema.optional(
-    Schema.Struct({ national: Schema.optional(Schema.Number) }),
+    Schema.Struct({
+      national: Schema.optional(Schema.Number),
+      north: Schema.optional(Schema.Number),
+      east: Schema.optional(Schema.Number),
+      west: Schema.optional(Schema.Number),
+      central: Schema.optional(Schema.Number),
+      south: Schema.optional(Schema.Number),
+    }),
   ),
 });
 
@@ -160,6 +167,8 @@ const TemperatureItemSchema = Schema.Struct({
 export const DataGovTemperatureResponseSchema = Schema.Struct({
   items: Schema.optional(Schema.Array(TemperatureItemSchema)),
 });
+
+export const DataGovHumidityResponseSchema = DataGovTemperatureResponseSchema;
 
 // ---------- Aviationstack ----------
 

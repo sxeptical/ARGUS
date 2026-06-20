@@ -35,6 +35,13 @@ export interface WeatherData {
   lastUpdated: string;
 }
 
+export interface WeatherHistoryPoint {
+  timestamp: string;
+  temperature: number | null;
+  humidity: number | null;
+  psi: number | null;
+}
+
 export interface NewsItem {
   title: string;
   source: string;
