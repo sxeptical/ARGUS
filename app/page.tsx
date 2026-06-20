@@ -10,6 +10,7 @@ import MrtRoutePanel, {
 } from "@/app/components/MrtRoutePanel";
 import { planMrtRoute } from "@/lib/mrt-routing";
 import NewsPanel from "@/app/components/NewsPanel";
+import UpdateAvailableToast from "@/app/components/UpdateAvailableToast";
 import WeatherPanel from "@/app/components/WeatherPanel";
 import { cachedClientFetch } from "@/lib/client-cache";
 import type {
@@ -438,6 +439,7 @@ export default function Home() {
 
   return (
     <div className="flex min-h-screen flex-col gap-3 px-2 py-2 sm:px-3 lg:h-screen lg:overflow-hidden">
+      <UpdateAvailableToast />
       <header className="rounded-md border border-cyan-400/25 bg-[#04111e]/90 shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_0_24px_rgba(42,166,255,0.12)]">
         <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2">
           <div className="flex items-center gap-3 whitespace-nowrap">
