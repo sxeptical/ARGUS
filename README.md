@@ -9,6 +9,7 @@ https://www.argusint.live
 [![MapLibre](https://img.shields.io/badge/MapLibre-5.24-21b8a6)](https://maplibre.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-ready-3178c6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![Vercel](https://img.shields.io/badge/Deploy-Vercel-black?logo=vercel)](https://vercel.com/)
+[![Bun](https://img.shields.io/badge/Bun-1.4-f9f1e1?logo=bun&logoColor=f472b6)](https://bun.sh/)
 
 ARGUS is a Singapore-focused intelligence dashboard built for fast situational awareness. It pulls live public and commercial feeds into a dense terminal-style interface: bus stops, bus arrival timings, MRT overlays, traffic cameras, weather/PSI, news, and live aircraft around Singapore airspace.
 
@@ -56,19 +57,21 @@ It is designed as a single-page operations surface: map first, signal panels aro
 
 ## Quick Start
 
+Requires [Bun](https://bun.sh) 1.4 or later. If you have Node, you can use `corepack enable` to get a pinned version automatically via the `packageManager` field.
+
 ```bash
 # 1. Clone the repo
 git clone https://github.com/sxeptical/ARGUS.git
 cd ARGUS
 
 # 2. Install dependencies
-npm install
+bun install
 
 # 3. Add environment variables
 cp .env.example .env.local
 
 # 4. Start the dev server
-npm run dev
+bun run dev
 ```
 
 Open `http://localhost:3000`.
@@ -132,10 +135,10 @@ types/
 ## Commands
 
 ```bash
-npm run dev      # Start local development
-npm run build    # Production build
-npm run start    # Start production server
-npm run lint     # ESLint
+bun run dev      # Start local development
+bun run build    # Production build
+bun run start    # Start production server
+bun run lint     # ESLint
 ```
 
 ---
