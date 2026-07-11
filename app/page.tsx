@@ -703,15 +703,17 @@ function HeaderClock() {
   }, []);
 
   return (
-    <HeaderChip
-      label={now.toLocaleDateString("en-SG", {
-        month: "short",
-        day: "numeric",
-        year: "numeric",
-        timeZone: "Asia/Singapore",
-      })}
-      value={now.toLocaleTimeString("en-SG", { timeZone: "Asia/Singapore" })}
-    />
+    <span suppressHydrationWarning>
+      <HeaderChip
+        label={now.toLocaleDateString("en-SG", {
+          month: "short",
+          day: "numeric",
+          year: "numeric",
+          timeZone: "Asia/Singapore",
+        })}
+        value={now.toLocaleTimeString("en-SG", { timeZone: "Asia/Singapore" })}
+      />
+    </span>
   );
 }
 

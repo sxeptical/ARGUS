@@ -12,8 +12,7 @@
  * through the shared 'runtime' exported from '@/lib/effect-runtime'.
  */
 import { HttpClient } from "@effect/platform";
-import { Schema } from "@effect/schema";
-import { Duration, Effect } from "effect";
+import { Duration, Effect, Schema } from "effect";
 import { Cache } from "@/lib/cache";
 import {
   ExternalApiError,
@@ -113,17 +112,31 @@ const httpGetJson = (
     Effect.catchTag("TimeoutException", (cause) =>
       Effect.fail(fromTimeoutException(service, cause) as TimeoutError),
     ),
-    Effect.catchAll((e) =>
-      Effect.fail(
-        new ExternalApiError({
-          service,
-          status: 502,
-          message:
-            e instanceof Error
-              ? e.message
-              : `${service} request failed: ${String(e)}`,
-        }),
-      ),
+    Effect.catchAll(
+      (
+        e,
+      ): Effect.Effect<never, TimeoutError | ExternalApiError, never> => {
+        // TimeoutError was already mapped above — pass it through unchanged
+        // so callers (e.g. flight fallback) see a clean TimeoutError.
+        // Only wrap transport/network failures as ExternalApiError.
+        const tag =
+          e && typeof e === "object" && "_tag" in e
+            ? (e as { _tag: string })._tag
+            : undefined;
+        if (tag === "TimeoutError") {
+          return Effect.fail(e as unknown as TimeoutError);
+        }
+        return Effect.fail(
+          new ExternalApiError({
+            service,
+            status: 502,
+            message:
+              e instanceof Error
+                ? e.message
+                : `${service} request failed: ${String(e)}`,
+          }),
+        );
+      },
     ),
   );
 
@@ -494,11 +507,32 @@ export const getWeather = (): Effect.Effect<
           },
         ];
 
-        const area = forecast.area_metadata?.[0]?.name ?? "Singapore";
-        const forecastText =
-          forecast.items?.[0]?.forecasts?.find(
-            (entry) => entry.area === area,
-          )?.forecast ?? "No forecast available";
+        // Use a majority-aggregate across all areas instead of picking a
+        // single area (which could be "Ang Mo Kio") and labelling it as
+        // "Singapore". The data.gov.sg 2-hour forecast has no national
+        // field, so we find the most common forecast text.
+        const forecasts = forecast.items?.[0]?.forecasts ?? [];
+        let forecastText: string;
+        if (forecasts.length === 0) {
+          forecastText = "No forecast available";
+        } else {
+          const counts = new Map<string, number>();
+          for (const entry of forecasts) {
+            counts.set(
+              entry.forecast,
+              (counts.get(entry.forecast) ?? 0) + 1,
+            );
+          }
+          let majority = forecasts[0].forecast;
+          let maxCount = 0;
+          for (const [text, count] of counts) {
+            if (count > maxCount) {
+              maxCount = count;
+              majority = text;
+            }
+          }
+          forecastText = `Island-wide: ${majority}`;
+        }
 
         const psiValue = nationalOrMaxRegional(
           psi.items?.[0]?.readings?.psi_twenty_four_hourly,
@@ -539,21 +573,37 @@ const rssFeeds: ReadonlyArray<{ readonly source: string; readonly url: string }>
   },
   {
     source: "CNA",
+    // Global feed — Singapore relevance is filtered in getNews by URL path.
     url: "https://www.channelnewsasia.com/api/v1/rss-outbound-feed?_format=xml",
   },
 ];
+
+const decodeHtmlEntities = (text: string): string =>
+  text
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&#39;/g, "'")
+    .replace(/&#x27;/gi, "'")
+    .replace(
+      /&#(\d+);/g,
+      (_, code) => String.fromCharCode(parseInt(code, 10)),
+    )
+    .replace(
+      /&#x([0-9a-f]+);/gi,
+      (_, code) => String.fromCharCode(parseInt(code, 16)),
+    );
 
 const extractRssTag = (xml: string, tag: string): string => {
   const match = xml.match(
     new RegExp(`<${tag}>([\\s\\S]*?)<\\/${tag}>`, "i"),
   );
   if (!match?.[1]) return "";
-  return match[1]
-    .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1")
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .trim();
+  return decodeHtmlEntities(
+    match[1].replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1"),
+  ).trim();
 };
 
 const toIsoDate = (value: string): string => {
@@ -623,7 +673,25 @@ export const getNews = (): Effect.Effect<NewsItem[], never, Cache> =>
           rssFeeds.map(({ source, url }) => fetchRssFeed(source, url)),
           { concurrency: 2 },
         );
-        const merged = rssResults.flat();
+        let merged = rssResults.flat();
+
+        // Filter CNA items to Singapore-relevant stories (link path or
+        // category contains "singapore") so we don't present a global
+        // feed as if it were local news.
+        merged = merged.filter(
+          (item) =>
+            item.source !== "CNA" ||
+            item.url.toLowerCase().includes("/singapore"),
+        );
+
+        // Deduplicate by URL across feeds.
+        const seen = new Set<string>();
+        merged = merged.filter((item) => {
+          if (seen.has(item.url)) return false;
+          seen.add(item.url);
+          return true;
+        });
+
         if (merged.length > 0) {
           return merged
             .sort(

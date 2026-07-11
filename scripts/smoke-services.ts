@@ -1,7 +1,7 @@
 /**
- * Smoke test for the new `Cache` and `RateLimit` Effect services.
+ * Smoke test for the `Cache` and `RateLimit` Effect services.
  *
- * Run with: `node --experimental-strip-types scripts/smoke-services.ts`
+ * Run with: `bun --experimental-strip-types scripts/smoke-services.ts`
  *
  * Confirms that the post-change services produce the same observable
  * behavior as the pre-change `cachedFetch` / `checkGlobalRateLimit`:
@@ -9,6 +9,10 @@
  *  - Concurrent calls for the same key share one producer run.
  *  - Rate limit allows up to `maxRequests` per window, then blocks.
  *  - The rate limit window rolls over after `windowMs`.
+ *
+ * NOTE: Cache failure-retry and TTL-expiry regression tests live in
+ * `lib/cache.test.ts` (run with `bun test`). This smoke script focuses
+ * on quick sanity checks for the happy paths.
  */
 import { Console, Effect, Layer } from "effect";
 import { Cache, CacheLive } from "../lib/cache.ts";

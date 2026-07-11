@@ -48,7 +48,7 @@ It is designed as a single-page operations surface: map first, signal panels aro
 
 ### Resilience
 
-- API route rate limiting.
+- API route rate limiting (per-IP sliding window, in-memory).
 - In-memory caching for expensive calls.
 - Partial page loading so one failed API does not blank the dashboard.
 - Flight fallback chain: Aviationstack -> OpenSky -> latest successful snapshot.
@@ -57,7 +57,7 @@ It is designed as a single-page operations surface: map first, signal panels aro
 
 ## Quick Start
 
-Requires [Bun](https://bun.sh) 1.4 or later. If you have Node, you can use `corepack enable` to get a pinned version automatically via the `packageManager` field.
+Requires [Bun](https://bun.sh) 1.4 or later. Install from bun.sh — the `packageManager` field is informational and does not auto-install via Corepack.
 
 ```bash
 # 1. Clone the repo
@@ -164,7 +164,7 @@ After editing env vars in Vercel, redeploy the project. Vercel deployments do no
 
 - Flight direction is best-effort. Aviationstack airport metadata is used when available; otherwise heading relative to Changi is used.
 - Serverless memory is not guaranteed across Vercel invocations, so cached fallbacks help during warm periods but should not be treated as durable storage.
-- The bundled cache and rate limiter are in-memory, per-runtime-instance protections. Use Redis/KV or another shared store if you need cross-instance enforcement in production.
+- The bundled cache and rate limiter are in-memory, per-runtime-instance protections. **In production on Vercel, each serverless instance has its own rate limit state** — limits are not shared across instances or cold starts. For hard cross-instance limits, use Vercel Firewall, an edge middleware KV store, or Redis. Vercel also overwrites some forwarding headers at the edge (e.g. `x-vercel-forwarded-for`), which the IP extractor prioritises.
 - API rate limits matter. Flight polling is the most likely source of quota pressure.
 
 ---

@@ -95,21 +95,33 @@ const make = Effect.gen(function* () {
         );
       }
 
-      const value = (yield* (inner as ProducerEffect<A, E, R>)) as A;
+      // Capture the exit so we can always clean up the in-flight entry
+      // even when the producer fails. Previously, a failure skipped the
+      // cleanup, permanently poisoning the key on that warm instance.
+      const exit = yield* Effect.exit(
+        inner as ProducerEffect<A, E, R>,
+      );
 
-      yield* Ref.update(state, (s) => {
-        evictOldest(s.entries);
-        s.entries.set(key, { value, timestamp: Date.now() });
-        return s;
-      });
-
-      // Only clear the slot if it is still ours. A later caller may have
-      // replaced it after the cache expired while the producer was running.
+      // Always clean up the in-flight entry (leader owns cleanup via
+      // reflex equality). This ensures failures don't poison the key
+      // and the next caller can retry the producer.
       if (inFlight.get(key) === inner) {
         inFlight.delete(key);
       }
 
-      return value;
+      if (exit._tag === "Success") {
+        // Only cache successful values — never cache failures.
+        yield* Ref.update(state, (s) => {
+          evictOldest(s.entries);
+          s.entries.set(key, { value: exit.value, timestamp: Date.now() });
+          return s;
+        });
+        return exit.value;
+      }
+
+      // Propagate the failure without caching it. The next call will
+      // re-create the producer since inFlight was cleaned up above.
+      return yield* Effect.failCause(exit.cause);
     });
 
   const set: Cache["set"] = (key, value) =>

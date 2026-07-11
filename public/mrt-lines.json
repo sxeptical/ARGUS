@@ -243,6 +243,16 @@
           [103.9053, 1.3027],
           [103.9150, 1.3067],
           [103.9300, 1.3100],
+          [103.9410, 1.3130]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": { "name": "Thomson-East Coast Line Extension", "color": "#9d5b25", "status": "future" },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
           [103.9410, 1.3130],
           [103.9500, 1.3170],
           [103.9570, 1.3200]

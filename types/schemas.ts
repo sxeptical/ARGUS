@@ -10,7 +10,7 @@
  * `Schema.NullOr`, and fields we do not consume are not declared. Extra
  * properties in the upstream JSON are ignored.
  */
-import { Schema } from "@effect/schema";
+import { Schema } from "effect";
 
 // ---------- Domain types (one Schema per public interface) ----------
 
