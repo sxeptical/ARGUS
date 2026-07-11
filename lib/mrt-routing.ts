@@ -34,6 +34,8 @@ const MINUTES_PER_STOP_BY_LINE: Record<string, number> = {
   "Circle Line Extension": 2,
   "Downtown Line": 1.5,
   "Thomson-East Coast Line": 2.5,
+  // TEL Stage 5 extension (Bayshore → Bedok South → Sungei Bedok) — planned 2H 2026, not yet operational
+  "Thomson-East Coast Line Extension": 2.5,
 };
 const DEFAULT_MINUTES_PER_STOP = 2;
 
@@ -205,6 +207,7 @@ const MRT_OPERATIONAL_LINE_STATIONS: Record<string, string[]> = {
     "Upper Changi",
     "Expo",
   ],
+  // TEL operational: Woodlands North → Bayshore (TEL Stage 5 — Bedok South, Sungei Bedok — planned 2H 2026, NOT yet operational)
   "Thomson-East Coast Line": [
     "Woodlands North",
     "Woodlands",
@@ -233,8 +236,6 @@ const MRT_OPERATIONAL_LINE_STATIONS: Record<string, string[]> = {
     "Marine Terrace",
     "Siglap",
     "Bayshore",
-    "Bedok South",
-    "Sungei Bedok",
   ],
 };
 

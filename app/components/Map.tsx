@@ -179,6 +179,7 @@ const MRT_LINE_STATIONS: Record<string, string[]> = {
     "Upper Changi",
     "Expo",
   ],
+  // TEL operational: Woodlands North → Bayshore (27 stations, 27 coordinates)
   "Thomson-East Coast Line": [
     "Woodlands North",
     "Woodlands",
@@ -206,6 +207,10 @@ const MRT_LINE_STATIONS: Record<string, string[]> = {
     "Marine Parade",
     "Marine Terrace",
     "Siglap",
+    "Bayshore",
+  ],
+  // TEL Stage 5 extension — planned 2H 2026, NOT yet operational (non-routeable on map)
+  "Thomson-East Coast Line Extension": [
     "Bayshore",
     "Bedok South",
     "Sungei Bedok",

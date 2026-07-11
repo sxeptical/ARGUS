@@ -105,16 +105,27 @@ export const RateLimitLive: Layer.Layer<RateLimit, never, never> = Layer.effect(
 );
 
 /**
- * Extract the originating client IP from the request. Trusts the
- * `x-forwarded-for` header set by trusted proxies (Vercel, Cloudflare);
- * falls back to `x-real-ip` and then to a sentinel value. In a deployment
- * behind a hostile or unknown proxy chain, callers should ignore the result
- * or rate-limit on a less-spoofable signal (e.g. an authenticated
- * `x-argus-token`).
+ * Extract the originating client IP from the request. Header priority:
+ *
+ * 1. `x-vercel-forwarded-for` — set by Vercel's edge proxy; most reliable
+ *    on Vercel-native deployments and cannot be spoofed by the client.
+ * 2. `x-real-ip` — commonly set by nginx / Cloudflare in self-hosted setups.
+ * 3. `x-forwarded-for` — standard proxy header; we take the first hop
+ *    (leftmost value) which is the original client when behind a single
+ *    trusted proxy.
+ * 4. Falls back to `127.0.0.1` for local/dev requests with no proxy.
+ *
+ * Vercel overwrites some of these headers at the edge. In production
+ * behind a hostile or unknown proxy chain, callers should ignore the
+ * result or rate-limit on a less-spoofable signal (e.g. an
+ * authenticated `x-argus-token`).
  */
 export function extractClientIp(request: Request): string {
+  const vercelForwarded = request.headers.get("x-vercel-forwarded-for");
+  if (vercelForwarded) return vercelForwarded.split(",")[0].trim();
+  const realIp = request.headers.get("x-real-ip");
+  if (realIp) return realIp.trim();
   const forwarded = request.headers.get("x-forwarded-for");
   if (forwarded) return forwarded.split(",")[0].trim();
-  const realIp = request.headers.get("x-real-ip");
-  return realIp ?? "127.0.0.1";
+  return "127.0.0.1";
 }
