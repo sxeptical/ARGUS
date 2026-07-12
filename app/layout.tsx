@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { Analytics } from "@vercel/analytics/next";
 import { JetBrains_Mono } from "next/font/google";
 import { Rajdhani } from "next/font/google";
 import "./globals.css";
@@ -28,6 +29,7 @@ export default function RootLayout({
     <html lang="en" className={`${jetBrainsMono.variable} ${rajdhani.variable} h-full antialiased`}>
       <body className="min-h-full flex flex-col bg-terminal-bg text-terminal-text">
         {children}
+        <Analytics />
       </body>
     </html>
   );
