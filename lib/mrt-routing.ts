@@ -171,6 +171,13 @@ const MRT_OPERATIONAL_LINE_STATIONS: Record<string, string[]> = {
     "Telok Blangah",
     "HarbourFront",
   ],
+  "Circle Line Extension": [
+    "HarbourFront",
+    "Keppel",
+    "Cantonment",
+    "Prince Edward Road",
+    "Marina Bay",
+  ],
   "Downtown Line": [
     "Bukit Panjang",
     "Cashew",
