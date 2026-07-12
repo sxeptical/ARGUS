@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@effect/platform": "^0.96.1",
+    "@vercel/analytics": "^2.0.1",
     "effect": "^3.21.3",
     "maplibre-gl": "^5.24.0",
     "next": "16.2.10",
