@@ -9,6 +9,9 @@ describe("isRouteableMrtStation", () => {
     expect(isRouteableMrtStation("Orchard")).toBe(true);
     expect(isRouteableMrtStation("Woodlands")).toBe(true);
     expect(isRouteableMrtStation("Expo")).toBe(true);
+    expect(isRouteableMrtStation("Keppel")).toBe(true);
+    expect(isRouteableMrtStation("Cantonment")).toBe(true);
+    expect(isRouteableMrtStation("Prince Edward Road")).toBe(true);
   });
 
   test("returns false for non-existent stations", () => {
