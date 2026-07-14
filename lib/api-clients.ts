@@ -53,6 +53,7 @@ const AVIATIONSTACK_BASE_URL = "https://api.aviationstack.com/v1";
 const OPENSKY_BASE_URL = "https://opensky-network.org/api";
 const FLIGHT_TIMEOUT_MS = 6_000;
 const DEFAULT_TIMEOUT_MS = 10_000;
+const BUS_STOPS_TIMEOUT_MS = 35_000; // 35s aggregate timeout for multi-page fetch
 const MAX_RSS_BYTES = 512 * 1024; // 512 KB
 const FLIGHTS_FALLBACK_KEY = "flights-sg-fallback";
 const FLIGHTS_FALLBACK_MAX_AGE_MS = 10 * 60 * 1000; // 10 minutes
@@ -242,7 +243,7 @@ export const getBusStops = (): Effect.Effect<
     return yield* cache.get(
       "bus-stops",
       24 * 60 * 60 * 1000,
-      Effect.gen(function* () {
+      withTimeout("lta-bus-stops", Effect.gen(function* () {
         const allStops: BusStop[] = [];
         const MAX_PAGES = 20;
         for (let pages = 0, skip = 0; pages < MAX_PAGES; pages += 1) {
@@ -266,7 +267,7 @@ export const getBusStops = (): Effect.Effect<
           Effect.mapError((cause) => fromParseError("lta", cause)),
           Effect.map((arr) => arr.slice() as BusStop[]),
         );
-      }),
+      }), BUS_STOPS_TIMEOUT_MS),
     );
   });
 
@@ -289,24 +290,12 @@ export const getBusArrivals = (
       Effect.gen(function* () {
         // The v3 endpoint is canonical. It returns `Services: []` for stops
         // with no live arrivals — that is a valid, successful response,
-        // not an error. The v2 endpoint was the legacy shape; LTA removed
-        // it, so it is kept here as a best-effort fallback that swallows
-        // both `ExternalApiError` 404 and `SchemaParseError` (the v2
-        // endpoint now returns plain text which fails JSON decoding).
+        // not an error. Do not fall back to the removed v2 endpoint.
         const v3 = yield* ltaGet<{
           readonly Services: ReadonlyArray<BusArrival>;
         }>(`/v3/BusArrival?BusStopCode=${encodeURIComponent(stopId)}`, LtaBusArrivalsResponseSchema);
 
-        if (v3.Services.length > 0) {
-          return v3.Services.slice() as BusArrival[];
-        }
-
-        return yield* ltaGet<{
-          readonly Services: ReadonlyArray<BusArrival>;
-        }>(`/BusArrivalv2?BusStopCode=${encodeURIComponent(stopId)}`, LtaBusArrivalsResponseSchema).pipe(
-          Effect.map((r) => r.Services.slice() as BusArrival[]),
-          Effect.catchAll(() => Effect.succeed<BusArrival[]>([])),
-        );
+        return v3.Services.slice() as BusArrival[];
       }),
     );
   });

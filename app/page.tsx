@@ -44,6 +44,12 @@ const DEFAULT_WEATHER: WeatherData = {
   lastUpdated: new Date().toISOString(),
 };
 
+// Matches the server-side disabled state in app/api/flights/route.ts.
+// The flights route returns [] permanently while the upstream provider is
+// unavailable. When this flag is true, the client skips scheduling polls
+// for /api/flights to avoid wasted network traffic every 15s.
+const FLIGHTS_API_DISABLED = true;
+
 const SOURCE_REFRESH_MS = {
   busStops: 60 * 1000,
   cameras: 60 * 1000,
@@ -51,6 +57,10 @@ const SOURCE_REFRESH_MS = {
   news: 5 * 60 * 1000,
   flights: 15 * 1000,
 } as const;
+
+function startPolling(callback: () => void, intervalMs: number) {
+  return setInterval(callback, intervalMs);
+}
 
 function isWeatherHistoryPoint(value: unknown): value is WeatherHistoryPoint {
   if (!value || typeof value !== "object") return false;
@@ -162,7 +172,11 @@ export default function Home() {
       cameras: { label: "Traffic Cameras", status: "pending" },
       weather: { label: "Weather Grid", status: "pending" },
       news: { label: "OSINT Stream", status: "pending" },
-      flights: { label: "Airspace Feed", status: "pending" },
+      flights: {
+        label: "Airspace Feed",
+        status: FLIGHTS_API_DISABLED ? "ok" : "pending",
+        message: FLIGHTS_API_DISABLED ? "disabled" : undefined,
+      },
     },
   );
   const [sensorVisibility, setSensorVisibility] = useState<
@@ -177,7 +191,6 @@ export default function Home() {
   useEffect(() => {
     let mounted = true;
     const failedSources = new Set<string>();
-    const timers: Array<ReturnType<typeof setInterval>> = [];
 
     const syncErrorState = () => {
       if (!mounted) return;
@@ -241,10 +254,9 @@ export default function Home() {
       intervalMs: number,
       setState: (value: T) => void,
     ) => {
-      const timer = setInterval(() => {
+      return startPolling(() => {
         void loadSource<T>(label, url, intervalMs, setState);
       }, intervalMs);
-      timers.push(timer);
     };
 
     void Promise.all([
@@ -280,12 +292,18 @@ export default function Home() {
         SOURCE_REFRESH_MS.news,
         setNews,
       ),
-      loadSource<FlightState[]>(
-        "flights",
-        "/api/flights",
-        SOURCE_REFRESH_MS.flights,
-        setFlights,
-      ),
+      // Skip flights polling when the API is permanently disabled — avoids
+      // wasteful 15s network round-trips for an always-empty response.
+      ...(!FLIGHTS_API_DISABLED
+        ? [
+            loadSource<FlightState[]>(
+              "flights",
+              "/api/flights",
+              SOURCE_REFRESH_MS.flights,
+              setFlights,
+            ),
+          ]
+        : []),
     ])
       .catch((err: unknown) => {
         if (!mounted) return;
@@ -297,19 +315,19 @@ export default function Home() {
         if (mounted) setBootComplete(true);
       });
 
-    scheduleSource<BusStop[]>(
+    const busStopsTimer = scheduleSource<BusStop[]>(
       "bus stops",
       "/api/bus-stops",
       SOURCE_REFRESH_MS.busStops,
       setBusStops,
     );
-    scheduleSource<TrafficCamera[]>(
+    const camerasTimer = scheduleSource<TrafficCamera[]>(
       "cameras",
       "/api/cameras",
       SOURCE_REFRESH_MS.cameras,
       setCameras,
     );
-    scheduleSource<WeatherData>(
+    const weatherTimer = scheduleSource<WeatherData>(
       "weather",
       "/api/weather",
       SOURCE_REFRESH_MS.weather,
@@ -323,22 +341,30 @@ export default function Home() {
         });
       },
     );
-    scheduleSource<NewsItem[]>(
+    const newsTimer = scheduleSource<NewsItem[]>(
       "news",
       "/api/news",
       SOURCE_REFRESH_MS.news,
       setNews,
     );
-    scheduleSource<FlightState[]>(
-      "flights",
-      "/api/flights",
-      SOURCE_REFRESH_MS.flights,
-      setFlights,
-    );
+    // Skip flights polling when the API is permanently disabled (see
+    // FLIGHTS_API_DISABLED constant and app/api/flights/route.ts).
+    const flightsTimer = FLIGHTS_API_DISABLED
+      ? undefined
+      : scheduleSource<FlightState[]>(
+          "flights",
+          "/api/flights",
+          SOURCE_REFRESH_MS.flights,
+          setFlights,
+        );
 
     return () => {
       mounted = false;
-      timers.forEach((timer) => clearInterval(timer));
+      clearInterval(busStopsTimer);
+      clearInterval(camerasTimer);
+      clearInterval(weatherTimer);
+      clearInterval(newsTimer);
+      if (flightsTimer !== undefined) clearInterval(flightsTimer);
     };
   }, []);
 
@@ -791,7 +817,8 @@ function LoadingScreen({ sources }: { sources: ReadonlyArray<SourceState> }) {
         ? "text-amber-300"
         : "text-[#cfe6f5]";
 
-  const showOfflineHelp = allFailed || (settledCount > 0 && errorCount > 0 && helpReady);
+  const showOfflineHelp =
+    allFailed || (settledCount > 0 && errorCount > 0 && helpReady);
 
   return (
     <div className="grid h-screen place-items-center overflow-hidden bg-[#020913] px-4 text-terminal-text">
@@ -886,13 +913,7 @@ function LoadingScreen({ sources }: { sources: ReadonlyArray<SourceState> }) {
                   <stop offset="0%" stopColor="#fbbf24" />
                   <stop offset="100%" stopColor="#f59e0b" />
                 </linearGradient>
-                <linearGradient
-                  id="gradFail"
-                  x1="0%"
-                  y1="0%"
-                  x2="100%"
-                  y2="0%"
-                >
+                <linearGradient id="gradFail" x1="0%" y1="0%" x2="100%" y2="0%">
                   <stop offset="0%" stopColor="#f87171" />
                   <stop offset="100%" stopColor="#dc2626" />
                 </linearGradient>
@@ -937,7 +958,9 @@ function LoadingScreen({ sources }: { sources: ReadonlyArray<SourceState> }) {
             }`}
           >
             <div className="mb-1 font-semibold uppercase tracking-[0.14em]">
-              {allFailed ? "All sources unreachable" : "Some sources unreachable"}
+              {allFailed
+                ? "All sources unreachable"
+                : "Some sources unreachable"}
             </div>
             <div>
               {allFailed
