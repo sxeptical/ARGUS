@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import useSWR from "swr";
 import TerminalPanel from "@/app/components/TerminalPanel";
 import type { BusArrival, BusStop } from "@/types";
 
@@ -20,9 +21,40 @@ type BusArrivalHistoryStore = Record<string, BusArrivalHistoryPoint[]>;
 const BUS_ARRIVAL_HISTORY_STORAGE_KEY = "argus.bus-arrival-history.v1";
 const BUS_ARRIVAL_HISTORY_SAMPLE_MS = 5 * 60 * 1000;
 const BUS_ARRIVAL_HISTORY_MAX_POINTS_PER_SERVICE = 288;
+const BUS_ARRIVAL_REFRESH_MS = 15 * 1000;
+const EMPTY_BUS_ARRIVALS: BusArrival[] = [];
+
+async function fetchBusArrivals(url: string): Promise<BusArrival[]> {
+  const response = await fetch(url, { cache: "no-store" });
+
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => null)) as {
+      error?: string;
+    } | null;
+    throw new Error(payload?.error || "Unable to fetch bus arrivals");
+  }
+
+  return (await response.json()) as BusArrival[];
+}
 
 function getArrivalHistoryKey(stopCode: string, serviceNo: string): string {
   return `${stopCode}:${serviceNo}`;
+}
+
+function isBusArrivalHistoryPoint(
+  value: unknown,
+): value is BusArrivalHistoryPoint {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as Record<string, unknown>;
+  if (typeof candidate.timestamp !== "string") return false;
+  const ts = Date.parse(candidate.timestamp);
+  if (!Number.isFinite(ts)) return false;
+  for (const key of ["nextMinutes", "secondMinutes", "thirdMinutes"] as const) {
+    const v = candidate[key];
+    if (v !== null && typeof v !== "number") return false;
+    if (typeof v === "number" && !Number.isFinite(v)) return false;
+  }
+  return true;
 }
 
 function readBusArrivalHistory(): BusArrivalHistoryStore {
@@ -34,7 +66,16 @@ function readBusArrivalHistory(): BusArrivalHistoryStore {
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
       return {};
     }
-    return parsed as BusArrivalHistoryStore;
+    const store = parsed as Record<string, unknown>;
+    const result: BusArrivalHistoryStore = {};
+    for (const [key, value] of Object.entries(store)) {
+      if (!Array.isArray(value)) continue;
+      const validPoints = value.filter(isBusArrivalHistoryPoint);
+      if (validPoints.length > 0) {
+        result[key] = validPoints;
+      }
+    }
+    return result;
   } catch {
     return {};
   }
@@ -100,13 +141,42 @@ export default function BusPanel({
   onSelectStop,
 }: BusPanelProps) {
   const [search, setSearch] = useState("");
-  const [arrivals, setArrivals] = useState<BusArrival[]>([]);
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [expandedService, setExpandedService] = useState<string | null>(null);
+  const [expandedService, setExpandedService] = useState<{
+    stopCode: string;
+    serviceNo: string;
+  } | null>(null);
   const [arrivalHistory, setArrivalHistory] = useState<BusArrivalHistoryStore>(
     {},
   );
+
+  const activeStop = selectedStop;
+  const activeStopCode = activeStop?.BusStopCode;
+  const arrivalsUrl = activeStopCode
+    ? `/api/bus-arrivals?stopId=${encodeURIComponent(activeStopCode)}`
+    : null;
+  const {
+    data: arrivals = EMPTY_BUS_ARRIVALS,
+    error: arrivalsError,
+    isLoading,
+  } = useSWR<BusArrival[], Error>(arrivalsUrl, fetchBusArrivals, {
+    refreshInterval: BUS_ARRIVAL_REFRESH_MS,
+    onSuccess: (nextArrivals, key) => {
+      const queryStart = key.indexOf("?");
+      const stopCode = new URLSearchParams(key.slice(queryStart + 1)).get(
+        "stopId",
+      );
+      if (!stopCode || nextArrivals.length === 0) return;
+
+      setArrivalHistory((previous) => {
+        const next = appendBusArrivalHistory(previous, stopCode, nextArrivals);
+        if (next === previous) return previous;
+        writeBusArrivalHistory(next);
+        return next;
+      });
+    },
+  });
+  const error = arrivalsError?.message ?? null;
+  const loading = Boolean(activeStopCode && isLoading);
 
   const filteredStops = useMemo(() => {
     if (!search.trim()) return [];
@@ -130,68 +200,6 @@ export default function BusPanel({
     return () => clearTimeout(timer);
   }, []);
 
-  useEffect(() => {
-    if (!selectedStop) return;
-
-    let cancelled = false;
-    const stopCode = selectedStop.BusStopCode;
-
-    const loadArrivals = async (initialLoad = false) => {
-      try {
-        if (!cancelled) {
-          setLoading(true);
-          setError(null);
-          if (initialLoad) {
-            setArrivals([]);
-            setExpandedService(null);
-          }
-        }
-
-        const response = await fetch(
-          `/api/bus-arrivals?stopId=${encodeURIComponent(stopCode)}`,
-          { cache: "no-store" },
-        );
-
-        if (!response.ok) {
-          const payload = (await response.json().catch(() => null)) as {
-            error?: string;
-          } | null;
-          throw new Error(payload?.error || "Unable to fetch bus arrivals");
-        }
-
-        const data = (await response.json()) as BusArrival[];
-        if (cancelled) return;
-        setArrivals(data);
-        setArrivalHistory((previous) => {
-          const next = appendBusArrivalHistory(previous, stopCode, data);
-          if (next === previous) return previous;
-          writeBusArrivalHistory(next);
-          return next;
-        });
-      } catch (err) {
-        if (cancelled) return;
-        if (initialLoad) setArrivals([]);
-        setError(err instanceof Error ? err.message : "Unknown error");
-      } finally {
-        if (!cancelled) {
-          setLoading(false);
-        }
-      }
-    };
-
-    void loadArrivals(true);
-    const refreshTimer = setInterval(() => {
-      void loadArrivals(false);
-    }, 15 * 1000);
-
-    return () => {
-      cancelled = true;
-      clearInterval(refreshTimer);
-    };
-  }, [selectedStop]);
-
-  const activeStop = selectedStop;
-  const activeStopCode = activeStop?.BusStopCode;
   const visibleArrivals = useMemo(() => {
     if (!activeStop) return [];
 
@@ -272,17 +280,27 @@ export default function BusPanel({
               service={service}
               history={
                 activeStopCode
-                  ? arrivalHistory[
+                  ? (arrivalHistory[
                       getArrivalHistoryKey(activeStopCode, service.ServiceNo)
-                    ] ?? []
+                    ] ?? [])
                   : []
               }
-              expanded={expandedService === service.ServiceNo}
-              onToggle={() =>
-                setExpandedService((prev) =>
-                  prev === service.ServiceNo ? null : service.ServiceNo,
-                )
+              expanded={
+                expandedService?.stopCode === activeStopCode &&
+                expandedService?.serviceNo === service.ServiceNo
               }
+              onToggle={() => {
+                if (!activeStopCode) return;
+                setExpandedService((prev) =>
+                  prev?.stopCode === activeStopCode &&
+                  prev?.serviceNo === service.ServiceNo
+                    ? null
+                    : {
+                        stopCode: activeStopCode,
+                        serviceNo: service.ServiceNo,
+                      },
+                );
+              }}
             />
           ))}
         </div>
@@ -399,7 +417,11 @@ function DeepBusDetail({
   );
 }
 
-function ArrivalPatternDetail({ history }: { history: BusArrivalHistoryPoint[] }) {
+function ArrivalPatternDetail({
+  history,
+}: {
+  history: BusArrivalHistoryPoint[];
+}) {
   const values = history
     .map((point) => point.nextMinutes)
     .filter((value): value is number => Number.isFinite(value));

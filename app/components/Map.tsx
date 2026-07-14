@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { isRouteableMrtStation, type MrtRouteSegment } from "@/lib/mrt-routing";
+import mrtLinesData from "@/public/mrt-lines.json";
 import type { BusStop, FlightState, MRTGeoJson, TrafficCamera } from "@/types";
 
 type MapProps = {
@@ -254,6 +255,8 @@ const MRT_LINE_STATIONS: Record<string, string[]> = {
   "Johor Bahru-Singapore RTS": ["Bukit Chagar", "Woodlands North"],
 };
 
+const MRT_LINES = mrtLinesData as MRTGeoJson;
+
 type MRTStationGeoJson = {
   type: "FeatureCollection";
   features: Array<{
@@ -393,12 +396,13 @@ function buildRouteGeoJson(
   routeSegments: MrtRouteSegment[],
 ): MRTRouteGeoJson {
   const features: MRTRouteGeoJson["features"] = [];
+  const lineFeaturesByName = new globalThis.Map(
+    mrtLines.features.map((feature) => [feature.properties.name, feature]),
+  );
 
   for (const segment of routeSegments) {
     if (segment.stops <= 0) continue;
-    const lineFeature = mrtLines.features.find(
-      (feature) => feature.properties.name === segment.line,
-    );
+    const lineFeature = lineFeaturesByName.get(segment.line);
     if (!lineFeature) continue;
 
     const stationNames = MRT_LINE_STATIONS[segment.line] ?? [];
@@ -471,6 +475,24 @@ function buildPlaneIcon(size = 64): ImageData {
   context.fill();
 
   return context.getImageData(0, 0, size, size);
+}
+
+function registerMapLoadListener(
+  map: maplibregl.Map,
+  listener: () => void,
+): () => void {
+  map.on("load", listener);
+  return () => map.off("load", listener);
+}
+
+function registerLayerMouseListener(
+  map: maplibregl.Map,
+  eventName: "click" | "mouseenter" | "mouseleave",
+  layerId: string,
+  listener: (event: maplibregl.MapLayerMouseEvent) => void,
+): () => void {
+  map.on(eventName, layerId, listener);
+  return () => map.off(eventName, layerId, listener);
 }
 
 export default function Map({
@@ -599,8 +621,7 @@ export default function Map({
       mrtRouteSegmentsRef.current,
     );
     const routeSource = map.getSource("mrt-route") as
-      | maplibregl.GeoJSONSource
-      | undefined;
+      maplibregl.GeoJSONSource | undefined;
     if (routeSource) {
       routeSource.setData(routeGeoJson);
     }
@@ -640,7 +661,44 @@ export default function Map({
 
     map.addControl(new maplibregl.NavigationControl(), "top-right");
 
-    map.on("load", () => {
+    const layerListenerCleanups: Array<() => void> = [];
+    const handleBusStopClick = (event: maplibregl.MapLayerMouseEvent) => {
+      const feature = event.features?.[0];
+      const code = feature?.properties?.BusStopCode;
+      if (typeof code !== "string") return;
+      const stop = busStopsRef.current.get(code);
+      if (stop) onStopClickRef.current(stop);
+    };
+    const handleFlightClick = (event: maplibregl.MapLayerMouseEvent) => {
+      const feature = event.features?.[0];
+      const id = feature?.properties?.id;
+      if (typeof id !== "string") return;
+      const flight = flightsRef.current.get(id);
+      if (flight) onFlightClickRef.current(flight);
+    };
+    const handleInteractiveLayerEnter = () => {
+      map.getCanvas().style.cursor = "pointer";
+    };
+    const handleInteractiveLayerLeave = () => {
+      map.getCanvas().style.cursor = "";
+    };
+    const handleMrtStationClick = (event: maplibregl.MapLayerMouseEvent) => {
+      const feature = event.features?.[0];
+      const stationName = feature?.properties?.name;
+      const routeable = feature?.properties?.routeable;
+      if (routeable !== true && routeable !== "true") return;
+      if (typeof stationName !== "string" || !stationName.trim()) return;
+      onMrtStationClickRef.current?.(stationName);
+    };
+    const handleMrtStationEnter = (event: maplibregl.MapLayerMouseEvent) => {
+      const routeable = event.features?.some((feature) => {
+        const value = feature.properties?.routeable;
+        return value === true || value === "true";
+      });
+      map.getCanvas().style.cursor = routeable ? "pointer" : "";
+    };
+
+    const handleMapLoad = () => {
       map.addSource("bus-stops", {
         type: "geojson",
         data: {
@@ -675,21 +733,26 @@ export default function Map({
         },
       });
 
-      map.on("click", "bus-stops-layer", (event) => {
-        const feature = event.features?.[0];
-        const code = feature?.properties?.BusStopCode;
-        if (typeof code !== "string") return;
-        const stop = busStopsRef.current.get(code);
-        if (stop) onStopClickRef.current(stop);
-      });
-
-      map.on("mouseenter", "bus-stops-layer", () => {
-        map.getCanvas().style.cursor = "pointer";
-      });
-
-      map.on("mouseleave", "bus-stops-layer", () => {
-        map.getCanvas().style.cursor = "";
-      });
+      layerListenerCleanups.push(
+        registerLayerMouseListener(
+          map,
+          "click",
+          "bus-stops-layer",
+          handleBusStopClick,
+        ),
+        registerLayerMouseListener(
+          map,
+          "mouseenter",
+          "bus-stops-layer",
+          handleInteractiveLayerEnter,
+        ),
+        registerLayerMouseListener(
+          map,
+          "mouseleave",
+          "bus-stops-layer",
+          handleInteractiveLayerLeave,
+        ),
+      );
 
       map.addSource("flights", {
         type: "geojson",
@@ -763,254 +826,255 @@ export default function Map({
         },
       });
 
-      map.on("click", "flights-layer", (event) => {
-        const feature = event.features?.[0];
-        const id = feature?.properties?.id;
-        if (typeof id !== "string") return;
-        const flight = flightsRef.current.get(id);
-        if (flight) onFlightClickRef.current(flight);
-      });
+      layerListenerCleanups.push(
+        registerLayerMouseListener(
+          map,
+          "click",
+          "flights-layer",
+          handleFlightClick,
+        ),
+        registerLayerMouseListener(
+          map,
+          "mouseenter",
+          "flights-layer",
+          handleInteractiveLayerEnter,
+        ),
+        registerLayerMouseListener(
+          map,
+          "mouseleave",
+          "flights-layer",
+          handleInteractiveLayerLeave,
+        ),
+      );
 
-      map.on("mouseenter", "flights-layer", () => {
-        map.getCanvas().style.cursor = "pointer";
-      });
+      try {
+        const geoJson = MRT_LINES;
+        mrtLinesRef.current = geoJson;
 
-      map.on("mouseleave", "flights-layer", () => {
-        map.getCanvas().style.cursor = "";
-      });
+        map.addSource("mrt-lines", {
+          type: "geojson",
+          data: geoJson,
+        });
 
-      void (async () => {
-        try {
-          const response = await fetch("/mrt-lines.json");
-          if (!response.ok)
-            throw new Error(`MRT fetch failed: ${response.status}`);
-          const geoJson = (await response.json()) as MRTGeoJson;
-          mrtLinesRef.current = geoJson;
+        map.addLayer({
+          id: "mrt-lines-casing-layer",
+          type: "line",
+          source: "mrt-lines",
+          filter: ["!=", "status", "future"],
+          layout: {
+            visibility: sensorVisibilityRef.current.mrt ? "visible" : "none",
+          },
+          paint: {
+            "line-color": "#020b14",
+            "line-width": 6.8,
+            "line-opacity": 0.84,
+          },
+        });
 
-          map.addSource("mrt-lines", {
-            type: "geojson",
-            data: geoJson,
-          });
+        map.addLayer({
+          id: "mrt-lines-layer",
+          type: "line",
+          source: "mrt-lines",
+          filter: ["!=", "status", "future"],
+          layout: {
+            visibility: sensorVisibilityRef.current.mrt ? "visible" : "none",
+          },
+          paint: {
+            "line-color": ["get", "color"],
+            "line-width": 4.2,
+            "line-opacity": 0.96,
+          },
+        });
 
-          map.addLayer({
-            id: "mrt-lines-casing-layer",
-            type: "line",
-            source: "mrt-lines",
-            filter: ["!=", "status", "future"],
-            layout: {
-              visibility: sensorVisibilityRef.current.mrt ? "visible" : "none",
-            },
-            paint: {
-              "line-color": "#020b14",
-              "line-width": 6.8,
-              "line-opacity": 0.84,
-            },
-          });
+        map.addLayer({
+          id: "mrt-lines-future-casing-layer",
+          type: "line",
+          source: "mrt-lines",
+          filter: ["==", "status", "future"],
+          layout: {
+            visibility: sensorVisibilityRef.current.mrt ? "visible" : "none",
+          },
+          paint: {
+            "line-color": "#020b14",
+            "line-width": 6.2,
+            "line-opacity": 0.72,
+            "line-dasharray": [2, 3],
+          },
+        });
 
-          map.addLayer({
-            id: "mrt-lines-layer",
-            type: "line",
-            source: "mrt-lines",
-            filter: ["!=", "status", "future"],
-            layout: {
-              visibility: sensorVisibilityRef.current.mrt ? "visible" : "none",
-            },
-            paint: {
-              "line-color": ["get", "color"],
-              "line-width": 4.2,
-              "line-opacity": 0.96,
-            },
-          });
+        map.addLayer({
+          id: "mrt-lines-future-layer",
+          type: "line",
+          source: "mrt-lines",
+          filter: ["==", "status", "future"],
+          layout: {
+            visibility: sensorVisibilityRef.current.mrt ? "visible" : "none",
+          },
+          paint: {
+            "line-color": ["get", "color"],
+            "line-width": 3.8,
+            "line-opacity": 0.82,
+            "line-dasharray": [2, 3],
+          },
+        });
 
-          map.addLayer({
-            id: "mrt-lines-future-casing-layer",
-            type: "line",
-            source: "mrt-lines",
-            filter: ["==", "status", "future"],
-            layout: {
-              visibility: sensorVisibilityRef.current.mrt ? "visible" : "none",
-            },
-            paint: {
-              "line-color": "#020b14",
-              "line-width": 6.2,
-              "line-opacity": 0.72,
-              "line-dasharray": [2, 3],
-            },
-          });
+        const initialRouteGeoJson = buildRouteGeoJson(
+          geoJson,
+          mrtRouteSegmentsRef.current,
+        );
 
-          map.addLayer({
-            id: "mrt-lines-future-layer",
-            type: "line",
-            source: "mrt-lines",
-            filter: ["==", "status", "future"],
-            layout: {
-              visibility: sensorVisibilityRef.current.mrt ? "visible" : "none",
-            },
-            paint: {
-              "line-color": ["get", "color"],
-              "line-width": 3.8,
-              "line-opacity": 0.82,
-              "line-dasharray": [2, 3],
-            },
-          });
+        map.addSource("mrt-route", {
+          type: "geojson",
+          data: initialRouteGeoJson,
+        });
 
-          const initialRouteGeoJson = buildRouteGeoJson(
-            geoJson,
-            mrtRouteSegmentsRef.current,
+        map.addLayer({
+          id: "mrt-route-casing-layer",
+          type: "line",
+          source: "mrt-route",
+          layout: {
+            visibility: sensorVisibilityRef.current.mrt ? "visible" : "none",
+            "line-cap": "round",
+            "line-join": "round",
+          },
+          paint: {
+            "line-color": "#dff7ff",
+            "line-width": 7.2,
+            "line-opacity": 0.45,
+          },
+        });
+
+        map.addLayer({
+          id: "mrt-route-layer",
+          type: "line",
+          source: "mrt-route",
+          layout: {
+            visibility: sensorVisibilityRef.current.mrt ? "visible" : "none",
+            "line-cap": "round",
+            "line-join": "round",
+          },
+          paint: {
+            "line-color": ["get", "color"],
+            "line-width": 4.8,
+            "line-opacity": 1,
+          },
+        });
+
+        applyMrtRouteFocus(map, initialRouteGeoJson.features.length > 0);
+
+        const stationLabelSet = new Set<string>();
+        const stationFeatures = geoJson.features.flatMap((lineFeature) => {
+          const stationNames =
+            MRT_LINE_STATIONS[lineFeature.properties.name] ?? [];
+          const features = interpolateStations(
+            lineFeature.geometry.coordinates,
+            stationNames,
+            lineFeature.properties.name,
+            lineFeature.properties.color,
           );
 
-          map.addSource("mrt-route", {
+          return features.map((feature) => {
+            const stationKey = feature.properties.name.toLowerCase();
+            if (stationLabelSet.has(stationKey)) {
+              return {
+                ...feature,
+                properties: {
+                  ...feature.properties,
+                  label: "",
+                },
+              };
+            }
+            stationLabelSet.add(stationKey);
+            return feature;
+          });
+        });
+
+        if (stationFeatures.length > 0) {
+          const stationsGeoJson: MRTStationGeoJson = {
+            type: "FeatureCollection",
+            features: stationFeatures,
+          };
+
+          map.addSource("mrt-stations", {
             type: "geojson",
-            data: initialRouteGeoJson,
+            data: stationsGeoJson,
           });
 
           map.addLayer({
-            id: "mrt-route-casing-layer",
-            type: "line",
-            source: "mrt-route",
+            id: "mrt-stations-layer",
+            type: "circle",
+            source: "mrt-stations",
             layout: {
               visibility: sensorVisibilityRef.current.mrt ? "visible" : "none",
-              "line-cap": "round",
-              "line-join": "round",
             },
             paint: {
-              "line-color": "#dff7ff",
-              "line-width": 7.2,
-              "line-opacity": 0.45,
+              "circle-radius": 4,
+              "circle-color": ["get", "color"],
+              "circle-opacity": ["case", ["get", "routeable"], 1, 0.35],
+              "circle-stroke-width": 1,
+              "circle-stroke-color": [
+                "case",
+                ["get", "routeable"],
+                "#001018",
+                "#64748b",
+              ],
             },
           });
 
           map.addLayer({
-            id: "mrt-route-layer",
-            type: "line",
-            source: "mrt-route",
+            id: "mrt-stations-label-layer",
+            type: "symbol",
+            source: "mrt-stations",
+            minzoom: 11.5,
             layout: {
               visibility: sensorVisibilityRef.current.mrt ? "visible" : "none",
-              "line-cap": "round",
-              "line-join": "round",
+              "text-field": ["get", "label"],
+              "text-size": 10,
+              "text-anchor": "top",
+              "text-offset": [0, 1],
             },
             paint: {
-              "line-color": ["get", "color"],
-              "line-width": 4.8,
-              "line-opacity": 1,
+              "text-color": "#cff6ff",
+              "text-halo-color": "#05151f",
+              "text-halo-width": 1,
             },
           });
 
-          applyMrtRouteFocus(map, initialRouteGeoJson.features.length > 0);
-
-          const stationLabelSet = new Set<string>();
-          const stationFeatures = geoJson.features.flatMap((lineFeature) => {
-            const stationNames =
-              MRT_LINE_STATIONS[lineFeature.properties.name] ?? [];
-            const features = interpolateStations(
-              lineFeature.geometry.coordinates,
-              stationNames,
-              lineFeature.properties.name,
-              lineFeature.properties.color,
-            );
-
-            return features.map((feature) => {
-              const stationKey = feature.properties.name.toLowerCase();
-              if (stationLabelSet.has(stationKey)) {
-                return {
-                  ...feature,
-                  properties: {
-                    ...feature.properties,
-                    label: "",
-                  },
-                };
-              }
-              stationLabelSet.add(stationKey);
-              return feature;
-            });
-          });
-
-          if (stationFeatures.length > 0) {
-            const stationsGeoJson: MRTStationGeoJson = {
-              type: "FeatureCollection",
-              features: stationFeatures,
-            };
-
-            map.addSource("mrt-stations", {
-              type: "geojson",
-              data: stationsGeoJson,
-            });
-
-            map.addLayer({
-              id: "mrt-stations-layer",
-              type: "circle",
-              source: "mrt-stations",
-              layout: {
-                visibility: sensorVisibilityRef.current.mrt
-                  ? "visible"
-                  : "none",
-              },
-              paint: {
-                "circle-radius": 4,
-                "circle-color": ["get", "color"],
-                "circle-opacity": ["case", ["get", "routeable"], 1, 0.35],
-                "circle-stroke-width": 1,
-                "circle-stroke-color": [
-                  "case",
-                  ["get", "routeable"],
-                  "#001018",
-                  "#64748b",
-                ],
-              },
-            });
-
-            map.addLayer({
-              id: "mrt-stations-label-layer",
-              type: "symbol",
-              source: "mrt-stations",
-              minzoom: 11.5,
-              layout: {
-                visibility: sensorVisibilityRef.current.mrt
-                  ? "visible"
-                  : "none",
-                "text-field": ["get", "label"],
-                "text-size": 10,
-                "text-anchor": "top",
-                "text-offset": [0, 1],
-              },
-              paint: {
-                "text-color": "#cff6ff",
-                "text-halo-color": "#05151f",
-                "text-halo-width": 1,
-              },
-            });
-
-            map.on("click", "mrt-stations-layer", (event) => {
-              const feature = event.features?.[0];
-              const stationName = feature?.properties?.name;
-              const routeable = feature?.properties?.routeable;
-              if (routeable !== true && routeable !== "true") return;
-              if (typeof stationName !== "string" || !stationName.trim())
-                return;
-              onMrtStationClickRef.current?.(stationName);
-            });
-
-            map.on("mouseenter", "mrt-stations-layer", (event) => {
-              const routeable = event.features?.some((feature) => {
-                const value = feature.properties?.routeable;
-                return value === true || value === "true";
-              });
-              map.getCanvas().style.cursor = routeable ? "pointer" : "";
-            });
-
-            map.on("mouseleave", "mrt-stations-layer", () => {
-              map.getCanvas().style.cursor = "";
-            });
-          }
-        } catch (error) {
-          console.warn("MRT layer failed to initialize", error);
+          layerListenerCleanups.push(
+            registerLayerMouseListener(
+              map,
+              "click",
+              "mrt-stations-layer",
+              handleMrtStationClick,
+            ),
+            registerLayerMouseListener(
+              map,
+              "mouseenter",
+              "mrt-stations-layer",
+              handleMrtStationEnter,
+            ),
+            registerLayerMouseListener(
+              map,
+              "mouseleave",
+              "mrt-stations-layer",
+              handleInteractiveLayerLeave,
+            ),
+          );
         }
-      })();
-    });
+      } catch (error) {
+        console.warn("MRT layer failed to initialize", error);
+      }
+    };
+
+    const removeMapLoadListener = registerMapLoadListener(map, handleMapLoad);
 
     mapRef.current = map;
 
     return () => {
+      removeMapLoadListener();
+      for (const removeLayerListener of layerListenerCleanups) {
+        removeLayerListener();
+      }
       cameraMarkersRef.current.forEach((marker) => marker.remove());
       cameraMarkersRef.current = [];
       map.remove();
@@ -1027,8 +1091,7 @@ export default function Map({
     );
 
     const busStopSource = map.getSource("bus-stops") as
-      | maplibregl.GeoJSONSource
-      | undefined;
+      maplibregl.GeoJSONSource | undefined;
     if (busStopSource) {
       busStopSource.setData({
         type: "FeatureCollection",
@@ -1061,8 +1124,7 @@ export default function Map({
     );
 
     const flightsSource = map.getSource("flights") as
-      | maplibregl.GeoJSONSource
-      | undefined;
+      maplibregl.GeoJSONSource | undefined;
     if (!flightsSource) return;
 
     flightsSource.setData({
@@ -1100,6 +1162,24 @@ export default function Map({
       return;
     }
 
+    const container = map.getContainer();
+    const camerasById = new globalThis.Map(
+      cameras.map((camera) => [camera.CameraID, camera]),
+    );
+    const handleCameraMarkerClick = (event: MouseEvent) => {
+      if (!(event.target instanceof Element)) return;
+      const markerButton = event.target.closest<HTMLButtonElement>(
+        "button[data-camera-id]",
+      );
+      if (!markerButton || !container.contains(markerButton)) return;
+      const cameraId = markerButton.dataset.cameraId;
+      if (!cameraId) return;
+      const camera = camerasById.get(cameraId);
+      if (camera) onCameraClick(camera);
+    };
+
+    container.addEventListener("click", handleCameraMarkerClick);
+
     cameras.forEach((camera) => {
       if (
         !Number.isFinite(camera.Latitude) ||
@@ -1115,7 +1195,7 @@ export default function Map({
       el.style.boxShadow = "0 0 10px rgba(107, 230, 255, 0.7)";
       el.title = camera.location;
       el.setAttribute("aria-label", `View traffic camera ${camera.location}`);
-      el.addEventListener("click", () => onCameraClick(camera));
+      el.dataset.cameraId = camera.CameraID;
 
       const marker = new maplibregl.Marker({ element: el })
         .setLngLat([camera.Longitude, camera.Latitude])
@@ -1123,6 +1203,12 @@ export default function Map({
 
       cameraMarkersRef.current.push(marker);
     });
+
+    return () => {
+      container.removeEventListener("click", handleCameraMarkerClick);
+      cameraMarkersRef.current.forEach((marker) => marker.remove());
+      cameraMarkersRef.current = [];
+    };
   }, [cameras, onCameraClick, sensorVisibility.cameras]);
 
   return <div ref={containerRef} className="h-full w-full" />;

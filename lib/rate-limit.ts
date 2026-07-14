@@ -107,25 +107,39 @@ export const RateLimitLive: Layer.Layer<RateLimit, never, never> = Layer.effect(
 /**
  * Extract the originating client IP from the request. Header priority:
  *
- * 1. `x-vercel-forwarded-for` — set by Vercel's edge proxy; most reliable
- *    on Vercel-native deployments and cannot be spoofed by the client.
- * 2. `x-real-ip` — commonly set by nginx / Cloudflare in self-hosted setups.
- * 3. `x-forwarded-for` — standard proxy header; we take the first hop
- *    (leftmost value) which is the original client when behind a single
- *    trusted proxy.
- * 4. Falls back to `127.0.0.1` for local/dev requests with no proxy.
+ * 1. `x-vercel-forwarded-for` — set by Vercel's edge proxy; always trusted
+ *    when present (cannot be spoofed by the client).
+ * 2. When `ARGUS_TRUST_PROXY_HEADERS=true`, trust `x-real-ip` and
+ *    `x-forwarded-for` (standard proxy headers). Use the first hop (leftmost
+ *    value) which is the original client when behind a single trusted proxy.
+ * 3. When trust flag is unset/false and not on Vercel, fall back to a single
+ *    bucket key `"unknown"` so all untrusted-proxy traffic shares one rate-
+ *    limit bucket (intentionally prevents spoofed per-client limits).
+ * 4. Falls back to `127.0.0.1` for local/dev requests with no proxy header.
  *
- * Vercel overwrites some of these headers at the edge. In production
- * behind a hostile or unknown proxy chain, callers should ignore the
- * result or rate-limit on a less-spoofable signal (e.g. an
- * authenticated `x-argus-token`).
+ * On Vercel, `x-vercel-forwarded-for` is always set by the edge, so
+ * `x-real-ip` / `x-forwarded-for` are never read (Vercel overwrites them).
  */
 export function extractClientIp(request: Request): string {
   const vercelForwarded = request.headers.get("x-vercel-forwarded-for");
   if (vercelForwarded) return vercelForwarded.split(",")[0].trim();
-  const realIp = request.headers.get("x-real-ip");
-  if (realIp) return realIp.trim();
-  const forwarded = request.headers.get("x-forwarded-for");
-  if (forwarded) return forwarded.split(",")[0].trim();
+
+  const trustProxy = process.env.ARGUS_TRUST_PROXY_HEADERS === "true";
+
+  if (trustProxy) {
+    const realIp = request.headers.get("x-real-ip");
+    if (realIp) return realIp.trim();
+    const forwarded = request.headers.get("x-forwarded-for");
+    if (forwarded) return forwarded.split(",")[0].trim();
+  }
+
+  // On Vercel without x-vercel-forwarded-for (shouldn't happen), trust the
+  // real-ip header since Vercel sets it. On self-hosted without the trust
+  // flag, return a shared bucket key to prevent spoofable per-client limits.
+  if (!trustProxy) {
+    return "unknown";
+  }
+
+  // Trust-enabled but no header present — local/dev fallback.
   return "127.0.0.1";
 }

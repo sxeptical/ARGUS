@@ -1,5 +1,7 @@
 import type { NextConfig } from "next";
 
+const isDev = process.env.NODE_ENV !== "production";
+
 const securityHeaders = [
   { key: "X-Content-Type-Options", value: "nosniff" },
   { key: "X-Frame-Options", value: "DENY" },
@@ -11,13 +13,14 @@ const securityHeaders = [
   {
     key: "Content-Security-Policy",
     // MapLibre uses blob: workers and Carto tile fetches. Next.js dev
-    // needs 'unsafe-eval' + 'unsafe-inline'; the production build is
-    // safe with just 'unsafe-inline'. We loosen only where necessary
-    // and document why.
+    // needs 'unsafe-eval' + 'unsafe-inline' for HMR; production builds
+    // only need 'unsafe-inline' for runtime style injection. We loosen
+    // only where necessary and document why.
     value: [
       "default-src 'self'",
       // Next.js inlines small scripts; dev mode needs eval for HMR.
-      "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
+      // Production drops unsafe-eval — only inline scripts remain.
+      `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ""}`,
       // Tailwind emits inline styles at runtime; runtime style injection.
       "style-src 'self' 'unsafe-inline'",
       // Camera images (data.gov.sg, LTA S3), Carto basemap tiles.
