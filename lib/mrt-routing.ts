@@ -25,6 +25,11 @@ export type MrtRoutePlan = {
   estimatedMinutes: number;
 };
 
+export const MRT_ROUTE_DEFAULTS = {
+  start: "",
+  end: "",
+};
+
 const MINUTES_PER_STOP_BY_LINE: Record<string, number> = {
   "North South Line": 2.5,
   "East West Line": 2.5,

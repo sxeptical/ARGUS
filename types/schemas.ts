@@ -1,9 +1,8 @@
 /**
- * Effect Schema definitions for every external API response and for every
- * TypeScript interface in `@/types`. The plain TypeScript interfaces remain the
- * source of truth for the React client (which has no Effect runtime); these
- * Schemas are used by the server to validate and decode upstream responses
- * before they reach a route handler.
+ * Effect Schema definitions for external API responses consumed by the server.
+ * The plain TypeScript interfaces in `@/types` remain the source of truth for
+ * the React client (which has no Effect runtime); these Schemas validate and
+ * decode upstream responses before they reach a route handler.
  *
  * Schemas are intentionally permissive: required fields use their exact
  * type, optional fields use `Schema.optional`, nullable fields use
@@ -12,7 +11,7 @@
  */
 import { Schema } from "effect";
 
-// ---------- Domain types (one Schema per public interface) ----------
+// ---------- Domain types used by upstream response schemas ----------
 
 export const BusStopSchema = Schema.Struct({
   BusStopCode: Schema.String,
@@ -40,50 +39,6 @@ export const BusArrivalSchema = Schema.Struct({
   NextBus: BusTimingSchema,
   NextBus2: Schema.optional(BusTimingSchema),
   NextBus3: Schema.optional(BusTimingSchema),
-});
-
-const PsiStatusSchema = Schema.Literal("Good", "Moderate", "Unhealthy", "Unknown");
-
-export const WeatherDataSchema = Schema.Struct({
-  temperature: Schema.NullOr(Schema.Number),
-  humidity: Schema.NullOr(Schema.Number),
-  psi: Schema.NullOr(Schema.Number),
-  psiStatus: PsiStatusSchema,
-  forecast: Schema.String,
-  lastUpdated: Schema.String,
-});
-
-export const NewsItemSchema = Schema.Struct({
-  title: Schema.String,
-  source: Schema.String,
-  url: Schema.String,
-  publishedAt: Schema.String,
-});
-
-export const TrafficCameraSchema = Schema.Struct({
-  CameraID: Schema.String,
-  Latitude: Schema.Number,
-  Longitude: Schema.Number,
-  ImageLink: Schema.String,
-  location: Schema.String,
-});
-
-const FlightDirectionSchema = Schema.Literal("inbound", "outbound", "transit");
-
-export const FlightStateSchema = Schema.Struct({
-  id: Schema.String,
-  icao24: Schema.String,
-  callsign: Schema.String,
-  originCountry: Schema.String,
-  latitude: Schema.Number,
-  longitude: Schema.Number,
-  altitude: Schema.NullOr(Schema.Number),
-  velocity: Schema.NullOr(Schema.Number),
-  track: Schema.NullOr(Schema.Number),
-  verticalRate: Schema.NullOr(Schema.Number),
-  onGround: Schema.Boolean,
-  direction: FlightDirectionSchema,
-  lastContact: Schema.NullOr(Schema.Number),
 });
 
 // ---------- Upstream response wrappers ----------

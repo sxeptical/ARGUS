@@ -2,9 +2,6 @@ import { useMemo } from "react";
 import TerminalPanel from "@/app/components/TerminalPanel";
 import { MRT_STATION_NAMES, planMrtRoute } from "@/lib/mrt-routing";
 
-const DEFAULT_START = "";
-const DEFAULT_END = "";
-
 type MrtRoutePanelProps = {
   startStation: string;
   endStation: string;
@@ -13,11 +10,6 @@ type MrtRoutePanelProps = {
   mapPickTarget: "start" | "end";
   onMapPickTargetChange: (target: "start" | "end") => void;
   onReset: () => void;
-};
-
-export const MRT_ROUTE_DEFAULTS = {
-  start: DEFAULT_START,
-  end: DEFAULT_END,
 };
 
 export default function MrtRoutePanel({
@@ -158,9 +150,9 @@ export default function MrtRoutePanel({
 
             <div className="space-y-1">
               {route.segments.length > 0 ? (
-                route.segments.map((segment, index) => (
+                route.segments.map((segment) => (
                   <div
-                    key={`${segment.line}-${segment.from}-${segment.to}-${index}`}
+                    key={`${segment.line}-${segment.from}-${segment.to}`}
                     className="border border-line bg-surface px-2.5 py-2"
                   >
                     <div className="data-label text-success">
