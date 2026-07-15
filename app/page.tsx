@@ -1,14 +1,18 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import {
+  useEffect,
+  useMemo,
+  useState,
+  type Dispatch,
+  type SetStateAction,
+} from "react";
 import BusPanel from "@/app/components/BusPanel";
 import CameraPanel from "@/app/components/CameraPanel";
 import FlightPanel from "@/app/components/FlightPanel";
 import Map from "@/app/components/Map";
-import MrtRoutePanel, {
-  MRT_ROUTE_DEFAULTS,
-} from "@/app/components/MrtRoutePanel";
-import { planMrtRoute } from "@/lib/mrt-routing";
+import MrtRoutePanel from "@/app/components/MrtRoutePanel";
+import { MRT_ROUTE_DEFAULTS, planMrtRoute } from "@/lib/mrt-routing";
 import NewsPanel from "@/app/components/NewsPanel";
 import UpdateAvailableToast from "@/app/components/UpdateAvailableToast";
 import WeatherPanel from "@/app/components/WeatherPanel";
@@ -23,6 +27,16 @@ import type {
 } from "@/types";
 
 type SensorKey = "flights" | "cameras" | "busStops" | "mrt";
+
+type SensorRow = {
+  readonly key: SensorKey;
+  readonly label: string;
+  readonly note: string;
+  readonly value: number;
+  readonly tone: string;
+};
+
+type SensorStatsRow = Omit<SensorRow, "key">;
 
 type SourceStatus = "pending" | "loading" | "ok" | "error";
 
@@ -141,7 +155,7 @@ function appendWeatherHistory(
     .slice(-WEATHER_HISTORY_MAX_POINTS);
 }
 
-export default function Home() {
+function useDashboardState() {
   const [busStops, setBusStops] = useState<BusStop[]>([]);
   const [cameras, setCameras] = useState<TrafficCamera[]>([]);
   const [weather, setWeather] = useState<WeatherData>(DEFAULT_WEATHER);
@@ -390,7 +404,7 @@ export default function Home() {
     [mrtStartStation, mrtEndStation],
   );
 
-  const sensorRows = [
+  const sensorRows: SensorRow[] = [
     {
       key: "flights" as const,
       label: "Air Activity",
@@ -421,7 +435,7 @@ export default function Home() {
     },
   ];
 
-  const sensorStatsRows = [
+  const sensorStatsRows: SensorStatsRow[] = [
     {
       label: "Inbound Flights",
       note: "approach vector",
@@ -480,6 +494,76 @@ export default function Home() {
   }));
   const systemStatus = error ? "Degraded" : "Live";
 
+  return {
+    activeSources,
+    bootComplete,
+    busStops,
+    cameras,
+    error,
+    flights,
+    mrtEndStation,
+    mrtMapPickTarget,
+    mrtRoutePlan,
+    mrtStartStation,
+    news,
+    onlineSourceCount,
+    selectedCamera,
+    selectedFlight,
+    selectedStop,
+    sensorRows,
+    sensorStatsRows,
+    sensorVisibility,
+    setMrtEndStation,
+    setMrtMapPickTarget,
+    setMrtStartStation,
+    setSelectedCamera,
+    setSelectedFlight,
+    setSelectedStop,
+    setSensorVisibility,
+    signalBars,
+    sources,
+    systemStatus,
+    visibleSensorCount,
+    weather,
+    weatherHistory,
+  };
+}
+
+export default function Home() {
+  const {
+    activeSources,
+    bootComplete,
+    busStops,
+    cameras,
+    error,
+    flights,
+    mrtEndStation,
+    mrtMapPickTarget,
+    mrtRoutePlan,
+    mrtStartStation,
+    news,
+    onlineSourceCount,
+    selectedCamera,
+    selectedFlight,
+    selectedStop,
+    sensorRows,
+    sensorStatsRows,
+    sensorVisibility,
+    setMrtEndStation,
+    setMrtMapPickTarget,
+    setMrtStartStation,
+    setSelectedCamera,
+    setSelectedFlight,
+    setSelectedStop,
+    setSensorVisibility,
+    signalBars,
+    sources,
+    systemStatus,
+    visibleSensorCount,
+    weather,
+    weatherHistory,
+  } = useDashboardState();
+
   if (!bootComplete) {
     return <LoadingScreen sources={sources} />;
   }
@@ -487,54 +571,12 @@ export default function Home() {
   return (
     <div className="flex min-h-dvh flex-col gap-2 bg-paper p-2 sm:gap-3 sm:p-3 lg:h-dvh lg:overflow-hidden">
       <UpdateAvailableToast />
-      <header className="border border-line bg-surface px-3 py-2 sm:px-4 sm:py-3">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex min-w-0 items-center gap-3">
-            <div className="grid h-8 w-8 shrink-0 place-items-center border border-line-strong bg-ink text-xs font-bold text-paper">
-              A
-            </div>
-            <div className="min-w-0">
-              <div className="text-sm font-semibold tracking-[0.16em] text-ink">
-                ARGUS
-              </div>
-              <div className="truncate text-[10px] uppercase tracking-[0.12em] text-muted">
-                Singapore signal monitor
-              </div>
-            </div>
-          </div>
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-[10px] uppercase tracking-[0.1em]">
-            <HeaderClock />
-            <HeaderChip
-              label="Sources"
-              value={`${onlineSourceCount}/${activeSources.length}`}
-            />
-            <span
-              className={`inline-flex items-center gap-2 whitespace-nowrap font-semibold ${
-                error ? "text-warning" : "text-success"
-              }`}
-            >
-              <span className="status-dot" aria-hidden="true" />
-              {systemStatus}
-            </span>
-            <a
-              href="https://github.com/sxeptical/ARGUS"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 whitespace-nowrap text-muted transition-colors duration-150 hover:text-ink"
-            >
-              <svg
-                viewBox="0 0 16 16"
-                fill="currentColor"
-                className="h-3.5 w-3.5"
-                aria-hidden="true"
-              >
-                <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z" />
-              </svg>
-              <span>Source</span>
-            </a>
-          </div>
-        </div>
-      </header>
+      <DashboardHeader
+        activeSourceCount={activeSources.length}
+        hasError={error !== null}
+        onlineSourceCount={onlineSourceCount}
+        systemStatus={systemStatus}
+      />
 
       {error ? (
         <div
@@ -546,100 +588,18 @@ export default function Home() {
       ) : null}
 
       <main className="grid min-w-0 grid-cols-1 gap-2 sm:gap-3 lg:min-h-0 lg:flex-1 xl:grid-cols-[248px_minmax(0,1fr)_292px]">
-        <aside className="order-2 flex min-w-0 flex-col gap-2 sm:gap-3 xl:order-1 xl:min-h-0 xl:overflow-y-auto xl:pr-1">
-          <IntelPanel
-            title="Layers"
-            badge={`${visibleSensorCount}/${sensorRows.length}`}
-          >
-            <div className="space-y-1">
-              {sensorRows.map((row) => (
-                <div
-                  key={row.label}
-                  className="data-row flex items-center justify-between gap-3 px-2.5 py-2"
-                >
-                  <div className="min-w-0">
-                    <div className="truncate text-xs text-ink">{row.label}</div>
-                    <div className="data-label truncate">
-                      {row.note}
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setSensorVisibility((prev) => ({
-                          ...prev,
-                          [row.key]: !prev[row.key],
-                        }))
-                      }
-                      aria-label={`${sensorVisibility[row.key] ? "Hide" : "Show"} ${row.label}`}
-                      title={`${sensorVisibility[row.key] ? "Hide" : "Show"} ${row.label}`}
-                      aria-pressed={sensorVisibility[row.key]}
-                      className={`grid h-6 w-6 shrink-0 place-items-center rounded-full border transition-colors duration-150 ${
-                        sensorVisibility[row.key]
-                          ? "border-success/45 bg-success/8 text-success hover:bg-success/12"
-                          : "border-line bg-paper text-muted hover:border-line-strong hover:text-ink"
-                      }`}
-                    >
-                      {sensorVisibility[row.key] ? (
-                        <svg
-                          viewBox="0 0 16 16"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="1.5"
-                          className="h-3 w-3"
-                          aria-hidden="true"
-                        >
-                          <path d="M1.5 8s2.25-4 6.5-4 6.5 4 6.5 4-2.25 4-6.5 4S1.5 8 1.5 8Z" />
-                          <circle cx="8" cy="8" r="1.75" />
-                        </svg>
-                      ) : (
-                        <svg
-                          viewBox="0 0 16 16"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="1.5"
-                          className="h-3 w-3"
-                          aria-hidden="true"
-                        >
-                          <path d="M2 2l12 12M6.4 4.2A7.5 7.5 0 0 1 8 4c4.25 0 6.5 4 6.5 4a8.7 8.7 0 0 1-2 2.45M9.6 11.8A7.5 7.5 0 0 1 8 12c-4.25 0-6.5-4-6.5-4a8.7 8.7 0 0 1 2-2.45" />
-                        </svg>
-                      )}
-                    </button>
-                    <div
-                      className={`min-w-7 text-right font-mono text-sm font-medium ${row.tone}`}
-                    >
-                      {row.value}
-                    </div>
-                  </div>
-                </div>
-              ))}
-              {sensorStatsRows.map((row) => (
-                <div
-                  key={row.label}
-                  className="flex items-center justify-between gap-3 border-b border-line px-2.5 py-2 last:border-b-0"
-                >
-                  <div className="min-w-0">
-                    <div className="truncate text-xs text-ink">{row.label}</div>
-                    <div className="data-label truncate">
-                      {row.note}
-                    </div>
-                  </div>
-                  <div className={`font-mono text-sm font-medium ${row.tone}`}>
-                    {row.value}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </IntelPanel>
-
-          <WeatherPanel weather={weather} history={weatherHistory} />
-          <FlightPanel
-            flights={flights}
-            selectedFlight={selectedFlight}
-            onSelectFlight={setSelectedFlight}
-          />
-        </aside>
+        <LayersSidebar
+          flights={flights}
+          selectedFlight={selectedFlight}
+          sensorRows={sensorRows}
+          sensorStatsRows={sensorStatsRows}
+          sensorVisibility={sensorVisibility}
+          setSelectedFlight={setSelectedFlight}
+          setSensorVisibility={setSensorVisibility}
+          visibleSensorCount={visibleSensorCount}
+          weather={weather}
+          weatherHistory={weatherHistory}
+        />
 
         <section className="order-1 grid min-w-0 gap-2 sm:gap-3 xl:order-2 xl:min-h-0 xl:grid-rows-[minmax(0,1fr)_minmax(236px,38%)]">
           <section className="relative h-[52dvh] min-h-72 overflow-hidden border border-line bg-surface xl:h-auto xl:min-h-0">
@@ -794,6 +754,188 @@ export default function Home() {
         </aside>
       </main>
     </div>
+  );
+}
+
+function DashboardHeader({
+  activeSourceCount,
+  hasError,
+  onlineSourceCount,
+  systemStatus,
+}: {
+  activeSourceCount: number;
+  hasError: boolean;
+  onlineSourceCount: number;
+  systemStatus: string;
+}) {
+  return (
+    <header className="border border-line bg-surface px-3 py-2 sm:px-4 sm:py-3">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex min-w-0 items-center gap-3">
+          <div className="grid h-8 w-8 shrink-0 place-items-center border border-line-strong bg-ink text-xs font-bold text-paper">
+            A
+          </div>
+          <div className="min-w-0">
+            <div className="text-sm font-semibold tracking-[0.16em] text-ink">
+              ARGUS
+            </div>
+            <div className="truncate text-[10px] uppercase tracking-[0.12em] text-muted">
+              Singapore signal monitor
+            </div>
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-[10px] uppercase tracking-[0.1em]">
+          <HeaderClock />
+          <HeaderChip
+            label="Sources"
+            value={`${onlineSourceCount}/${activeSourceCount}`}
+          />
+          <span
+            className={`inline-flex items-center gap-2 whitespace-nowrap font-semibold ${
+              hasError ? "text-warning" : "text-success"
+            }`}
+          >
+            <span className="status-dot" aria-hidden="true" />
+            {systemStatus}
+          </span>
+          <a
+            href="https://github.com/sxeptical/ARGUS"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1.5 whitespace-nowrap text-muted transition-colors duration-150 hover:text-ink"
+          >
+            <svg
+              viewBox="0 0 16 16"
+              fill="currentColor"
+              className="h-3.5 w-3.5"
+              aria-hidden="true"
+            >
+              <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z" />
+            </svg>
+            <span>Source</span>
+          </a>
+        </div>
+      </div>
+    </header>
+  );
+}
+
+function LayersSidebar({
+  flights,
+  selectedFlight,
+  sensorRows,
+  sensorStatsRows,
+  sensorVisibility,
+  setSelectedFlight,
+  setSensorVisibility,
+  visibleSensorCount,
+  weather,
+  weatherHistory,
+}: {
+  flights: FlightState[];
+  selectedFlight: FlightState | null;
+  sensorRows: ReadonlyArray<SensorRow>;
+  sensorStatsRows: ReadonlyArray<SensorStatsRow>;
+  sensorVisibility: Record<SensorKey, boolean>;
+  setSelectedFlight: Dispatch<SetStateAction<FlightState | null>>;
+  setSensorVisibility: Dispatch<
+    SetStateAction<Record<SensorKey, boolean>>
+  >;
+  visibleSensorCount: number;
+  weather: WeatherData;
+  weatherHistory: WeatherHistoryPoint[];
+}) {
+  return (
+    <aside className="order-2 flex min-w-0 flex-col gap-2 sm:gap-3 xl:order-1 xl:min-h-0 xl:overflow-y-auto xl:pr-1">
+      <IntelPanel
+        title="Layers"
+        badge={`${visibleSensorCount}/${sensorRows.length}`}
+      >
+        <div className="space-y-1">
+          {sensorRows.map((row) => (
+            <div
+              key={row.label}
+              className="data-row flex items-center justify-between gap-3 px-2.5 py-2"
+            >
+              <div className="min-w-0">
+                <div className="truncate text-xs text-ink">{row.label}</div>
+                <div className="data-label truncate">{row.note}</div>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() =>
+                    setSensorVisibility((previous) => ({
+                      ...previous,
+                      [row.key]: !previous[row.key],
+                    }))
+                  }
+                  aria-label={`${sensorVisibility[row.key] ? "Hide" : "Show"} ${row.label}`}
+                  title={`${sensorVisibility[row.key] ? "Hide" : "Show"} ${row.label}`}
+                  aria-pressed={sensorVisibility[row.key]}
+                  className={`grid h-6 w-6 shrink-0 place-items-center rounded-full border transition-colors duration-150 ${
+                    sensorVisibility[row.key]
+                      ? "border-success/45 bg-success/8 text-success hover:bg-success/12"
+                      : "border-line bg-paper text-muted hover:border-line-strong hover:text-ink"
+                  }`}
+                >
+                  {sensorVisibility[row.key] ? (
+                    <svg
+                      viewBox="0 0 16 16"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.5"
+                      className="h-3 w-3"
+                      aria-hidden="true"
+                    >
+                      <path d="M1.5 8s2.25-4 6.5-4 6.5 4 6.5 4-2.25 4-6.5 4S1.5 8 1.5 8Z" />
+                      <circle cx="8" cy="8" r="1.75" />
+                    </svg>
+                  ) : (
+                    <svg
+                      viewBox="0 0 16 16"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.5"
+                      className="h-3 w-3"
+                      aria-hidden="true"
+                    >
+                      <path d="M2 2l12 12M6.4 4.2A7.5 7.5 0 0 1 8 4c4.25 0 6.5 4 6.5 4a8.7 8.7 0 0 1-2 2.45M9.6 11.8A7.5 7.5 0 0 1 8 12c-4.25 0-6.5-4-6.5-4a8.7 8.7 0 0 1 2-2.45" />
+                    </svg>
+                  )}
+                </button>
+                <div
+                  className={`min-w-7 text-right font-mono text-sm font-medium ${row.tone}`}
+                >
+                  {row.value}
+                </div>
+              </div>
+            </div>
+          ))}
+          {sensorStatsRows.map((row) => (
+            <div
+              key={row.label}
+              className="flex items-center justify-between gap-3 border-b border-line px-2.5 py-2 last:border-b-0"
+            >
+              <div className="min-w-0">
+                <div className="truncate text-xs text-ink">{row.label}</div>
+                <div className="data-label truncate">{row.note}</div>
+              </div>
+              <div className={`font-mono text-sm font-medium ${row.tone}`}>
+                {row.value}
+              </div>
+            </div>
+          ))}
+        </div>
+      </IntelPanel>
+
+      <WeatherPanel weather={weather} history={weatherHistory} />
+      <FlightPanel
+        flights={flights}
+        selectedFlight={selectedFlight}
+        onSelectFlight={setSelectedFlight}
+      />
+    </aside>
   );
 }
 

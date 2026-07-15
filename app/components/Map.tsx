@@ -268,6 +268,7 @@ const MRT_LINE_STATIONS: Record<string, string[]> = {
 };
 
 const MRT_LINES = mrtLinesData as MRTGeoJson;
+const EMPTY_MRT_ROUTE_SEGMENTS: MrtRouteSegment[] = [];
 
 type MRTStationGeoJson = {
   type: "FeatureCollection";
@@ -507,7 +508,70 @@ function registerLayerMouseListener(
   return () => map.off(eventName, layerId, listener);
 }
 
-export default function Map({
+function applyMrtRouteFocus(map: maplibregl.Map, hasRoute: boolean) {
+  if (map.getLayer("mrt-lines-layer")) {
+    map.setPaintProperty(
+      "mrt-lines-layer",
+      "line-opacity",
+      hasRoute ? 0.15 : 0.96,
+    );
+  }
+  if (map.getLayer("mrt-lines-casing-layer")) {
+    map.setPaintProperty(
+      "mrt-lines-casing-layer",
+      "line-opacity",
+      hasRoute ? 0.12 : 0.84,
+    );
+  }
+  if (map.getLayer("mrt-lines-future-layer")) {
+    map.setPaintProperty(
+      "mrt-lines-future-layer",
+      "line-opacity",
+      hasRoute ? 0.08 : 0.82,
+    );
+  }
+  if (map.getLayer("mrt-lines-future-casing-layer")) {
+    map.setPaintProperty(
+      "mrt-lines-future-casing-layer",
+      "line-opacity",
+      hasRoute ? 0.07 : 0.72,
+    );
+  }
+  if (map.getLayer("mrt-stations-layer")) {
+    map.setPaintProperty("mrt-stations-layer", "circle-opacity", [
+      "case",
+      ["get", "routeable"],
+      hasRoute ? 0.3 : 1,
+      hasRoute ? 0.12 : 0.35,
+    ]);
+  }
+  if (map.getLayer("mrt-stations-label-layer")) {
+    map.setPaintProperty("mrt-stations-label-layer", "text-opacity", [
+      "case",
+      ["get", "routeable"],
+      hasRoute ? 0.35 : 1,
+      hasRoute ? 0.08 : 0.45,
+    ]);
+  }
+}
+
+function useLazyRef<T>(createValue: () => T): { current: T } {
+  const ref = useRef<T | null>(null);
+  if (ref.current === null) {
+    ref.current = createValue();
+  }
+  return ref as { current: T };
+}
+
+function createBusStopMap() {
+  return new globalThis.Map<string, BusStop>();
+}
+
+function createFlightMap() {
+  return new globalThis.Map<string, FlightState>();
+}
+
+function useMapController({
   busStops,
   cameras,
   flights,
@@ -516,17 +580,13 @@ export default function Map({
   onCameraClick,
   onFlightClick,
   onMrtStationClick,
-  mrtRouteSegments = [],
+  mrtRouteSegments = EMPTY_MRT_ROUTE_SEGMENTS,
 }: MapProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const cameraMarkersRef = useRef<maplibregl.Marker[]>([]);
-  const busStopsRef = useRef<globalThis.Map<string, BusStop>>(
-    new globalThis.Map(),
-  );
-  const flightsRef = useRef<globalThis.Map<string, FlightState>>(
-    new globalThis.Map(),
-  );
+  const busStopsRef = useLazyRef(createBusStopMap);
+  const flightsRef = useLazyRef(createFlightMap);
   const onStopClickRef = useRef(onStopClick);
   const onFlightClickRef = useRef(onFlightClick);
   const onMrtStationClickRef = useRef(onMrtStationClick);
@@ -545,53 +605,6 @@ export default function Map({
   useEffect(() => {
     onMrtStationClickRef.current = onMrtStationClick;
   }, [onMrtStationClick]);
-
-  const applyMrtRouteFocus = (map: maplibregl.Map, hasRoute: boolean) => {
-    if (map.getLayer("mrt-lines-layer")) {
-      map.setPaintProperty(
-        "mrt-lines-layer",
-        "line-opacity",
-        hasRoute ? 0.15 : 0.96,
-      );
-    }
-    if (map.getLayer("mrt-lines-casing-layer")) {
-      map.setPaintProperty(
-        "mrt-lines-casing-layer",
-        "line-opacity",
-        hasRoute ? 0.12 : 0.84,
-      );
-    }
-    if (map.getLayer("mrt-lines-future-layer")) {
-      map.setPaintProperty(
-        "mrt-lines-future-layer",
-        "line-opacity",
-        hasRoute ? 0.08 : 0.82,
-      );
-    }
-    if (map.getLayer("mrt-lines-future-casing-layer")) {
-      map.setPaintProperty(
-        "mrt-lines-future-casing-layer",
-        "line-opacity",
-        hasRoute ? 0.07 : 0.72,
-      );
-    }
-    if (map.getLayer("mrt-stations-layer")) {
-      map.setPaintProperty("mrt-stations-layer", "circle-opacity", [
-        "case",
-        ["get", "routeable"],
-        hasRoute ? 0.3 : 1,
-        hasRoute ? 0.12 : 0.35,
-      ]);
-    }
-    if (map.getLayer("mrt-stations-label-layer")) {
-      map.setPaintProperty("mrt-stations-label-layer", "text-opacity", [
-        "case",
-        ["get", "routeable"],
-        hasRoute ? 0.35 : 1,
-        hasRoute ? 0.08 : 0.45,
-      ]);
-    }
-  };
 
   useEffect(() => {
     sensorVisibilityRef.current = sensorVisibility;
@@ -1092,7 +1105,7 @@ export default function Map({
       map.remove();
       mapRef.current = null;
     };
-  }, []);
+  }, [busStopsRef, flightsRef]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -1107,25 +1120,26 @@ export default function Map({
     if (busStopSource) {
       busStopSource.setData({
         type: "FeatureCollection",
-        features: (sensorVisibility.busStops ? busStops : [])
-          .filter(
-            (stop) =>
-              Number.isFinite(stop.Latitude) && Number.isFinite(stop.Longitude),
-          )
-          .map((stop) => ({
-            type: "Feature" as const,
-            properties: {
-              BusStopCode: stop.BusStopCode,
-              Description: stop.Description,
-            },
-            geometry: {
-              type: "Point" as const,
-              coordinates: [stop.Longitude, stop.Latitude],
-            },
-          })),
+        features: (sensorVisibility.busStops ? busStops : []).flatMap((stop) =>
+          Number.isFinite(stop.Latitude) && Number.isFinite(stop.Longitude)
+            ? [
+                {
+                  type: "Feature" as const,
+                  properties: {
+                    BusStopCode: stop.BusStopCode,
+                    Description: stop.Description,
+                  },
+                  geometry: {
+                    type: "Point" as const,
+                    coordinates: [stop.Longitude, stop.Latitude],
+                  },
+                },
+              ]
+            : [],
+        ),
       });
     }
-  }, [busStops, sensorVisibility.busStops]);
+  }, [busStops, busStopsRef, sensorVisibility.busStops]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -1141,27 +1155,27 @@ export default function Map({
 
     flightsSource.setData({
       type: "FeatureCollection",
-      features: (sensorVisibility.flights ? flights : [])
-        .filter(
-          (flight) =>
-            Number.isFinite(flight.latitude) &&
-            Number.isFinite(flight.longitude),
-        )
-        .map((flight) => ({
-          type: "Feature" as const,
-          properties: {
-            id: flight.id,
-            callsign: flight.callsign,
-            direction: flight.direction,
-            track: flight.track ?? 0,
-          },
-          geometry: {
-            type: "Point" as const,
-            coordinates: [flight.longitude, flight.latitude],
-          },
-        })),
+      features: (sensorVisibility.flights ? flights : []).flatMap((flight) =>
+        Number.isFinite(flight.latitude) && Number.isFinite(flight.longitude)
+          ? [
+              {
+                type: "Feature" as const,
+                properties: {
+                  id: flight.id,
+                  callsign: flight.callsign,
+                  direction: flight.direction,
+                  track: flight.track ?? 0,
+                },
+                geometry: {
+                  type: "Point" as const,
+                  coordinates: [flight.longitude, flight.latitude],
+                },
+              },
+            ]
+          : [],
+      ),
     });
-  }, [flights, sensorVisibility.flights]);
+  }, [flights, flightsRef, sensorVisibility.flights]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -1222,5 +1236,10 @@ export default function Map({
     };
   }, [cameras, onCameraClick, sensorVisibility.cameras]);
 
+  return containerRef;
+}
+
+export default function Map(props: MapProps) {
+  const containerRef = useMapController(props);
   return <div ref={containerRef} className="h-full w-full" />;
 }

@@ -331,18 +331,22 @@ export const getTrafficCameras = (): Effect.Effect<
               )
             : (value as RawTrafficImage[]);
 
-        return flat
-          .filter(
-            (camera) =>
-              typeof camera.CameraID === "string" &&
-              Number.isFinite(camera.Latitude) &&
-              Number.isFinite(camera.Longitude) &&
-              SAFE_CAMERA_IMAGE_URL_RE.test(camera.ImageLink),
-          )
-          .map((camera) => ({
+        const cameras: TrafficCamera[] = [];
+        for (const camera of flat) {
+          if (
+            typeof camera.CameraID !== "string" ||
+            !Number.isFinite(camera.Latitude) ||
+            !Number.isFinite(camera.Longitude) ||
+            !SAFE_CAMERA_IMAGE_URL_RE.test(camera.ImageLink)
+          ) {
+            continue;
+          }
+          cameras.push({
             ...camera,
             location: `Camera ${camera.CameraID}`,
-          }));
+          });
+        }
+        return cameras;
       }),
     );
   });
@@ -385,9 +389,11 @@ const nationalOrMaxRegional = (
 };
 
 const latestIsoTimestamp = (values: Array<string | undefined>): string => {
-  const timestamps = values
-    .map((value) => (value ? Date.parse(value) : Number.NaN))
-    .filter((value) => Number.isFinite(value));
+  const timestamps: number[] = [];
+  for (const value of values) {
+    const timestamp = value ? Date.parse(value) : Number.NaN;
+    if (Number.isFinite(timestamp)) timestamps.push(timestamp);
+  }
   if (timestamps.length === 0) return new Date().toISOString();
   return new Date(Math.max(...timestamps)).toISOString();
 };
