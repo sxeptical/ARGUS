@@ -1,0 +1,16 @@
+[
+  {
+    "date": "2026-07-16",
+    "macrostructure": "Workbench",
+    "theme": "custom black",
+    "themeAxes": {
+      "paperBand": "dark",
+      "displayStyle": "system-native",
+      "accentHue": "neutral"
+    },
+    "nav": "application header",
+    "footer": "none",
+    "enrichment": "live map and camera imagery",
+    "brief": "ARGUS black minimal operational dashboard"
+  }
+]

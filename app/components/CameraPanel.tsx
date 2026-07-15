@@ -77,7 +77,7 @@ export default function CameraPanel({
         contentClassName="min-h-40 sm:min-h-52"
       >
         {displayCameras.length === 0 ? (
-          <div className="terminal-dim text-[11px]">
+          <div className="text-[11px] text-muted">
             No traffic camera images are currently available.
           </div>
         ) : null}
@@ -87,7 +87,7 @@ export default function CameraPanel({
             <button
               key={camera.CameraID}
               type="button"
-              className="overflow-hidden rounded border border-terminal-border/40 bg-black/30 text-left hover:border-terminal-cyan"
+              className="interactive-row overflow-hidden text-left"
               onClick={() => setExpanded(camera)}
               aria-label={`View camera ${camera.location}`}
             >
@@ -100,7 +100,7 @@ export default function CameraPanel({
                 loading="lazy"
                 unoptimized
               />
-              <div className="truncate px-2 py-1 text-[11px] terminal-dim">
+              <div className="truncate border-t border-line px-2 py-1.5 text-[10px] text-muted">
                 {camera.location}
               </div>
             </button>
@@ -110,7 +110,7 @@ export default function CameraPanel({
 
       {expanded ? (
         <div
-          className="fixed inset-0 z-50 grid place-items-center bg-black/80 p-4"
+          className="fixed inset-0 z-50 grid place-items-center bg-overlay p-3 sm:p-4"
           onClick={() => closeModal()}
           role="presentation"
         >
@@ -119,7 +119,7 @@ export default function CameraPanel({
             role="dialog"
             aria-modal="true"
             aria-label={expanded.location}
-            className="max-w-4xl rounded border border-terminal-cyan/70 bg-terminal-panel p-2"
+            className="w-full max-w-4xl border border-line-strong bg-surface-raised p-2"
             onClick={(e) => e.stopPropagation()}
           >
             <Image
@@ -131,11 +131,11 @@ export default function CameraPanel({
               unoptimized
             />
             <div className="flex items-center justify-between p-2">
-              <span className="terminal-cyan text-sm">{expanded.location}</span>
+              <span className="truncate text-sm text-ink">{expanded.location}</span>
               <button
                 ref={closeButtonRef}
                 type="button"
-                className="terminal-dim hover:terminal-text rounded px-2 py-1 text-xs"
+                className="action-button ml-3"
                 onClick={() => closeModal()}
               >
                 Close [Esc]

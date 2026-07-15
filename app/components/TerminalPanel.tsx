@@ -27,12 +27,12 @@ export default function TerminalPanel({
         aria-expanded={expanded}
         aria-controls={contentId}
       >
-        <span className="flex items-center gap-2">
-          <span className="terminal-cyan">&gt;</span>
-          {title}
-        </span>
-        <span className="terminal-dim text-[11px]">
-          {expanded ? "[-]" : "[+]"}
+        <span>{title}</span>
+        <span
+          aria-hidden="true"
+          className="grid h-5 w-5 place-items-center text-base font-normal leading-none text-muted"
+        >
+          {expanded ? "−" : "+"}
         </span>
       </button>
       {expanded ? (

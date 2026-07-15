@@ -16,7 +16,7 @@ export default function NewsPanel({ news }: NewsPanelProps) {
     <TerminalPanel title="NEWS" contentClassName="min-h-36 sm:min-h-44">
       <div className="space-y-2">
         {news.length === 0 ? (
-          <div className="terminal-dim text-[11px]">
+          <div className="text-[11px] text-muted">
             No news signals are currently available.
           </div>
         ) : null}
@@ -25,7 +25,7 @@ export default function NewsPanel({ news }: NewsPanelProps) {
           const content = (
             <>
               <div className="line-clamp-2 font-medium">{item.title}</div>
-              <div className="mt-1 flex items-center justify-between text-[11px] terminal-dim">
+              <div className="mt-1 flex items-center justify-between text-[11px] text-muted">
                 <span>{item.source}</span>
                 <span suppressHydrationWarning>
                   {formatTime(item.publishedAt)}
@@ -38,7 +38,7 @@ export default function NewsPanel({ news }: NewsPanelProps) {
             return (
               <div
                 key={`${item.url}-${item.publishedAt}`}
-                className="block rounded border border-terminal-border/40 bg-white/2 p-2"
+                className="data-row block p-2.5"
               >
                 {content}
               </div>
@@ -51,7 +51,7 @@ export default function NewsPanel({ news }: NewsPanelProps) {
               href={item.url}
               target="_blank"
               rel="noreferrer noopener"
-              className="block rounded border border-terminal-border/40 bg-white/2 p-2 transition hover:border-terminal-cyan/70 hover:bg-terminal-cyan/10"
+              className="interactive-row block p-2.5"
             >
               {content}
             </a>
