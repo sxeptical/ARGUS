@@ -20,12 +20,12 @@ type WeatherPanelProps = {
 export default function WeatherPanel({ weather, history }: WeatherPanelProps) {
   const psiClass =
     weather.psiStatus === "Good"
-      ? "terminal-green"
+      ? "text-success"
       : weather.psiStatus === "Moderate"
-        ? "terminal-yellow"
+        ? "text-warning"
         : weather.psiStatus === "Unhealthy"
-          ? "terminal-red"
-          : "terminal-dim";
+          ? "text-danger"
+          : "text-muted";
 
   const psiValue =
     weather.psi === null ? "—" : `${weather.psi} (${weather.psiStatus})`;
@@ -56,11 +56,11 @@ export default function WeatherPanel({ weather, history }: WeatherPanelProps) {
         </ExpandableRow>
 
         <div className="space-y-1 pt-1">
-          <div className="terminal-dim text-[11px]">Forecast</div>
+          <div className="text-[11px] text-muted">Forecast</div>
           <div className="text-[12px]">{weather.forecast}</div>
         </div>
 
-        <div className="terminal-dim text-[11px]" suppressHydrationWarning>
+        <div className="text-[11px] text-muted" suppressHydrationWarning>
           Updated {formatTime(weather.lastUpdated)}
         </div>
       </div>
@@ -82,26 +82,22 @@ function ExpandableRow({
   const [expanded, setExpanded] = useState(false);
 
   return (
-    <div className="rounded border border-terminal-border/30 overflow-hidden">
+    <div className="overflow-hidden border border-line">
       <button
         type="button"
-        className="w-full flex items-center justify-between gap-3 px-2 py-1.5 text-left hover:bg-terminal-green/5 transition-colors"
+        className="flex w-full items-center justify-between gap-3 px-2.5 py-2 text-left transition-colors duration-150 hover:bg-surface-hover"
         onClick={() => setExpanded((previous) => !previous)}
         aria-expanded={expanded}
       >
-        <span className="terminal-dim">{label}</span>
+        <span className="text-muted">{label}</span>
         <span className={valueClass || ""}>{value}</span>
       </button>
 
-      <div
-        className={`transition-all duration-300 ease-in-out ${
-          expanded ? "max-h-64 opacity-100" : "max-h-0 opacity-0"
-        } overflow-hidden`}
-      >
-        <div className="border-t border-terminal-border/20 bg-black/20 p-2 space-y-2">
+      {expanded ? (
+        <div className="space-y-2 border-t border-line bg-paper p-2.5">
           {children}
         </div>
-      </div>
+      ) : null}
     </div>
   );
 }
@@ -116,7 +112,7 @@ function TemperatureDetail({
   history: WeatherHistoryPoint[];
 }) {
   return (
-    <div className="space-y-1 text-[11px] terminal-dim">
+    <div className="space-y-1 text-[11px] text-muted">
       <div>
         {current === null
           ? "No station temperature readings are currently available."
@@ -127,7 +123,7 @@ function TemperatureDetail({
         metric="temperature"
         unit="°C"
         label="Local temperature trend"
-        barClass="bg-[#3fd3ff]"
+        barClass="bg-info"
       />
     </div>
   );
@@ -141,7 +137,7 @@ function HumidityDetail({
   history: WeatherHistoryPoint[];
 }) {
   return (
-    <div className="space-y-1 text-[11px] terminal-dim">
+    <div className="space-y-1 text-[11px] text-muted">
       <div>
         {current === null
           ? "No relative humidity readings are currently available."
@@ -152,7 +148,7 @@ function HumidityDetail({
         metric="humidity"
         unit="%"
         label="Local humidity trend"
-        barClass="bg-[#35f0ce]"
+        barClass="bg-success"
       />
     </div>
   );
@@ -169,13 +165,13 @@ function PsiDetail({
 }) {
   return (
     <div className="space-y-2">
-      <div className="flex justify-between text-[10px] terminal-dim">
+      <div className="flex justify-between text-[10px] text-muted">
         <span>24-hour national PSI</span>
         <span>Now: {psi === null ? "—" : psi}</span>
       </div>
 
       {status === "Unknown" ? (
-        <div className="text-[11px] terminal-dim">
+        <div className="text-[11px] text-muted">
           PSI data is currently unavailable.
         </div>
       ) : null}
@@ -206,7 +202,7 @@ function PsiDetail({
         metric="psi"
         unit=""
         label="Local PSI trend"
-        barClass="bg-[#ffd166]"
+        barClass="bg-warning"
       />
     </div>
   );
@@ -251,7 +247,7 @@ function MetricHistorySummary({
 
   return (
     <div className="space-y-1">
-      <div className="flex items-center justify-between gap-2 text-[10px] uppercase tracking-[0.1em] text-[#8cb2c8]">
+      <div className="flex items-center justify-between gap-2 text-[10px] uppercase tracking-[0.1em] text-muted">
         <span>{label}</span>
         <span>{points.length} samples</span>
       </div>
@@ -288,7 +284,7 @@ function MiniTrend({ values, barClass }: { values: number[]; barClass: string })
   const range = max - min;
 
   return (
-    <div className="flex h-8 items-end gap-0.5 rounded border border-terminal-border/20 bg-black/20 px-1 py-1">
+    <div className="flex h-8 items-end gap-0.5 border border-line bg-paper px-1 py-1">
       {recent.map((value, index) => {
         const height = range === 0 ? 50 : 18 + ((value - min) / range) * 82;
         return (
@@ -305,9 +301,9 @@ function MiniTrend({ values, barClass }: { values: number[]; barClass: string })
 }
 
 const ACTIVE_METRIC_BADGE_CLASSES = {
-  good: "border-green-400/60 bg-green-400/10 terminal-green",
-  moderate: "border-yellow-400/60 bg-yellow-400/10 terminal-yellow",
-  unhealthy: "border-red-400/60 bg-red-400/10 terminal-red",
+  good: "border-success/50 bg-success/8 text-success",
+  moderate: "border-warning/50 bg-warning/8 text-warning",
+  unhealthy: "border-danger/50 bg-danger/8 text-danger",
 } as const;
 
 function MetricBadge({
@@ -323,10 +319,10 @@ function MetricBadge({
 }) {
   return (
     <div
-      className={`rounded border px-1.5 py-0.5 text-center ${
+      className={`border px-1.5 py-1 text-center ${
         active
           ? ACTIVE_METRIC_BADGE_CLASSES[color]
-          : "border-terminal-border/20 terminal-dim"
+          : "border-line text-muted"
       }`}
     >
       <div className="font-semibold">{label}</div>

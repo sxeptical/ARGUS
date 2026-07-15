@@ -220,7 +220,7 @@ export default function BusPanel({
           value={search}
           onChange={(event) => setSearch(event.target.value)}
           placeholder="Search bus stop code or name"
-          className="w-full rounded-md border border-terminal-border bg-black/20 px-2 py-1 text-[12px] outline-none focus:border-terminal-cyan"
+          className="field-control text-xs"
         />
 
         {filteredStops.length > 0 ? (
@@ -229,15 +229,15 @@ export default function BusPanel({
               <button
                 key={stop.BusStopCode}
                 type="button"
-                className="rounded border border-transparent bg-white/2 px-2 py-1 text-left hover:border-terminal-border hover:bg-terminal-green/10"
+                className="interactive-row px-2.5 py-2 text-left"
                 onClick={() => {
                   onSelectStop?.(stop);
                   setSearch("");
                 }}
               >
-                <span className="terminal-cyan text-[11px]">
+                <span className="mr-1 font-mono text-[10px] text-muted">
                   {stop.BusStopCode}
-                </span>{" "}
+                </span>
                 <span>{stop.Description}</span>
               </button>
             ))}
@@ -245,31 +245,31 @@ export default function BusPanel({
         ) : null}
 
         {activeStop ? (
-          <div className="rounded border border-terminal-border/60 bg-black/20 p-2">
-            <div className="terminal-green font-semibold">
+          <div className="data-row p-2.5">
+            <div className="font-medium text-ink">
               {activeStop.Description}
             </div>
-            <div className="terminal-dim text-[11px]">
+            <div className="text-[11px] text-muted">
               {activeStop.BusStopCode} &bull; {activeStop.RoadName}
             </div>
           </div>
         ) : (
-          <div className="terminal-dim text-[11px]">
+          <div className="text-[11px] text-muted">
             Select a bus stop from the map to load arrivals.
           </div>
         )}
 
-        {error ? <div className="terminal-red text-[12px]">{error}</div> : null}
+        {error ? <div className="text-[12px] text-danger">{error}</div> : null}
 
         <div className="space-y-2">
           {loading ? (
-            <div className="terminal-dim text-[11px]">
+            <div className="text-[11px] text-muted">
               Loading bus arrivals...
             </div>
           ) : null}
 
           {!loading && activeStop && !error && visibleArrivals.length === 0 ? (
-            <div className="terminal-dim text-[11px]">
+            <div className="text-[11px] text-muted">
               No live arrival data currently available for this stop.
             </div>
           ) : null}
@@ -321,18 +321,18 @@ function ServiceRow({
   onToggle: () => void;
 }) {
   return (
-    <div className="rounded border border-terminal-border/50 overflow-hidden">
+    <div className="overflow-hidden border border-line">
       <button
         type="button"
-        className="w-full p-2 text-left hover:bg-terminal-green/5 transition-colors"
+        className="w-full p-2.5 text-left transition-colors duration-150 hover:bg-surface-hover"
         onClick={onToggle}
         aria-expanded={expanded}
       >
         <div className="mb-1 flex items-center justify-between">
-          <span className="terminal-cyan font-semibold">
+          <span className="font-medium text-ink">
             Service {service.ServiceNo}
           </span>
-          <span className="terminal-dim text-[11px]">{service.Operator}</span>
+          <span className="text-[11px] text-muted">{service.Operator}</span>
         </div>
         <div className="grid grid-cols-3 gap-2 text-[11px]">
           <ArrivalCell
@@ -350,12 +350,8 @@ function ServiceRow({
         </div>
       </button>
 
-      <div
-        className={`transition-all duration-300 ease-in-out ${
-          expanded ? "max-h-96 opacity-100" : "max-h-0 opacity-0"
-        } overflow-hidden`}
-      >
-        <div className="border-t border-terminal-border/30 bg-black/20 p-2 space-y-2">
+      {expanded ? (
+        <div className="space-y-2 border-t border-line bg-paper p-2.5">
           <DeepBusDetail label="Next Bus" bus={service.NextBus} />
           {service.NextBus2 ? (
             <DeepBusDetail label="2nd Bus" bus={service.NextBus2} />
@@ -364,14 +360,14 @@ function ServiceRow({
             <DeepBusDetail label="3rd Bus" bus={service.NextBus3} />
           ) : null}
 
-          <div className="pt-1 border-t border-terminal-border/20">
-            <div className="terminal-dim text-[10px] uppercase tracking-wider mb-1">
+          <div className="border-t border-line pt-2">
+            <div className="data-label mb-1">
               Arrival Pattern
             </div>
             <ArrivalPatternDetail history={history} />
           </div>
         </div>
-      </div>
+      ) : null}
     </div>
   );
 }
@@ -385,7 +381,7 @@ function DeepBusDetail({
 }) {
   if (!bus) return null;
 
-  const loadColor = getLoadColor(bus.Load);
+  const loadTone = getLoadTone(bus.Load);
 
   const typeLabel =
     bus.Type === "SD"
@@ -399,15 +395,15 @@ function DeepBusDetail({
   return (
     <div className="space-y-1">
       <div className="flex items-center justify-between">
-        <div className="text-[11px] font-semibold text-[#8ccff0]">{label}</div>
+        <div className="text-[11px] font-medium text-ink">{label}</div>
         <div className="flex items-center gap-1.5">
-          <LoadDot color={loadColor} />
-          <span className="text-[11px] terminal-dim">{typeLabel}</span>
+          <LoadDot tone={loadTone} />
+          <span className="text-[11px] text-muted">{typeLabel}</span>
         </div>
       </div>
       <div className="grid grid-cols-3 gap-2 text-[11px]">
         <ArrivalCell label="ETA" value={formatArrival(bus.EstimatedArrival)} />
-        <ArrivalCell label="Load" value={<LoadBox color={loadColor} />} />
+        <ArrivalCell label="Load" value={<LoadBox tone={loadTone} />} />
         <ArrivalCell
           label="Feature"
           value={bus.Feature === "WAB" ? "♿" : "—"}
@@ -428,7 +424,7 @@ function ArrivalPatternDetail({
 
   if (values.length === 0) {
     return (
-      <div className="terminal-dim text-[11px]">
+      <div className="text-[11px] text-muted">
         No local pattern yet. This browser stores one arrival snapshot every 5
         minutes while the stop is selected.
       </div>
@@ -443,7 +439,7 @@ function ArrivalPatternDetail({
   const max = Math.max(...values);
 
   return (
-    <div className="space-y-1 text-[11px] terminal-dim">
+    <div className="space-y-1 text-[11px] text-muted">
       <div className="grid grid-cols-2 gap-x-2 gap-y-0.5 text-[10px]">
         <span>Latest wait: {latest} min</span>
         <span>Avg wait: {average} min</span>
@@ -465,13 +461,13 @@ function MiniArrivalTrend({ values }: { values: number[] }) {
   const range = max - min;
 
   return (
-    <div className="flex h-8 items-end gap-0.5 rounded border border-terminal-border/20 bg-black/20 px-1 py-1">
+    <div className="flex h-8 items-end gap-0.5 border border-line bg-paper px-1 py-1">
       {recent.map((value, index) => {
         const height = range === 0 ? 50 : 18 + ((value - min) / range) * 82;
         return (
           <div
             key={`${index}-${value}`}
-            className="w-full min-w-0 rounded-t bg-[#90f5ff] opacity-80"
+            className="w-full min-w-0 bg-info opacity-80"
             style={{ height: `${height}%` }}
             title={`${value} min`}
           />
@@ -481,47 +477,45 @@ function MiniArrivalTrend({ values }: { values: number[] }) {
   );
 }
 
-function getLoadColor(load?: string): string {
+type LoadTone = {
+  readonly color: string;
+  readonly label: string;
+};
+
+function getLoadTone(load?: string): LoadTone {
   const normalized = (load || "").trim().toUpperCase();
 
   if (normalized === "SEA" || normalized === "SEATS AVAILABLE") {
-    return "#54ffae"; // terminal-green
+    return { color: "var(--color-success)", label: "Seats available" };
   }
 
   if (normalized === "SDA" || normalized === "STANDING AVAILABLE") {
-    return "#ffd166"; // terminal-yellow
+    return { color: "var(--color-warning)", label: "Standing available" };
   }
 
   if (normalized === "LSD" || normalized === "LIMITED STANDING") {
-    return "#ff6b6b"; // terminal-red
+    return { color: "var(--color-danger)", label: "Limited standing" };
   }
 
-  return "#7f9b91"; // terminal-dim
+  return { color: "var(--color-muted)", label: "Load unknown" };
 }
 
-function LoadDot({ color }: { color: string }) {
+function LoadDot({ tone }: { tone: LoadTone }) {
   return (
     <span
       className="inline-block h-2 w-2 rounded-full"
-      style={{ backgroundColor: color, boxShadow: `0 0 6px ${color}` }}
-      title={
-        color === "#54ffae"
-          ? "Seats Available"
-          : color === "#ffd166"
-            ? "Standing Available"
-            : color === "#ff6b6b"
-              ? "Limited Standing"
-              : "Unknown"
-      }
+      style={{ backgroundColor: tone.color }}
+      title={tone.label}
     />
   );
 }
 
-function LoadBox({ color }: { color: string }) {
+function LoadBox({ tone }: { tone: LoadTone }) {
   return (
     <span
-      className="inline-block h-3 w-3 rounded-sm border border-white/20"
-      style={{ backgroundColor: color }}
+      className="inline-block h-3 w-3 border border-line-strong"
+      style={{ backgroundColor: tone.color }}
+      title={tone.label}
     />
   );
 }
@@ -535,7 +529,7 @@ function ArrivalCell({
 }) {
   return (
     <div>
-      <div className="terminal-dim">{label}</div>
+      <div className="text-muted">{label}</div>
       <div>{value}</div>
     </div>
   );

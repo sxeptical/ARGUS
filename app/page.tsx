@@ -396,28 +396,28 @@ export default function Home() {
       label: "Air Activity",
       note: "live tracks",
       value: flights.length,
-      tone: "text-[#63ffd6]",
+      tone: "text-signal-inbound",
     },
     {
       key: "cameras" as const,
       label: "Road Cameras",
       note: "stream nodes",
       value: cameras.length,
-      tone: "text-[#4fc8ff]",
+      tone: "text-signal-camera",
     },
     {
       key: "busStops" as const,
       label: "Bus Stops",
       note: "monitor points",
       value: busStops.length,
-      tone: "text-[#90f5ff]",
+      tone: "text-signal-bus",
     },
     {
       key: "mrt" as const,
       label: "MRT Network",
       note: "lines + stations",
       value: 10,
-      tone: "text-[#f8d36f]",
+      tone: "text-signal-mrt",
     },
   ];
 
@@ -426,111 +426,132 @@ export default function Home() {
       label: "Inbound Flights",
       note: "approach vector",
       value: inboundFlights,
-      tone: "text-[#63ffd6]",
+      tone: "text-signal-inbound",
     },
     {
       label: "Outbound Flights",
       note: "departure vector",
       value: outboundFlights,
-      tone: "text-[#ff9c7b]",
+      tone: "text-signal-outbound",
     },
     {
       label: "Transit Flights",
       note: "crossing tracks",
       value: transitFlights,
-      tone: "text-[#4fc8ff]",
+      tone: "text-signal-transit",
     },
     {
       label: "OSINT Feed",
       note: "news stream",
       value: news.length,
-      tone: "text-[#79c9ff]",
+      tone: "text-ink",
     },
   ];
 
-  const signalBars = [
-    { label: "Incident Tempo", value: Math.min(100, news.length * 5) },
-    {
-      label: "Mobility Density",
-      value: Math.min(100, Math.round((busStops.length / 5500) * 100)),
-    },
-    { label: "Air Inbound", value: Math.min(100, inboundFlights * 7) },
-    { label: "Air Outbound", value: Math.min(100, outboundFlights * 7) },
-    { label: "Sensor Uptime", value: 92 },
-  ];
+  const sources = Object.values(sourceStates);
+  const activeSources = sources.filter((source) => source.message !== "disabled");
+  const onlineSourceCount = activeSources.filter(
+    (source) => source.status === "ok",
+  ).length;
+  const visibleSensorCount = sensorRows.filter(
+    (row) => sensorVisibility[row.key],
+  ).length;
+  const signalBars = sources.map((source) => ({
+    label:
+      source.message === "disabled"
+        ? `${source.label} (off)`
+        : source.label,
+    value:
+      source.message === "disabled"
+        ? 0
+        : source.status === "ok"
+          ? 100
+          : source.status === "loading"
+            ? 50
+            : 0,
+  }));
+  const systemStatus = error ? "Degraded" : "Live";
 
   if (!bootComplete) {
-    return <LoadingScreen sources={Object.values(sourceStates)} />;
+    return <LoadingScreen sources={sources} />;
   }
 
   return (
-    <div className="flex min-h-screen flex-col gap-3 px-2 py-2 sm:px-3 lg:h-screen lg:overflow-hidden">
+    <div className="flex min-h-dvh flex-col gap-2 bg-paper p-2 sm:gap-3 sm:p-3 lg:h-dvh lg:overflow-hidden">
       <UpdateAvailableToast />
-      <a
-        href="https://github.com/sxeptical/ARGUS"
-        target="_blank"
-        rel="noopener noreferrer"
-        aria-label="View ARGUS source code on GitHub"
-        className="fixed bottom-3 right-3 z-[9999] inline-flex items-center gap-1.5 rounded-sm border border-white/10 bg-black/40 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-white/50 backdrop-blur-sm transition-colors hover:border-white/20 hover:text-white/80"
-      >
-        <svg
-          viewBox="0 0 16 16"
-          fill="currentColor"
-          className="h-3 w-3"
-          aria-hidden="true"
-        >
-          <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z" />
-        </svg>
-        GitHub
-      </a>
-      <header className="rounded-md border border-cyan-400/25 bg-[#04111e]/90 shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_0_24px_rgba(42,166,255,0.12)]">
-        <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2">
-          <div className="flex items-center gap-3 whitespace-nowrap">
-            <div className="[font-family:var(--font-rajdhani)] text-2xl font-semibold uppercase tracking-[0.2em] text-[#e8f5ff]">
-              Argus Monitor
+      <header className="border border-line bg-surface px-3 py-2 sm:px-4 sm:py-3">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="grid h-8 w-8 shrink-0 place-items-center border border-line-strong bg-ink text-xs font-bold text-paper">
+              A
+            </div>
+            <div className="min-w-0">
+              <div className="text-sm font-semibold tracking-[0.16em] text-ink">
+                ARGUS
+              </div>
+              <div className="truncate text-[10px] uppercase tracking-[0.12em] text-muted">
+                Singapore signal monitor
+              </div>
             </div>
           </div>
-          <div className="flex w-full items-center gap-2 overflow-x-auto pb-1 text-[11px] uppercase tracking-[0.14em] sm:w-auto sm:overflow-visible sm:pb-0">
-            <HeaderChip
-              label="Visuals"
-              value="Full"
-              className="hidden sm:inline-flex"
-            />
-            <HeaderChip
-              label="Sweep"
-              value="30.1s"
-              className="hidden sm:inline-flex"
-            />
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-[10px] uppercase tracking-[0.1em]">
             <HeaderClock />
             <HeaderChip
               label="Sources"
-              value={`${news.length + flights.length}/${busStops.length}`}
+              value={`${onlineSourceCount}/${activeSources.length}`}
             />
-            <span className="rounded-sm border border-red-400/50 bg-red-500/10 px-3 py-1 font-semibold text-red-100">
-              High Alert
+            <span
+              className={`inline-flex items-center gap-2 whitespace-nowrap font-semibold ${
+                error ? "text-warning" : "text-success"
+              }`}
+            >
+              <span className="status-dot" aria-hidden="true" />
+              {systemStatus}
             </span>
+            <a
+              href="https://github.com/sxeptical/ARGUS"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 whitespace-nowrap text-muted transition-colors duration-150 hover:text-ink"
+            >
+              <svg
+                viewBox="0 0 16 16"
+                fill="currentColor"
+                className="h-3.5 w-3.5"
+                aria-hidden="true"
+              >
+                <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z" />
+              </svg>
+              <span>Source</span>
+            </a>
           </div>
         </div>
       </header>
 
       {error ? (
-        <div className="rounded border border-red-400/40 bg-red-950/30 px-3 py-2 text-sm text-red-200">
+        <div
+          role="status"
+          className="border border-warning/40 bg-warning/8 px-3 py-2 text-xs text-warning"
+        >
           {error}
         </div>
       ) : null}
 
-      <main className="grid grid-cols-1 gap-3 lg:min-h-0 lg:flex-1 xl:grid-cols-[260px_minmax(0,1fr)_320px]">
-        <aside className="order-2 flex flex-col gap-3 xl:order-1 xl:min-h-0 xl:overflow-auto xl:pr-1">
-          <IntelPanel title="Sensor Grid" badge="Live">
+      <main className="grid min-w-0 grid-cols-1 gap-2 sm:gap-3 lg:min-h-0 lg:flex-1 xl:grid-cols-[248px_minmax(0,1fr)_292px]">
+        <aside className="order-2 flex min-w-0 flex-col gap-2 sm:gap-3 xl:order-1 xl:min-h-0 xl:overflow-y-auto xl:pr-1">
+          <IntelPanel
+            title="Layers"
+            badge={`${visibleSensorCount}/${sensorRows.length}`}
+          >
             <div className="space-y-1">
               {sensorRows.map((row) => (
                 <div
                   key={row.label}
-                  className="flex items-center justify-between rounded-sm border border-cyan-500/15 bg-[#061325]/70 px-2 py-1.5"
+                  className="data-row flex items-center justify-between gap-3 px-2.5 py-2"
                 >
-                  <div>
-                    <div className="text-xs text-[#cfe6f5]">{row.label}</div>
-                    <div className="text-[10px] uppercase tracking-widest text-[#6d90a8]">
+                  <div className="min-w-0">
+                    <div className="truncate text-xs text-ink">{row.label}</div>
+                    <div className="data-label truncate">
                       {row.note}
                     </div>
                   </div>
@@ -545,16 +566,16 @@ export default function Home() {
                       }
                       aria-label={`${sensorVisibility[row.key] ? "Hide" : "Show"} ${row.label}`}
                       aria-pressed={sensorVisibility[row.key]}
-                      className={`rounded-sm border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] ${
+                      className={`inline-flex min-h-7 items-center whitespace-nowrap border px-2 text-[9px] font-semibold uppercase tracking-[0.1em] transition-colors duration-150 ${
                         sensorVisibility[row.key]
-                          ? "border-emerald-300/60 bg-emerald-400/15 text-emerald-200"
-                          : "border-slate-500/50 bg-slate-800/40 text-slate-300"
+                          ? "border-success/45 bg-success/8 text-success hover:bg-success/12"
+                          : "border-line bg-paper text-muted hover:border-line-strong hover:text-ink"
                       }`}
                     >
-                      {sensorVisibility[row.key] ? "On" : "Off"}
+                      {sensorVisibility[row.key] ? "Shown" : "Hidden"}
                     </button>
                     <div
-                      className={`min-w-8 text-right text-lg font-semibold ${row.tone}`}
+                      className={`min-w-7 text-right font-mono text-sm font-medium ${row.tone}`}
                     >
                       {row.value}
                     </div>
@@ -564,15 +585,15 @@ export default function Home() {
               {sensorStatsRows.map((row) => (
                 <div
                   key={row.label}
-                  className="flex items-center justify-between rounded-sm border border-cyan-500/15 bg-[#061325]/55 px-2 py-1.5"
+                  className="flex items-center justify-between gap-3 border-b border-line px-2.5 py-2 last:border-b-0"
                 >
-                  <div>
-                    <div className="text-xs text-[#cfe6f5]">{row.label}</div>
-                    <div className="text-[10px] uppercase tracking-widest text-[#6d90a8]">
+                  <div className="min-w-0">
+                    <div className="truncate text-xs text-ink">{row.label}</div>
+                    <div className="data-label truncate">
                       {row.note}
                     </div>
                   </div>
-                  <div className={`text-lg font-semibold ${row.tone}`}>
+                  <div className={`font-mono text-sm font-medium ${row.tone}`}>
                     {row.value}
                   </div>
                 </div>
@@ -588,8 +609,8 @@ export default function Home() {
           />
         </aside>
 
-        <section className="order-1 grid gap-3 xl:order-2 xl:min-h-0 xl:grid-rows-[minmax(0,1fr)_minmax(240px,38%)]">
-          <section className="relative h-[46vh] min-h-70 overflow-hidden rounded-md border border-cyan-400/25 bg-[#04101a] shadow-[0_0_28px_rgba(18,149,226,0.14)] xl:h-auto xl:min-h-0">
+        <section className="order-1 grid min-w-0 gap-2 sm:gap-3 xl:order-2 xl:min-h-0 xl:grid-rows-[minmax(0,1fr)_minmax(236px,38%)]">
+          <section className="relative h-[52dvh] min-h-72 overflow-hidden border border-line bg-surface xl:h-auto xl:min-h-0">
             <Map
               busStops={busStops}
               cameras={cameras}
@@ -609,17 +630,20 @@ export default function Home() {
               }}
               mrtRouteSegments={mrtRoutePlan?.segments ?? []}
             />
-            <div className="pointer-events-none absolute bottom-2 left-2 right-2 flex flex-wrap gap-2 rounded-sm border border-cyan-500/15 bg-[#03111f]/82 px-2 py-1 text-[10px] uppercase tracking-[0.12em] text-[#80a1b6]">
-              <LegendDot tone="bg-[#63ffd6]" label="Inbound" />
-              <LegendDot tone="bg-[#ff9c7b]" label="Outbound" />
-              <LegendDot tone="bg-[#4fc8ff]" label="Transit" />
-              <LegendDot tone="bg-[#77ffc0]" label="Bus Stops" />
-              <LegendDot tone="bg-[#71e9ff]" label="Road Cameras" />
-              <LegendDot tone="bg-[#f8d36f]" label="MRT Stations" />
+            <div className="pointer-events-none absolute left-2 top-2 border border-line bg-overlay px-2.5 py-1.5 text-[10px] uppercase tracking-[0.12em] text-ink">
+              Live map <span className="ml-2 text-muted">Singapore</span>
+            </div>
+            <div className="pointer-events-none absolute bottom-2 left-2 right-2 flex flex-wrap gap-x-3 gap-y-1 border border-line bg-overlay px-2.5 py-1.5 text-[9px] uppercase tracking-[0.1em] text-muted sm:right-auto">
+              <LegendDot tone="bg-signal-inbound" label="Inbound" />
+              <LegendDot tone="bg-signal-outbound" label="Outbound" />
+              <LegendDot tone="bg-signal-transit" label="Transit" />
+              <LegendDot tone="bg-signal-bus" label="Bus" />
+              <LegendDot tone="bg-signal-camera" label="Cameras" />
+              <LegendDot tone="bg-signal-mrt" label="MRT" />
             </div>
           </section>
 
-          <section className="grid min-h-0 grid-cols-1 gap-3 sm:grid-cols-2 2xl:grid-cols-4">
+          <section className="grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-2 sm:gap-3 2xl:grid-cols-4">
             <div className="min-h-0 overflow-auto">
               <MrtRoutePanel
                 startStation={mrtStartStation}
@@ -651,26 +675,26 @@ export default function Home() {
           </section>
         </section>
 
-        <aside className="order-3 flex flex-col gap-3 xl:min-h-0 xl:overflow-auto xl:pr-1">
-          <IntelPanel title="OSINT Stream" badge={`${news.length} Signals`}>
-            <div className="space-y-2">
+        <aside className="order-3 flex min-w-0 flex-col gap-2 sm:gap-3 xl:min-h-0 xl:overflow-y-auto xl:pr-1">
+          <IntelPanel title="Intelligence" badge={`${news.length} signals`}>
+            <div className="space-y-1.5">
               {news.slice(0, 6).map((item) => (
                 <a
                   key={`${item.url}-${item.publishedAt}`}
                   href={item.url}
                   target="_blank"
                   rel="noreferrer noopener"
-                  className="block rounded-sm border border-cyan-500/20 bg-[#071327]/75 px-2 py-2 hover:border-cyan-300/60"
+                  className="interactive-row block px-2.5 py-2"
                 >
-                  <div className="mb-1 flex items-center justify-between gap-2 text-[10px] uppercase tracking-[0.12em] text-[#74a7c7]">
-                    <span>{item.source}</span>
+                  <div className="mb-1 flex items-center justify-between gap-2 text-[9px] uppercase tracking-[0.1em] text-muted">
+                    <span className="truncate">{item.source}</span>
                     <span suppressHydrationWarning>
                       {new Date(item.publishedAt).toLocaleTimeString("en-SG", {
                         timeZone: "Asia/Singapore",
                       })}
                     </span>
                   </div>
-                  <div className="line-clamp-3 text-xs text-[#d8ecf8]">
+                  <div className="line-clamp-3 text-xs leading-relaxed text-ink">
                     {item.title}
                   </div>
                 </a>
@@ -678,7 +702,10 @@ export default function Home() {
             </div>
           </IntelPanel>
 
-          <IntelPanel title="Signal Core" badge="Hot Metrics">
+          <IntelPanel
+            title="Source Health"
+            badge={`${onlineSourceCount}/${activeSources.length}`}
+          >
             <div className="space-y-2">
               {signalBars.map((item) => (
                 <SignalBar
@@ -696,11 +723,11 @@ export default function Home() {
           >
             {selectedFlight ? (
               <div className="space-y-2 text-xs">
-                <div className="rounded-sm border border-cyan-500/20 bg-[#061428]/70 p-2">
-                  <div className="text-sm font-semibold text-[#90f5ff]">
+                <div className="border border-line bg-paper p-2.5">
+                  <div className="font-mono text-sm font-medium text-ink">
                     {selectedFlight.callsign}
                   </div>
-                  <div className="text-[11px] uppercase tracking-widest text-[#6f9eb8]">
+                  <div className="data-label">
                     {selectedFlight.originCountry}
                   </div>
                 </div>
@@ -726,7 +753,7 @@ export default function Home() {
                 />
               </div>
             ) : (
-              <div className="text-xs text-[#789cb3]">
+              <div className="text-xs leading-relaxed text-muted">
                 Select a flight icon on the map to inspect its live vector.
               </div>
             )}
@@ -771,9 +798,10 @@ function HeaderChip({
 }) {
   return (
     <span
-      className={`inline-flex rounded-sm border border-cyan-400/25 bg-[#051728]/70 px-2 py-1 text-[#9ec7df] ${className ?? ""}`}
+      className={`inline-flex items-baseline gap-1.5 whitespace-nowrap text-muted ${className ?? ""}`}
     >
-      <span className="text-[#5c86a1]">{label}</span> {value}
+      <span className="text-faint">{label}</span>
+      <span className="font-mono text-ink">{value}</span>
     </span>
   );
 }
@@ -789,10 +817,11 @@ function LoadingScreen({ sources }: { sources: ReadonlyArray<SourceState> }) {
     return () => clearTimeout(timer);
   }, []);
 
-  const totalSources = sources.length;
-  const okCount = sources.filter((s) => s.status === "ok").length;
-  const errorCount = sources.filter((s) => s.status === "error").length;
-  const settledCount = sources.filter(
+  const enabledSources = sources.filter((source) => source.message !== "disabled");
+  const totalSources = enabledSources.length;
+  const okCount = enabledSources.filter((s) => s.status === "ok").length;
+  const errorCount = enabledSources.filter((s) => s.status === "error").length;
+  const settledCount = enabledSources.filter(
     (s) => s.status === "ok" || s.status === "error",
   ).length;
   const progress = totalSources === 0 ? 0 : (settledCount / totalSources) * 100;
@@ -810,57 +839,34 @@ function LoadingScreen({ sources }: { sources: ReadonlyArray<SourceState> }) {
         : "Connecting to data sources...";
 
   const headlineTone = allOk
-    ? "text-[#35f0ce]"
+    ? "text-success"
     : allFailed
-      ? "text-red-300"
+      ? "text-danger"
       : partial
-        ? "text-amber-300"
-        : "text-[#cfe6f5]";
+        ? "text-warning"
+        : "text-ink";
 
   const showOfflineHelp =
     allFailed || (settledCount > 0 && errorCount > 0 && helpReady);
 
   return (
-    <div className="grid h-screen place-items-center overflow-hidden bg-[#020913] px-4 text-terminal-text">
-      <div className="absolute inset-0 bg-[linear-gradient(rgba(33,108,156,0.08)_1px,transparent_1px),linear-gradient(90deg,rgba(33,108,156,0.08)_1px,transparent_1px)] bg-size-[72px_72px]" />
-      <div
-        className={`absolute inset-0 transition-colors duration-700 ${
-          allFailed
-            ? "bg-[radial-gradient(circle_at_50%_50%,rgba(255,80,80,0.10),transparent_60%)]"
-            : "bg-[radial-gradient(circle_at_50%_50%,rgba(42,166,255,0.08),transparent_60%)]"
-        }`}
-      />
-
-      <div
-        className={`relative w-full max-w-3xl rounded-lg border p-6 shadow-[0_0_60px_rgba(42,166,255,0.18)] backdrop-blur-sm transition-colors duration-500 ${
-          allFailed
-            ? "border-red-400/35 bg-[#1a0a0a]/95 shadow-[0_0_60px_rgba(255,80,80,0.18)]"
-            : partial
-              ? "border-amber-400/35 bg-[#1a1408]/95"
-              : "border-cyan-400/25 bg-[#04111e]/95"
-        }`}
-      >
-        {/* Header */}
-        <div className="mb-6 flex items-center justify-between gap-4 border-b border-cyan-500/20 pb-4">
-          <div>
-            <div className="[font-family:var(--font-rajdhani)] text-3xl font-semibold uppercase tracking-[0.22em] text-[#e8f5ff]">
-              ARGUS MONITOR
-              {!allOk && (
-                <span
-                  className="ml-1 inline-block h-5 w-2.5 translate-y-0.5 bg-[#3fd3ff]"
-                  style={{ animation: "blink 1s step-end infinite" }}
-                />
-              )}
+    <div className="grid min-h-dvh place-items-center bg-paper px-4 py-8 text-ink">
+      <div className="w-full max-w-2xl border border-line bg-surface p-4 sm:p-6">
+        <div className="mb-8 flex items-start justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="grid h-9 w-9 shrink-0 place-items-center border border-line-strong bg-ink text-xs font-bold text-paper">
+              A
             </div>
-            <div className="mt-1 text-xs uppercase tracking-[0.18em] text-[#6d90a8]">
-              {allFailed
-                ? "Signal surface unreachable"
-                : "Initializing Singapore signal surface"}
+            <div>
+              <div className="text-sm font-semibold tracking-[0.16em]">ARGUS</div>
+              <div className="data-label mt-0.5">
+                {allFailed ? "Connection failed" : "Connecting sources"}
+              </div>
             </div>
           </div>
-          <div className="hidden rounded-sm border border-cyan-400/25 bg-[#051728]/70 px-3 py-2 text-right text-[11px] uppercase tracking-[0.14em] text-[#9ec7df] sm:block">
-            <div className="text-[#5c86a1]">Boot Time</div>
-            <div suppressHydrationWarning>
+          <div className="hidden text-right sm:block">
+            <div className="data-label">Started</div>
+            <div className="mt-1 font-mono text-[11px] text-muted" suppressHydrationWarning>
               {bootTime.toLocaleTimeString("en-SG", {
                 timeZone: "Asia/Singapore",
               })}
@@ -868,96 +874,43 @@ function LoadingScreen({ sources }: { sources: ReadonlyArray<SourceState> }) {
           </div>
         </div>
 
-        {/* Circular Progress */}
-        <div className="mb-4 flex items-center gap-5">
-          <div className="relative h-20 w-20 shrink-0">
-            <svg className="h-full w-full -rotate-90" viewBox="0 0 36 36">
-              <circle
-                cx="18"
-                cy="18"
-                r="15.915"
-                fill="none"
-                stroke="#0a2237"
-                strokeWidth="3"
-              />
-              <circle
-                cx="18"
-                cy="18"
-                r="15.915"
-                fill="none"
-                stroke={
-                  allFailed
-                    ? "url(#gradFail)"
-                    : partial
-                      ? "url(#gradPartial)"
-                      : "url(#grad)"
-                }
-                strokeWidth="3"
-                strokeDasharray={`${Math.min(progress, 100)} ${100 - Math.min(progress, 100)}`}
-                strokeLinecap="round"
-                className="transition-all duration-300 ease-out"
-              />
-              <defs>
-                <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="0%">
-                  <stop offset="0%" stopColor="#35f0ce" />
-                  <stop offset="50%" stopColor="#3fb9ff" />
-                  <stop offset="100%" stopColor="#6e9dff" />
-                </linearGradient>
-                <linearGradient
-                  id="gradPartial"
-                  x1="0%"
-                  y1="0%"
-                  x2="100%"
-                  y2="0%"
-                >
-                  <stop offset="0%" stopColor="#fbbf24" />
-                  <stop offset="100%" stopColor="#f59e0b" />
-                </linearGradient>
-                <linearGradient id="gradFail" x1="0%" y1="0%" x2="100%" y2="0%">
-                  <stop offset="0%" stopColor="#f87171" />
-                  <stop offset="100%" stopColor="#dc2626" />
-                </linearGradient>
-              </defs>
-            </svg>
-            <div className="absolute inset-0 flex flex-col items-center justify-center">
-              <span
-                className={`text-lg font-bold ${
-                  allFailed
-                    ? "text-red-300"
-                    : partial
-                      ? "text-amber-300"
-                      : "text-[#e8f5ff]"
-                }`}
-              >
-                {Math.min(Math.round(progress), 100)}%
-              </span>
+        <div aria-live="polite">
+          <div className="mb-2 flex items-end justify-between gap-4">
+            <div>
+              <div className={`text-sm font-medium ${headlineTone}`}>{headline}</div>
+              <div className="mt-1 text-xs text-muted">
+                {okCount} of {totalSources} sources online
+                {errorCount > 0 ? ` · ${errorCount} failed` : ""}
+              </div>
+            </div>
+            <div className="font-mono text-sm text-ink">
+              {Math.min(Math.round(progress), 100)}%
             </div>
           </div>
-
-          <div className="flex-1">
-            <div className="mb-1 text-[10px] uppercase tracking-[0.12em] text-[#6d90a8]">
-              System Boot
-            </div>
-            <div className={`text-[12px] font-semibold ${headlineTone}`}>
-              {headline}
-            </div>
-            <div className="mt-1 text-[11px] text-[#8cb2c8]">
-              {okCount} of {totalSources} sources online
-              {errorCount > 0 ? ` · ${errorCount} failed` : ""}
-            </div>
+          <div
+            className="h-1 w-full bg-line"
+            role="progressbar"
+            aria-label="Data source connection progress"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={Math.min(Math.round(progress), 100)}
+          >
+            <div
+              className={`h-full ${
+                allFailed
+                  ? "bg-danger"
+                  : partial
+                    ? "bg-warning"
+                    : "bg-ink"
+              }`}
+              style={{ width: `${Math.min(progress, 100)}%` }}
+            />
           </div>
         </div>
 
-        {/* Offline help block */}
         {showOfflineHelp && (
-          <div
-            className={`mb-4 rounded-sm border p-3 text-[11px] leading-relaxed ${
-              allFailed
-                ? "border-red-400/30 bg-red-500/10 text-red-100"
-                : "border-amber-400/30 bg-amber-500/10 text-amber-100"
-            }`}
-          >
-            <div className="mb-1 font-semibold uppercase tracking-[0.14em]">
+          <div className="mt-5 border-l border-warning pl-3 text-xs leading-relaxed text-muted">
+            <div className="mb-1 font-medium text-ink">
               {allFailed
                 ? "All sources unreachable"
                 : "Some sources unreachable"}
@@ -970,55 +923,51 @@ function LoadingScreen({ sources }: { sources: ReadonlyArray<SourceState> }) {
           </div>
         )}
 
-        {/* Source cards */}
-        <div className="grid gap-2 sm:grid-cols-5">
+        <div className="mt-8 grid border-t border-line sm:grid-cols-5">
           {sources.map((source) => {
+            const isDisabled = source.message === "disabled";
             const isOk = source.status === "ok";
             const isError = source.status === "error";
             const isLoading = source.status === "loading";
-            const dotClass = isOk
-              ? "bg-[#35f0ce] shadow-[0_0_6px_rgba(53,240,206,0.8)]"
+            const dotClass = isDisabled
+              ? "text-faint"
+              : isOk
+              ? "text-success"
               : isError
-                ? "bg-red-400 shadow-[0_0_6px_rgba(248,113,113,0.8)]"
+                ? "text-danger"
                 : isLoading
-                  ? "bg-[#3fb9ff] shadow-[0_0_6px_rgba(63,185,255,0.8)]"
-                  : "bg-[#0a2237]";
-            const borderClass = isOk
-              ? "border-[#35f0ce]/30"
-              : isError
-                ? "border-red-400/40"
-                : "border-cyan-500/20";
-            const statusLabel = isOk
+                  ? "text-info"
+                  : "text-faint";
+            const statusLabel = isDisabled
+              ? "Disabled"
+              : isOk
               ? "Online"
               : isError
                 ? "Offline"
                 : isLoading
                   ? "Syncing..."
                   : "Queued";
-            const statusClass = isOk
-              ? "text-[#35f0ce]"
+            const statusClass = isDisabled
+              ? "text-faint"
+              : isOk
+              ? "text-success"
               : isError
-                ? "text-red-300"
+                ? "text-danger"
                 : isLoading
-                  ? "text-[#3fb9ff]"
-                  : "text-[#6d90a8]";
+                  ? "text-info"
+                  : "text-faint";
             return (
               <div
                 key={source.label}
-                className={`rounded-sm border bg-[#071629]/70 p-3 transition-all duration-500 ${borderClass}`}
+                className="border-b border-line p-3 last:border-b-0 sm:border-r sm:border-b-0 sm:last:border-r-0"
               >
-                <div className="mb-2 flex items-center gap-2">
-                  <div className="h-1.5 w-8 rounded-full bg-cyan-300/70" />
-                  <div
-                    className={`h-1.5 w-1.5 rounded-full transition-all duration-300 ${dotClass} ${
-                      isLoading ? "animate-pulse" : ""
-                    }`}
-                  />
+                <div className={`mb-2 flex items-center gap-2 ${dotClass}`}>
+                  <span className="status-dot" aria-hidden="true" />
                 </div>
-                <div className="flex items-center gap-1.5 text-[11px] uppercase tracking-[0.12em] text-[#cfe6f5]">
+                <div className="text-[10px] font-medium text-ink">
                   <span>{source.label}</span>
                 </div>
-                <div className="mt-1 text-[10px] uppercase tracking-widest">
+                <div className="mt-1 text-[9px] uppercase tracking-[0.1em]">
                   <span className={statusClass}>{statusLabel}</span>
                 </div>
               </div>
@@ -1040,12 +989,12 @@ function IntelPanel({
   children: React.ReactNode;
 }) {
   return (
-    <section className="rounded-md border border-cyan-400/20 bg-[#061223]/85 p-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_0_22px_rgba(33,160,255,0.09)]">
-      <div className="mb-2 flex items-center justify-between border-b border-cyan-500/15 px-1 pb-2">
-        <h2 className="[font-family:var(--font-rajdhani)] text-sm font-semibold uppercase tracking-[0.18em] text-[#8ccff0]">
+    <section className="border border-line bg-surface p-2">
+      <div className="mb-2 flex items-center justify-between gap-3 border-b border-line px-1 pb-2">
+        <h2 className="text-[11px] font-semibold uppercase tracking-[0.12em] text-ink">
           {title}
         </h2>
-        <span className="rounded-sm border border-cyan-300/35 bg-cyan-300/10 px-2 py-0.5 text-[10px] uppercase tracking-[0.12em] text-cyan-100">
+        <span className="whitespace-nowrap font-mono text-[9px] uppercase tracking-[0.08em] text-muted">
           {badge}
         </span>
       </div>
@@ -1056,14 +1005,21 @@ function IntelPanel({
 
 function SignalBar({ label, value }: { label: string; value: number }) {
   return (
-    <div className="rounded-sm border border-cyan-500/15 bg-[#071629]/65 p-2">
-      <div className="mb-1 flex items-center justify-between text-[11px] uppercase tracking-widest text-[#8cb2c8]">
+    <div className="border-b border-line px-1 py-2 last:border-b-0">
+      <div className="mb-1.5 flex items-center justify-between gap-2 text-[10px] text-muted">
         <span>{label}</span>
-        <span className="text-cyan-200">{value}</span>
+        <span className="font-mono text-ink">{value}%</span>
       </div>
-      <div className="h-1.5 w-full overflow-hidden rounded bg-[#0a2237]">
+      <div
+        className="h-1 w-full overflow-hidden bg-line"
+        role="progressbar"
+        aria-label={label}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={value}
+      >
         <div
-          className="h-full rounded bg-linear-to-r from-[#35f0ce] via-[#3fb9ff] to-[#6e9dff]"
+          className="h-full bg-ink"
           style={{ width: `${value}%` }}
         />
       </div>
@@ -1073,11 +1029,11 @@ function SignalBar({ label, value }: { label: string; value: number }) {
 
 function KeyValue({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex items-center justify-between rounded-sm border border-cyan-500/15 bg-[#071629]/65 px-2 py-1.5">
-      <span className="text-[11px] uppercase tracking-widest text-[#7ea4bc]">
+    <div className="flex items-center justify-between gap-3 border-b border-line px-1 py-2 last:border-b-0">
+      <span className="data-label">
         {label}
       </span>
-      <span className="text-xs text-[#d8ecf8]">{value}</span>
+      <span className="font-mono text-xs text-ink">{value}</span>
     </div>
   );
 }
@@ -1085,7 +1041,7 @@ function KeyValue({ label, value }: { label: string; value: string }) {
 function LegendDot({ tone, label }: { tone: string; label: string }) {
   return (
     <span className="inline-flex items-center gap-1">
-      <span className={`h-2 w-2 rounded-full ${tone}`} />
+      <span className={`h-1.5 w-1.5 rounded-full ${tone}`} />
       <span>{label}</span>
     </span>
   );

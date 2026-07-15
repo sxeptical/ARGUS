@@ -22,6 +22,17 @@ type MapProps = {
   mrtRouteSegments?: MrtRouteSegment[];
 };
 
+// MapLibre parses its own color values, so this palette mirrors the CSS design
+// tokens in a library-compatible format rather than reading ad-hoc colors.
+const MAP_COLORS = {
+  paper: "#0a0a0a",
+  ink: "#f2f2f2",
+  muted: "#8f8f8f",
+  success: "#67d391",
+  danger: "#ef7373",
+  info: "#73b9d9",
+} as const;
+
 const MRT_LINE_STATIONS: Record<string, string[]> = {
   "North South Line": [
     "Jurong East",
@@ -458,7 +469,7 @@ function buildPlaneIcon(size = 64): ImageData {
 
   context.clearRect(0, 0, size, size);
   context.translate(size / 2, size / 2);
-  context.fillStyle = "#ffffff";
+  context.fillStyle = MAP_COLORS.ink;
 
   context.beginPath();
   context.moveTo(0, -size * 0.34); // nose
@@ -726,10 +737,10 @@ export default function Map({
         },
         paint: {
           "circle-radius": 3,
-          "circle-color": "#54ffae",
+          "circle-color": MAP_COLORS.ink,
           "circle-opacity": 0.88,
           "circle-stroke-width": 1,
-          "circle-stroke-color": "#020b14",
+          "circle-stroke-color": MAP_COLORS.paper,
         },
       });
 
@@ -796,12 +807,12 @@ export default function Map({
             "match",
             ["get", "direction"],
             "inbound",
-            "#54ffae",
+            MAP_COLORS.success,
             "outbound",
-            "#ff6b6b",
-            "#6be6ff",
+            MAP_COLORS.danger,
+            MAP_COLORS.info,
           ],
-          "icon-halo-color": "#021019",
+          "icon-halo-color": MAP_COLORS.paper,
           "icon-halo-width": 1.2,
           "icon-opacity": 0.98,
         },
@@ -820,8 +831,8 @@ export default function Map({
           "text-offset": [0.8, 0],
         },
         paint: {
-          "text-color": "#f1f9ff",
-          "text-halo-color": "#041118",
+          "text-color": MAP_COLORS.ink,
+          "text-halo-color": MAP_COLORS.paper,
           "text-halo-width": 1,
         },
       });
@@ -865,7 +876,7 @@ export default function Map({
             visibility: sensorVisibilityRef.current.mrt ? "visible" : "none",
           },
           paint: {
-            "line-color": "#020b14",
+            "line-color": MAP_COLORS.paper,
             "line-width": 6.8,
             "line-opacity": 0.84,
           },
@@ -895,7 +906,7 @@ export default function Map({
             visibility: sensorVisibilityRef.current.mrt ? "visible" : "none",
           },
           paint: {
-            "line-color": "#020b14",
+            "line-color": MAP_COLORS.paper,
             "line-width": 6.2,
             "line-opacity": 0.72,
             "line-dasharray": [2, 3],
@@ -938,7 +949,7 @@ export default function Map({
             "line-join": "round",
           },
           paint: {
-            "line-color": "#dff7ff",
+            "line-color": MAP_COLORS.ink,
             "line-width": 7.2,
             "line-opacity": 0.45,
           },
@@ -1015,8 +1026,8 @@ export default function Map({
               "circle-stroke-color": [
                 "case",
                 ["get", "routeable"],
-                "#001018",
-                "#64748b",
+                MAP_COLORS.paper,
+                MAP_COLORS.muted,
               ],
             },
           });
@@ -1034,8 +1045,8 @@ export default function Map({
               "text-offset": [0, 1],
             },
             paint: {
-              "text-color": "#cff6ff",
-              "text-halo-color": "#05151f",
+              "text-color": MAP_COLORS.ink,
+              "text-halo-color": MAP_COLORS.paper,
               "text-halo-width": 1,
             },
           });
@@ -1191,8 +1202,7 @@ export default function Map({
       const el = document.createElement("button");
       el.type = "button";
       el.className =
-        "h-5 w-5 rounded-full border-2 border-terminal-bg bg-terminal-cyan";
-      el.style.boxShadow = "0 0 10px rgba(107, 230, 255, 0.7)";
+        "h-5 w-5 rounded-full border-2 border-paper bg-ink";
       el.title = camera.location;
       el.setAttribute("aria-label", `View traffic camera ${camera.location}`);
       el.dataset.cameraId = camera.CameraID;

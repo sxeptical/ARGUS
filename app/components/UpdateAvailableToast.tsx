@@ -71,19 +71,20 @@ export default function UpdateAvailableToast() {
   if (!availableVersion) return null;
 
   return (
-    <div className="fixed bottom-4 right-4 z-50 w-[min(92vw,360px)] rounded-md border border-cyan-300/40 bg-[#04111e]/95 p-3 text-terminal-text shadow-[0_0_34px_rgba(63,211,255,0.22)] backdrop-blur-md">
+    <div className="fixed inset-x-3 bottom-3 z-50 border border-line-strong bg-surface-raised p-3 text-ink sm:right-4 sm:left-auto sm:bottom-4 sm:w-[360px]">
       <div className="mb-2 flex items-start justify-between gap-3">
-        <div>
-          <div className="[font-family:var(--font-rajdhani)] text-sm font-semibold uppercase tracking-[0.18em] text-[#8ccff0]">
+        <div className="min-w-0">
+          <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-ink">
             Update Available
           </div>
-          <div className="mt-1 text-[11px] leading-relaxed text-[#9ec7df]">
-            A newer ARGUS build is live. Refresh to load version {shortVersion(availableVersion)}.
+          <div className="mt-1 text-[11px] leading-relaxed text-muted">
+            A newer ARGUS build is live. Refresh to load version{" "}
+            {shortVersion(availableVersion)}.
           </div>
         </div>
         <button
           type="button"
-          className="rounded-sm border border-terminal-border/40 px-2 py-0.5 text-[10px] uppercase tracking-[0.12em] text-[#7ea9c2] transition-colors hover:border-cyan-300/60 hover:text-cyan-100"
+          className="action-button shrink-0"
           onClick={() => {
             setDismissedVersion(availableVersion);
             setAvailableVersion(null);
@@ -95,7 +96,7 @@ export default function UpdateAvailableToast() {
 
       <button
         type="button"
-        className="w-full rounded-sm border border-[#35f0ce]/45 bg-[#35f0ce]/12 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-[#b8fff1] transition-colors hover:bg-[#35f0ce]/20"
+        className="action-button action-button-primary w-full"
         onClick={() => window.location.reload()}
       >
         Refresh Dashboard

@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import { Analytics } from "@vercel/analytics/next";
-import { JetBrains_Mono } from "next/font/google";
-import { Rajdhani } from "next/font/google";
+import { Geist, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 
 const jetBrainsMono = JetBrains_Mono({
@@ -9,15 +8,14 @@ const jetBrainsMono = JetBrains_Mono({
   subsets: ["latin"],
 });
 
-const rajdhani = Rajdhani({
-  variable: "--font-rajdhani",
+const geist = Geist({
+  variable: "--font-geist-sans",
   subsets: ["latin"],
-  weight: ["500", "600", "700"],
 });
 
 export const metadata: Metadata = {
-  title: "ARGUS // SG OSINT Terminal",
-  description: "Terminal-style Singapore daily intel dashboard",
+  title: "ARGUS — Singapore Signal Monitor",
+  description: "Live Singapore transport, weather, camera, and news signals.",
 };
 
 export default function RootLayout({
@@ -26,8 +24,11 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className={`${jetBrainsMono.variable} ${rajdhani.variable} h-full antialiased`}>
-      <body className="min-h-full flex flex-col bg-terminal-bg text-terminal-text">
+    <html
+      lang="en"
+      className={`${geist.variable} ${jetBrainsMono.variable} h-full antialiased`}
+    >
+      <body className="flex min-h-full flex-col bg-paper text-ink">
         {children}
         <Analytics />
       </body>

@@ -1,0 +1,15 @@
+{
+  "scannedAt": "2026-07-16",
+  "framework": "Next.js 16.2 App Router with React 19 and Tailwind CSS 4",
+  "fontStackDetected": "Rajdhani and JetBrains Mono via next/font",
+  "fontStackAfterRedesign": "Geist Sans and JetBrains Mono via next/font",
+  "paletteDetected": "Cyan-blue terminal custom properties with hard-coded component colors",
+  "paletteAfterRedesign": "Custom OKLCH black system in app/globals.css",
+  "motion": "CSS-only, motion-cut",
+  "spacing": "4px base scale",
+  "sourceFiles": [
+    "package.json",
+    "app/layout.tsx",
+    "app/globals.css"
+  ]
+}

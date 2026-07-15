@@ -43,12 +43,12 @@ export default function MrtRoutePanel({
     <TerminalPanel title="MRT ROUTER" contentClassName="min-h-44 sm:min-h-56">
       <div className="space-y-3">
         <div className="grid gap-2 sm:grid-cols-2">
-          <label className="space-y-1 text-[11px] uppercase tracking-widest text-[#79a3bd]">
+          <label className="data-label space-y-1">
             <span>Start</span>
             <select
               value={startStation}
               onChange={(event) => onStartChange(event.target.value)}
-              className="w-full rounded-md border border-terminal-border bg-black/20 px-2 py-1 text-[12px] text-terminal-text outline-none focus:border-terminal-cyan"
+              className="field-control text-xs normal-case tracking-normal"
             >
               <option value="">Select station</option>
               {MRT_STATION_NAMES.map((station) => (
@@ -58,12 +58,12 @@ export default function MrtRoutePanel({
               ))}
             </select>
           </label>
-          <label className="space-y-1 text-[11px] uppercase tracking-widest text-[#79a3bd]">
+          <label className="data-label space-y-1">
             <span>End</span>
             <select
               value={endStation}
               onChange={(event) => onEndChange(event.target.value)}
-              className="w-full rounded-md border border-terminal-border bg-black/20 px-2 py-1 text-[12px] text-terminal-text outline-none focus:border-terminal-cyan"
+              className="field-control text-xs normal-case tracking-normal"
             >
               <option value="">Select station</option>
               {MRT_STATION_NAMES.map((station) => (
@@ -84,21 +84,21 @@ export default function MrtRoutePanel({
               onStartChange(endStation);
               onEndChange(previousStart);
             }}
-            className="rounded border border-terminal-border px-2 py-1 text-[11px] uppercase tracking-widest text-[#9ac4dd] transition hover:border-terminal-cyan hover:text-terminal-cyan disabled:cursor-not-allowed disabled:opacity-50"
+            className="action-button"
           >
             Swap Direction
           </button>
           <button
             type="button"
             onClick={onReset}
-            className="rounded border border-red-400/50 px-2 py-1 text-[11px] uppercase tracking-widest text-red-200 transition hover:border-red-300 hover:text-red-100"
+            className="action-button border-danger/50 text-danger hover:border-danger hover:text-danger"
           >
             Reset Route
           </button>
         </div>
 
-        <div className="rounded border border-terminal-border/60 bg-black/20 p-2 text-[11px]">
-          <div className="mb-2 uppercase tracking-widest text-[#79a3bd]">
+        <div className="data-row p-2.5 text-[11px]">
+          <div className="data-label mb-2">
             Map Click Target
           </div>
           <div className="flex gap-2">
@@ -106,10 +106,10 @@ export default function MrtRoutePanel({
               type="button"
               onClick={() => onMapPickTargetChange("start")}
               aria-pressed={mapPickTarget === "start"}
-              className={`rounded border px-2 py-1 uppercase tracking-[0.08em] ${
+              className={`inline-flex min-h-7 items-center whitespace-nowrap border px-2.5 text-[10px] font-medium uppercase tracking-[0.08em] transition-colors duration-150 ${
                 mapPickTarget === "start"
-                  ? "border-terminal-cyan bg-terminal-cyan/20 text-terminal-cyan"
-                  : "border-terminal-border text-[#9ac4dd]"
+                  ? "border-ink bg-ink text-paper"
+                  : "border-line text-muted hover:border-line-strong hover:text-ink"
               }`}
             >
               Start
@@ -118,40 +118,40 @@ export default function MrtRoutePanel({
               type="button"
               onClick={() => onMapPickTargetChange("end")}
               aria-pressed={mapPickTarget === "end"}
-              className={`rounded border px-2 py-1 uppercase tracking-[0.08em] ${
+              className={`inline-flex min-h-7 items-center whitespace-nowrap border px-2.5 text-[10px] font-medium uppercase tracking-[0.08em] transition-colors duration-150 ${
                 mapPickTarget === "end"
-                  ? "border-terminal-cyan bg-terminal-cyan/20 text-terminal-cyan"
-                  : "border-terminal-border text-[#9ac4dd]"
+                  ? "border-ink bg-ink text-paper"
+                  : "border-line text-muted hover:border-line-strong hover:text-ink"
               }`}
             >
               End
             </button>
           </div>
-          <div className="mt-2 text-[#7ea4bc]">
+          <div className="mt-2 text-muted">
             Click an MRT station on the map to set {mapPickTarget.toUpperCase()}.
           </div>
         </div>
 
         {!startStation || !endStation ? (
-          <div className="terminal-dim text-[12px]">
+          <div className="text-[12px] text-muted">
             Select start and end stations to calculate a route.
           </div>
         ) : !route ? (
-          <div className="terminal-red text-[12px]">
+          <div className="text-[12px] text-danger">
             No MRT route found for this station pair.
           </div>
         ) : (
           <div className="space-y-2">
-            <div className="rounded border border-terminal-border/60 bg-black/20 p-2">
-              <div className="terminal-cyan text-xs uppercase tracking-[0.11em]">
+            <div className="border border-line bg-paper p-2.5">
+              <div className="data-label">
                 Fastest Route Estimate
               </div>
-              <div className="mt-1 text-sm text-[#d8ecf8]">
+              <div className="mt-1 font-mono text-sm text-ink">
                 {route.estimatedMinutes} min ·{" "}
                 {Math.max(0, route.stations.length - 1)} stops ·{" "}
                 {route.transfers} transfers
               </div>
-              <div className="mt-1 text-[11px] text-[#7ea4bc]">
+              <div className="mt-1 text-[11px] text-muted">
                 {route.start} → {route.end}
               </div>
             </div>
@@ -161,21 +161,21 @@ export default function MrtRoutePanel({
                 route.segments.map((segment, index) => (
                   <div
                     key={`${segment.line}-${segment.from}-${segment.to}-${index}`}
-                    className="rounded border border-terminal-border/50 bg-black/15 px-2 py-1.5"
+                    className="border border-line bg-surface px-2.5 py-2"
                   >
-                    <div className="terminal-green text-[11px] uppercase tracking-widest">
+                    <div className="data-label text-success">
                       {segment.line}
                     </div>
-                    <div className="text-[12px] text-[#d8ecf8]">
+                    <div className="text-[12px] text-ink">
                       {segment.from} → {segment.to}
                     </div>
-                    <div className="text-[11px] text-[#789cb3]">
+                    <div className="text-[11px] text-muted">
                       {segment.stops} stops
                     </div>
                   </div>
                 ))
               ) : (
-                <div className="rounded border border-terminal-border/50 bg-black/15 px-2 py-1.5 text-[12px] text-[#d8ecf8]">
+                <div className="border border-line bg-surface px-2.5 py-2 text-[12px] text-ink">
                   You are already at {route.start}.
                 </div>
               )}
