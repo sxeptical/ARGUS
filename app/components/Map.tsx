@@ -31,6 +31,7 @@ const MAP_COLORS = {
   success: "#67d391",
   danger: "#ef7373",
   info: "#73b9d9",
+  bus: "#54ffae",
 } as const;
 
 const MRT_LINE_STATIONS: Record<string, string[]> = {
@@ -737,7 +738,7 @@ export default function Map({
         },
         paint: {
           "circle-radius": 3,
-          "circle-color": MAP_COLORS.ink,
+          "circle-color": MAP_COLORS.bus,
           "circle-opacity": 0.88,
           "circle-stroke-width": 1,
           "circle-stroke-color": MAP_COLORS.paper,
