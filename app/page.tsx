@@ -469,6 +469,14 @@ export default function Home() {
           : source.status === "loading"
             ? 50
             : 0,
+    tone:
+      source.message === "disabled"
+        ? "bg-faint"
+        : source.status === "ok"
+          ? "bg-success"
+          : source.status === "loading"
+            ? "bg-warning"
+            : "bg-danger",
   }));
   const systemStatus = error ? "Degraded" : "Live";
 
@@ -565,14 +573,38 @@ export default function Home() {
                         }))
                       }
                       aria-label={`${sensorVisibility[row.key] ? "Hide" : "Show"} ${row.label}`}
+                      title={`${sensorVisibility[row.key] ? "Hide" : "Show"} ${row.label}`}
                       aria-pressed={sensorVisibility[row.key]}
-                      className={`inline-flex min-h-7 items-center whitespace-nowrap border px-2 text-[9px] font-semibold uppercase tracking-[0.1em] transition-colors duration-150 ${
+                      className={`grid h-6 w-6 shrink-0 place-items-center rounded-full border transition-colors duration-150 ${
                         sensorVisibility[row.key]
                           ? "border-success/45 bg-success/8 text-success hover:bg-success/12"
                           : "border-line bg-paper text-muted hover:border-line-strong hover:text-ink"
                       }`}
                     >
-                      {sensorVisibility[row.key] ? "Shown" : "Hidden"}
+                      {sensorVisibility[row.key] ? (
+                        <svg
+                          viewBox="0 0 16 16"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="1.5"
+                          className="h-3 w-3"
+                          aria-hidden="true"
+                        >
+                          <path d="M1.5 8s2.25-4 6.5-4 6.5 4 6.5 4-2.25 4-6.5 4S1.5 8 1.5 8Z" />
+                          <circle cx="8" cy="8" r="1.75" />
+                        </svg>
+                      ) : (
+                        <svg
+                          viewBox="0 0 16 16"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="1.5"
+                          className="h-3 w-3"
+                          aria-hidden="true"
+                        >
+                          <path d="M2 2l12 12M6.4 4.2A7.5 7.5 0 0 1 8 4c4.25 0 6.5 4 6.5 4a8.7 8.7 0 0 1-2 2.45M9.6 11.8A7.5 7.5 0 0 1 8 12c-4.25 0-6.5-4-6.5-4a8.7 8.7 0 0 1 2-2.45" />
+                        </svg>
+                      )}
                     </button>
                     <div
                       className={`min-w-7 text-right font-mono text-sm font-medium ${row.tone}`}
@@ -712,6 +744,7 @@ export default function Home() {
                   key={item.label}
                   label={item.label}
                   value={item.value}
+                  tone={item.tone}
                 />
               ))}
             </div>
@@ -1003,7 +1036,15 @@ function IntelPanel({
   );
 }
 
-function SignalBar({ label, value }: { label: string; value: number }) {
+function SignalBar({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: number;
+  tone: string;
+}) {
   return (
     <div className="border-b border-line px-1 py-2 last:border-b-0">
       <div className="mb-1.5 flex items-center justify-between gap-2 text-[10px] text-muted">
@@ -1019,7 +1060,7 @@ function SignalBar({ label, value }: { label: string; value: number }) {
         aria-valuenow={value}
       >
         <div
-          className="h-full bg-ink"
+          className={`h-full ${tone}`}
           style={{ width: `${value}%` }}
         />
       </div>
