@@ -7,10 +7,12 @@ import {
   type Dispatch,
   type SetStateAction,
 } from "react";
-import BusPanel from "@/app/components/BusPanel";
+import BusPanel, {
+  type BusRouteUiState,
+} from "@/app/components/BusPanel";
 import CameraPanel from "@/app/components/CameraPanel";
 import FlightPanel from "@/app/components/FlightPanel";
-import Map from "@/app/components/Map";
+import Map, { type BusRouteOverlay } from "@/app/components/Map";
 import MrtRoutePanel from "@/app/components/MrtRoutePanel";
 import { MRT_ROUTE_DEFAULTS, planMrtRoute } from "@/lib/mrt-routing";
 import NewsPanel from "@/app/components/NewsPanel";
@@ -18,6 +20,7 @@ import UpdateAvailableToast from "@/app/components/UpdateAvailableToast";
 import WeatherPanel from "@/app/components/WeatherPanel";
 import { cachedClientFetch } from "@/lib/client-cache";
 import type {
+  BusRouteResponse,
   BusStop,
   FlightState,
   NewsItem,
@@ -25,6 +28,64 @@ import type {
   WeatherData,
   WeatherHistoryPoint,
 } from "@/types";
+
+const IDLE_BUS_ROUTE_STATE: BusRouteUiState = {
+  serviceNo: null,
+  status: "idle",
+  error: null,
+  data: null,
+  activeDirection: null,
+};
+
+function pickDefaultDirection(data: BusRouteResponse): number {
+  const preferred = data.directions.find((d) => d.preferred);
+  if (preferred) return preferred.direction;
+  // Prefer a direction that actually contains the selected stop.
+  const withStop = data.directions.find((d) => d.selectedStopIndex !== null);
+  if (withStop) return withStop.direction;
+  return data.directions[0]?.direction ?? 1;
+}
+
+function toBusRouteOverlay(
+  state: BusRouteUiState,
+): BusRouteOverlay | null {
+  if (state.status !== "ready" || !state.data || state.activeDirection === null) {
+    return null;
+  }
+  const direction = state.data.directions.find(
+    (d) => d.direction === state.activeDirection,
+  );
+  if (!direction) return null;
+  const hasPath = direction.path.length >= 2;
+  const hasStops = direction.stops.length >= 2;
+  if (!hasPath && !hasStops) return null;
+  return {
+    serviceNo: state.data.serviceNo,
+    direction: direction.direction,
+    stops: direction.stops,
+    selectedStopIndex: direction.selectedStopIndex,
+    path: direction.path ?? [],
+    selectedPathIndex: direction.selectedPathIndex ?? null,
+  };
+}
+
+async function fetchBusRoute(
+  serviceNo: string,
+  stopId: string | null,
+): Promise<BusRouteResponse> {
+  const params = new URLSearchParams({ serviceNo });
+  if (stopId) params.set("stopId", stopId);
+  const response = await fetch(`/api/bus-routes?${params.toString()}`, {
+    cache: "no-store",
+  });
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => null)) as {
+      error?: string;
+    } | null;
+    throw new Error(payload?.error || "Unable to fetch bus route");
+  }
+  return (await response.json()) as BusRouteResponse;
+}
 
 type SensorKey = "flights" | "cameras" | "busStops" | "mrt";
 
@@ -165,6 +226,8 @@ function useDashboardState() {
   const [news, setNews] = useState<NewsItem[]>([]);
   const [flights, setFlights] = useState<FlightState[]>([]);
   const [selectedStop, setSelectedStop] = useState<BusStop | null>(null);
+  const [busRouteState, setBusRouteState] =
+    useState<BusRouteUiState>(IDLE_BUS_ROUTE_STATE);
   const [selectedCamera, setSelectedCamera] = useState<TrafficCamera | null>(
     null,
   );
@@ -387,6 +450,73 @@ function useDashboardState() {
     return () => clearTimeout(timer);
   }, []);
 
+  const showBusRoute = (serviceNo: string) => {
+    const stopCode = selectedStop?.BusStopCode ?? null;
+    setBusRouteState({
+      serviceNo,
+      status: "loading",
+      error: null,
+      data: null,
+      activeDirection: null,
+    });
+
+    void fetchBusRoute(serviceNo, stopCode)
+      .then((data) => {
+        setBusRouteState((prev) => {
+          // Ignore stale responses if the user switched/cleared mid-flight.
+          if (prev.serviceNo !== serviceNo || prev.status !== "loading") {
+            return prev;
+          }
+          return {
+            serviceNo: data.serviceNo,
+            status: "ready",
+            error: null,
+            data,
+            activeDirection: pickDefaultDirection(data),
+          };
+        });
+      })
+      .catch((err: unknown) => {
+        setBusRouteState((prev) => {
+          if (prev.serviceNo !== serviceNo || prev.status !== "loading") {
+            return prev;
+          }
+          return {
+            serviceNo,
+            status: "error",
+            error:
+              err instanceof Error ? err.message : "Unable to load bus route",
+            data: null,
+            activeDirection: null,
+          };
+        });
+      });
+  };
+
+  const clearBusRoute = () => {
+    setBusRouteState(IDLE_BUS_ROUTE_STATE);
+  };
+
+  const selectBusRouteDirection = (direction: number) => {
+    setBusRouteState((prev) => {
+      if (prev.status !== "ready" || !prev.data) return prev;
+      const exists = prev.data.directions.some((d) => d.direction === direction);
+      if (!exists) return prev;
+      return { ...prev, activeDirection: direction };
+    });
+  };
+
+  const handleSelectStop = (stop: BusStop) => {
+    setSelectedStop(stop);
+    // Changing stop clears any active route; user can re-show from the new stop.
+    setBusRouteState(IDLE_BUS_ROUTE_STATE);
+  };
+
+  const busRouteOverlay = useMemo(
+    () => toBusRouteOverlay(busRouteState),
+    [busRouteState],
+  );
+
   const inboundFlights = useMemo(
     () => flights.filter((flight) => flight.direction === "inbound").length,
     [flights],
@@ -497,16 +627,21 @@ function useDashboardState() {
   return {
     activeSources,
     bootComplete,
+    busRouteOverlay,
+    busRouteState,
     busStops,
     cameras,
+    clearBusRoute,
     error,
     flights,
+    handleSelectStop,
     mrtEndStation,
     mrtMapPickTarget,
     mrtRoutePlan,
     mrtStartStation,
     news,
     onlineSourceCount,
+    selectBusRouteDirection,
     selectedCamera,
     selectedFlight,
     selectedStop,
@@ -518,8 +653,8 @@ function useDashboardState() {
     setMrtStartStation,
     setSelectedCamera,
     setSelectedFlight,
-    setSelectedStop,
     setSensorVisibility,
+    showBusRoute,
     signalBars,
     sources,
     systemStatus,
@@ -533,16 +668,21 @@ export default function Home() {
   const {
     activeSources,
     bootComplete,
+    busRouteOverlay,
+    busRouteState,
     busStops,
     cameras,
+    clearBusRoute,
     error,
     flights,
+    handleSelectStop,
     mrtEndStation,
     mrtMapPickTarget,
     mrtRoutePlan,
     mrtStartStation,
     news,
     onlineSourceCount,
+    selectBusRouteDirection,
     selectedCamera,
     selectedFlight,
     selectedStop,
@@ -554,8 +694,8 @@ export default function Home() {
     setMrtStartStation,
     setSelectedCamera,
     setSelectedFlight,
-    setSelectedStop,
     setSensorVisibility,
+    showBusRoute,
     signalBars,
     sources,
     systemStatus,
@@ -608,7 +748,7 @@ export default function Home() {
               cameras={cameras}
               flights={flights}
               sensorVisibility={sensorVisibility}
-              onStopClick={setSelectedStop}
+              onStopClick={handleSelectStop}
               onCameraClick={setSelectedCamera}
               onFlightClick={setSelectedFlight}
               onMrtStationClick={(stationName) => {
@@ -621,6 +761,7 @@ export default function Home() {
                 }
               }}
               mrtRouteSegments={mrtRoutePlan?.segments ?? []}
+              busRouteOverlay={busRouteOverlay}
             />
             <div className="pointer-events-none absolute left-2 top-2 border border-line bg-overlay px-2.5 py-1.5 text-[10px] uppercase tracking-[0.12em] text-ink">
               Live map <span className="ml-2 text-muted">Singapore</span>
@@ -655,7 +796,11 @@ export default function Home() {
               <BusPanel
                 busStops={busStops}
                 selectedStop={selectedStop}
-                onSelectStop={setSelectedStop}
+                onSelectStop={handleSelectStop}
+                routeState={busRouteState}
+                onShowRoute={showBusRoute}
+                onClearRoute={clearBusRoute}
+                onSelectRouteDirection={selectBusRouteDirection}
               />
             </div>
             <div className="min-h-0 overflow-auto">

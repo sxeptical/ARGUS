@@ -26,6 +26,39 @@ export interface BusArrival {
   NextBus3?: BusTiming;
 }
 
+export interface BusRouteStop {
+  busStopCode: string;
+  description: string;
+  latitude: number;
+  longitude: number;
+  stopSequence: number;
+}
+
+export interface BusRouteDirection {
+  direction: number;
+  preferred: boolean;
+  selectedStopIndex: number | null;
+  originCode: string;
+  destinationCode: string;
+  stops: BusRouteStop[];
+  /**
+   * Road-following polyline as [lng, lat] pairs when geometry is available
+   * (e.g. BusRouter/sgbusdata). Falls back to stop-to-stop chords on the client
+   * when empty/absent.
+   */
+  path: Array<[number, number]>;
+  /**
+   * Index into `path` nearest the selected stop, for remaining-path emphasis.
+   * null when no stop context or path is empty.
+   */
+  selectedPathIndex: number | null;
+}
+
+export interface BusRouteResponse {
+  serviceNo: string;
+  directions: BusRouteDirection[];
+}
+
 export interface WeatherData {
   temperature: number | null;
   humidity: number | null;
