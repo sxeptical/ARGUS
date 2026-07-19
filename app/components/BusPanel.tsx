@@ -1,12 +1,29 @@
 import { useEffect, useMemo, useState } from "react";
 import useSWR from "swr";
 import TerminalPanel from "@/app/components/TerminalPanel";
-import type { BusArrival, BusStop } from "@/types";
+import type {
+  BusArrival,
+  BusRouteDirection,
+  BusRouteResponse,
+  BusStop,
+} from "@/types";
+
+export type BusRouteUiState = {
+  serviceNo: string | null;
+  status: "idle" | "loading" | "error" | "ready";
+  error: string | null;
+  data: BusRouteResponse | null;
+  activeDirection: number | null;
+};
 
 type BusPanelProps = {
   busStops: BusStop[];
   selectedStop: BusStop | null;
   onSelectStop?: (stop: BusStop) => void;
+  routeState?: BusRouteUiState;
+  onShowRoute?: (serviceNo: string) => void;
+  onClearRoute?: () => void;
+  onSelectRouteDirection?: (direction: number) => void;
 };
 
 type BusArrivalHistoryPoint = {
@@ -135,10 +152,22 @@ function appendBusArrivalHistory(
   return changed ? next : history;
 }
 
+const IDLE_ROUTE_STATE: BusRouteUiState = {
+  serviceNo: null,
+  status: "idle",
+  error: null,
+  data: null,
+  activeDirection: null,
+};
+
 export default function BusPanel({
   busStops,
   selectedStop,
   onSelectStop,
+  routeState = IDLE_ROUTE_STATE,
+  onShowRoute,
+  onClearRoute,
+  onSelectRouteDirection,
 }: BusPanelProps) {
   const [search, setSearch] = useState("");
   const [expandedService, setExpandedService] = useState<{
@@ -274,35 +303,64 @@ export default function BusPanel({
             </div>
           ) : null}
 
-          {visibleArrivals.map((service) => (
-            <ServiceRow
-              key={service.ServiceNo}
-              service={service}
-              history={
-                activeStopCode
-                  ? (arrivalHistory[
-                      getArrivalHistoryKey(activeStopCode, service.ServiceNo)
-                    ] ?? [])
-                  : []
-              }
-              expanded={
-                expandedService?.stopCode === activeStopCode &&
-                expandedService?.serviceNo === service.ServiceNo
-              }
-              onToggle={() => {
-                if (!activeStopCode) return;
-                setExpandedService((prev) =>
-                  prev?.stopCode === activeStopCode &&
-                  prev?.serviceNo === service.ServiceNo
-                    ? null
-                    : {
-                        stopCode: activeStopCode,
-                        serviceNo: service.ServiceNo,
-                      },
-                );
-              }}
-            />
-          ))}
+          {visibleArrivals.map((service) => {
+            const isRouteActive =
+              routeState.serviceNo === service.ServiceNo &&
+              routeState.status !== "idle";
+            return (
+              <ServiceRow
+                key={service.ServiceNo}
+                service={service}
+                history={
+                  activeStopCode
+                    ? (arrivalHistory[
+                        getArrivalHistoryKey(activeStopCode, service.ServiceNo)
+                      ] ?? [])
+                    : []
+                }
+                expanded={
+                  expandedService?.stopCode === activeStopCode &&
+                  expandedService?.serviceNo === service.ServiceNo
+                }
+                onToggle={() => {
+                  if (!activeStopCode) return;
+                  setExpandedService((prev) =>
+                    prev?.stopCode === activeStopCode &&
+                    prev?.serviceNo === service.ServiceNo
+                      ? null
+                      : {
+                          stopCode: activeStopCode,
+                          serviceNo: service.ServiceNo,
+                        },
+                  );
+                }}
+                routeActive={isRouteActive}
+                routeStatus={
+                  isRouteActive ? routeState.status : "idle"
+                }
+                routeError={isRouteActive ? routeState.error : null}
+                routeDirections={
+                  isRouteActive && routeState.data
+                    ? routeState.data.directions
+                    : []
+                }
+                activeDirection={
+                  isRouteActive ? routeState.activeDirection : null
+                }
+                onToggleRoute={() => {
+                  if (
+                    routeState.serviceNo === service.ServiceNo &&
+                    routeState.status !== "idle"
+                  ) {
+                    onClearRoute?.();
+                  } else {
+                    onShowRoute?.(service.ServiceNo);
+                  }
+                }}
+                onSelectDirection={onSelectRouteDirection}
+              />
+            );
+          })}
         </div>
       </div>
     </TerminalPanel>
@@ -314,41 +372,130 @@ function ServiceRow({
   history,
   expanded,
   onToggle,
+  routeActive,
+  routeStatus,
+  routeError,
+  routeDirections,
+  activeDirection,
+  onToggleRoute,
+  onSelectDirection,
 }: {
   service: BusArrival;
   history: BusArrivalHistoryPoint[];
   expanded: boolean;
   onToggle: () => void;
+  routeActive: boolean;
+  routeStatus: BusRouteUiState["status"];
+  routeError: string | null;
+  routeDirections: BusRouteDirection[];
+  activeDirection: number | null;
+  onToggleRoute: () => void;
+  onSelectDirection?: (direction: number) => void;
 }) {
+  const routeLabel =
+    routeStatus === "loading"
+      ? "…"
+      : routeActive
+        ? "Hide"
+        : "Route";
+
   return (
     <div className="overflow-hidden border border-line">
-      <button
-        type="button"
-        className="w-full p-2.5 text-left transition-colors duration-150 hover:bg-surface-hover"
-        onClick={onToggle}
-        aria-expanded={expanded}
-      >
-        <div className="mb-1 flex items-center justify-between">
-          <span className="font-medium text-ink">
-            Service {service.ServiceNo}
-          </span>
-          <span className="text-[11px] text-muted">{service.Operator}</span>
+      <div className="flex items-stretch">
+        <button
+          type="button"
+          className="min-w-0 flex-1 p-2.5 text-left transition-colors duration-150 hover:bg-surface-hover"
+          onClick={onToggle}
+          aria-expanded={expanded}
+        >
+          <div className="mb-1 flex items-center justify-between gap-2">
+            <span className="font-medium text-ink">
+              Service {service.ServiceNo}
+            </span>
+            <span className="text-[11px] text-muted">{service.Operator}</span>
+          </div>
+          <div className="grid grid-cols-3 gap-2 text-[11px]">
+            <ArrivalCell
+              label="Next"
+              value={formatArrival(service.NextBus?.EstimatedArrival)}
+            />
+            <ArrivalCell
+              label="2nd"
+              value={formatArrival(service.NextBus2?.EstimatedArrival)}
+            />
+            <ArrivalCell
+              label="3rd"
+              value={formatArrival(service.NextBus3?.EstimatedArrival)}
+            />
+          </div>
+        </button>
+        <button
+          type="button"
+          className={`shrink-0 border-l border-line px-2.5 text-[10px] uppercase tracking-[0.08em] transition-colors duration-150 ${
+            routeActive
+              ? "bg-success/10 text-success hover:bg-success/15"
+              : "text-muted hover:bg-surface-hover hover:text-ink"
+          }`}
+          onClick={(event) => {
+            event.stopPropagation();
+            onToggleRoute();
+          }}
+          aria-pressed={routeActive}
+          aria-label={
+            routeActive
+              ? `Hide route for service ${service.ServiceNo}`
+              : `Show route for service ${service.ServiceNo}`
+          }
+          title={
+            routeActive
+              ? "Hide route on map"
+              : "Show route on map"
+          }
+          disabled={routeStatus === "loading"}
+        >
+          {routeLabel}
+        </button>
+      </div>
+
+      {routeActive && routeStatus === "error" && routeError ? (
+        <div className="border-t border-line bg-paper px-2.5 py-1.5 text-[11px] text-danger">
+          {routeError}
         </div>
-        <div className="grid grid-cols-3 gap-2 text-[11px]">
-          <ArrivalCell
-            label="Next"
-            value={formatArrival(service.NextBus?.EstimatedArrival)}
-          />
-          <ArrivalCell
-            label="2nd"
-            value={formatArrival(service.NextBus2?.EstimatedArrival)}
-          />
-          <ArrivalCell
-            label="3rd"
-            value={formatArrival(service.NextBus3?.EstimatedArrival)}
-          />
+      ) : null}
+
+      {routeActive &&
+      routeStatus === "ready" &&
+      routeDirections.length > 1 ? (
+        <div className="flex flex-wrap items-center gap-1.5 border-t border-line bg-paper px-2.5 py-1.5">
+          <span className="data-label mr-1">Dir</span>
+          {routeDirections.map((dir) => {
+            const selected = dir.direction === activeDirection;
+            return (
+              <button
+                key={dir.direction}
+                type="button"
+                className={`px-2 py-0.5 text-[10px] uppercase tracking-[0.08em] border transition-colors duration-150 ${
+                  selected
+                    ? "border-success/45 bg-success/10 text-success"
+                    : "border-line text-muted hover:border-line-strong hover:text-ink"
+                }`}
+                onClick={() => onSelectDirection?.(dir.direction)}
+                aria-pressed={selected}
+              >
+                {dir.direction}
+                {dir.preferred ? " ★" : ""}
+              </button>
+            );
+          })}
         </div>
-      </button>
+      ) : null}
+
+      {routeActive && routeStatus === "ready" && routeDirections.length > 0 ? (
+        <RouteSummary
+          directions={routeDirections}
+          activeDirection={activeDirection}
+        />
+      ) : null}
 
       {expanded ? (
         <div className="space-y-2 border-t border-line bg-paper p-2.5">
@@ -368,6 +515,32 @@ function ServiceRow({
           </div>
         </div>
       ) : null}
+    </div>
+  );
+}
+
+function RouteSummary({
+  directions,
+  activeDirection,
+}: {
+  directions: BusRouteDirection[];
+  activeDirection: number | null;
+}) {
+  const active =
+    directions.find((d) => d.direction === activeDirection) ?? directions[0];
+  if (!active || active.stops.length === 0) return null;
+  const origin = active.stops[0]?.description ?? active.originCode;
+  const destination =
+    active.stops[active.stops.length - 1]?.description ?? active.destinationCode;
+
+  return (
+    <div className="border-t border-line bg-paper px-2.5 py-1.5 text-[10px] text-muted">
+      <span className="text-ink">{origin}</span>
+      <span className="mx-1">→</span>
+      <span className="text-ink">{destination}</span>
+      <span className="ml-1.5 opacity-75">
+        · {active.stops.length} stops
+      </span>
     </div>
   );
 }

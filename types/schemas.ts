@@ -51,6 +51,53 @@ export const LtaBusArrivalsResponseSchema = Schema.Struct({
   Services: Schema.Array(BusArrivalSchema),
 });
 
+/**
+ * LTA BusRoutes row. Direction and StopSequence may arrive as number or
+ * string depending on upstream serialization; normalize in the client.
+ */
+export const LtaBusRouteRowSchema = Schema.Struct({
+  ServiceNo: Schema.String,
+  Operator: Schema.optional(Schema.String),
+  Direction: Schema.Union(Schema.Number, Schema.String),
+  StopSequence: Schema.Union(Schema.Number, Schema.String),
+  BusStopCode: Schema.String,
+  Distance: Schema.optional(Schema.Union(Schema.Number, Schema.String, Schema.Null)),
+  WD_FirstBus: Schema.optional(Schema.String),
+  WD_LastBus: Schema.optional(Schema.String),
+  SAT_FirstBus: Schema.optional(Schema.String),
+  SAT_LastBus: Schema.optional(Schema.String),
+  SUN_FirstBus: Schema.optional(Schema.String),
+  SUN_LastBus: Schema.optional(Schema.String),
+});
+
+export const LtaBusRoutesResponseSchema = Schema.Struct({
+  value: Schema.Array(LtaBusRouteRowSchema),
+});
+
+export const BusRouteStopSchema = Schema.Struct({
+  busStopCode: Schema.String,
+  description: Schema.String,
+  latitude: Schema.Number,
+  longitude: Schema.Number,
+  stopSequence: Schema.Number,
+});
+
+export const BusRouteDirectionSchema = Schema.Struct({
+  direction: Schema.Number,
+  preferred: Schema.Boolean,
+  selectedStopIndex: Schema.NullOr(Schema.Number),
+  originCode: Schema.String,
+  destinationCode: Schema.String,
+  stops: Schema.Array(BusRouteStopSchema),
+  path: Schema.Array(Schema.Tuple(Schema.Number, Schema.Number)),
+  selectedPathIndex: Schema.NullOr(Schema.Number),
+});
+
+export const BusRouteResponseSchema = Schema.Struct({
+  serviceNo: Schema.String,
+  directions: Schema.Array(BusRouteDirectionSchema),
+});
+
 const RawTrafficImageSchema = Schema.Struct({
   CameraID: Schema.String,
   Latitude: Schema.Number,

@@ -3,7 +3,29 @@ import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { isRouteableMrtStation, type MrtRouteSegment } from "@/lib/mrt-routing";
 import mrtLinesData from "@/public/mrt-lines.json";
-import type { BusStop, FlightState, MRTGeoJson, TrafficCamera } from "@/types";
+import type {
+  BusRouteStop,
+  BusStop,
+  FlightState,
+  MRTGeoJson,
+  TrafficCamera,
+} from "@/types";
+
+/** Active bus service route drawn as road-following (or stop-chord) polylines. */
+export type BusRouteOverlay = {
+  serviceNo: string;
+  direction: number;
+  stops: BusRouteStop[];
+  /** Index into `stops` for the selected stop (stop-chord fallback). */
+  selectedStopIndex: number | null;
+  /**
+   * Road-following polyline [lng, lat] when available. Empty → fall back to
+   * connecting `stops` with straight segments.
+   */
+  path: Array<[number, number]>;
+  /** Index into `path` nearest the selected stop for remaining-path emphasis. */
+  selectedPathIndex: number | null;
+};
 
 type MapProps = {
   busStops: BusStop[];
@@ -20,6 +42,7 @@ type MapProps = {
   onFlightClick: (flight: FlightState) => void;
   onMrtStationClick?: (stationName: string) => void;
   mrtRouteSegments?: MrtRouteSegment[];
+  busRouteOverlay?: BusRouteOverlay | null;
 };
 
 // MapLibre parses its own color values, so this palette mirrors the CSS design
@@ -269,6 +292,188 @@ const MRT_LINE_STATIONS: Record<string, string[]> = {
 
 const MRT_LINES = mrtLinesData as MRTGeoJson;
 const EMPTY_MRT_ROUTE_SEGMENTS: MrtRouteSegment[] = [];
+
+type BusRouteLineGeoJson = {
+  type: "FeatureCollection";
+  features: Array<{
+    type: "Feature";
+    properties: {
+      kind: "remaining";
+      serviceNo: string;
+    };
+    geometry: {
+      type: "LineString";
+      coordinates: [number, number][];
+    };
+  }>;
+};
+
+type BusRouteStopsGeoJson = {
+  type: "FeatureCollection";
+  features: Array<{
+    type: "Feature";
+    properties: {
+      BusStopCode: string;
+      Description: string;
+      role: "selected" | "terminus" | "stop";
+      sequence: number;
+    };
+    geometry: {
+      type: "Point";
+      coordinates: [number, number];
+    };
+  }>;
+};
+
+const EMPTY_BUS_ROUTE_GEOJSON: BusRouteLineGeoJson = {
+  type: "FeatureCollection",
+  features: [],
+};
+
+const EMPTY_BUS_ROUTE_STOPS_GEOJSON: BusRouteStopsGeoJson = {
+  type: "FeatureCollection",
+  features: [],
+};
+
+/**
+ * Resolve the polyline to draw for a bus route overlay.
+ *
+ * When the user selected a stop, only the remaining segment from that stop
+ * to the terminus is returned (not the full outbound+return geometry, and
+ * not the portion already travelled).
+ */
+function resolveBusRouteDrawPath(
+  overlay: BusRouteOverlay,
+): Array<[number, number]> {
+  const fullCoords: Array<[number, number]> =
+    overlay.path.length >= 2
+      ? overlay.path
+      : overlay.stops.map(
+          (stop) => [stop.longitude, stop.latitude] as [number, number],
+        );
+
+  if (fullCoords.length < 2) return [];
+
+  // Prefer path index (road geometry); fall back to stop index (chords).
+  const startIdx =
+    overlay.path.length >= 2
+      ? overlay.selectedPathIndex
+      : overlay.selectedStopIndex;
+
+  if (startIdx !== null && startIdx >= 0 && startIdx < fullCoords.length - 1) {
+    return fullCoords.slice(startIdx);
+  }
+
+  // No stop context (or stop is the terminus) → full active direction only.
+  return fullCoords;
+}
+
+/** Stops on the remaining path (selected stop → terminus), inclusive. */
+function resolveRemainingRouteStops(
+  overlay: BusRouteOverlay,
+): BusRouteStop[] {
+  if (overlay.stops.length === 0) return [];
+  const startIdx =
+    overlay.selectedStopIndex !== null &&
+    overlay.selectedStopIndex >= 0 &&
+    overlay.selectedStopIndex < overlay.stops.length
+      ? overlay.selectedStopIndex
+      : 0;
+  return overlay.stops.slice(startIdx);
+}
+
+function buildBusRouteGeoJson(
+  overlay: BusRouteOverlay | null | undefined,
+): BusRouteLineGeoJson {
+  if (!overlay || (overlay.path.length < 2 && overlay.stops.length < 2)) {
+    return { type: "FeatureCollection", features: [] };
+  }
+
+  const drawCoords = resolveBusRouteDrawPath(overlay);
+  if (drawCoords.length < 2) {
+    return { type: "FeatureCollection", features: [] };
+  }
+
+  // Single polyline only — remaining path from selected stop to destination.
+  return {
+    type: "FeatureCollection",
+    features: [
+      {
+        type: "Feature",
+        properties: { kind: "remaining", serviceNo: overlay.serviceNo },
+        geometry: { type: "LineString", coordinates: drawCoords },
+      },
+    ],
+  };
+}
+
+function buildBusRouteStopsGeoJson(
+  overlay: BusRouteOverlay | null | undefined,
+): BusRouteStopsGeoJson {
+  if (!overlay) return EMPTY_BUS_ROUTE_STOPS_GEOJSON;
+  const remaining = resolveRemainingRouteStops(overlay);
+  if (remaining.length === 0) return EMPTY_BUS_ROUTE_STOPS_GEOJSON;
+
+  const lastIdx = remaining.length - 1;
+  return {
+    type: "FeatureCollection",
+    features: remaining.flatMap((stop, index) => {
+      if (
+        !Number.isFinite(stop.latitude) ||
+        !Number.isFinite(stop.longitude)
+      ) {
+        return [];
+      }
+      const role: "selected" | "terminus" | "stop" =
+        index === 0
+          ? "selected"
+          : index === lastIdx
+            ? "terminus"
+            : "stop";
+      return [
+        {
+          type: "Feature" as const,
+          properties: {
+            BusStopCode: stop.busStopCode,
+            Description: stop.description,
+            role,
+            sequence: stop.stopSequence,
+          },
+          geometry: {
+            type: "Point" as const,
+            coordinates: [stop.longitude, stop.latitude] as [number, number],
+          },
+        },
+      ];
+    }),
+  };
+}
+
+function fitMapToBusRoute(
+  map: maplibregl.Map,
+  overlay: BusRouteOverlay | null | undefined,
+) {
+  if (!overlay) return;
+  const drawCoords = resolveBusRouteDrawPath(overlay);
+  if (drawCoords.length < 2) return;
+  const bounds = new maplibregl.LngLatBounds();
+  for (const [lng, lat] of drawCoords) {
+    bounds.extend([lng, lat]);
+  }
+  // Include remaining stop points so termini stay in frame even if the path
+  // slightly undershoots stop coordinates.
+  for (const stop of resolveRemainingRouteStops(overlay)) {
+    if (Number.isFinite(stop.longitude) && Number.isFinite(stop.latitude)) {
+      bounds.extend([stop.longitude, stop.latitude]);
+    }
+  }
+  if (bounds.isEmpty()) return;
+  map.fitBounds(bounds, {
+    padding: { top: 48, bottom: 72, left: 48, right: 48 },
+    maxZoom: 14,
+    duration: 600,
+  });
+}
 
 type MRTStationGeoJson = {
   type: "FeatureCollection";
@@ -581,6 +786,7 @@ function useMapController({
   onFlightClick,
   onMrtStationClick,
   mrtRouteSegments = EMPTY_MRT_ROUTE_SEGMENTS,
+  busRouteOverlay = null,
 }: MapProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
@@ -592,7 +798,9 @@ function useMapController({
   const onMrtStationClickRef = useRef(onMrtStationClick);
   const mrtLinesRef = useRef<MRTGeoJson | null>(null);
   const mrtRouteSegmentsRef = useRef<MrtRouteSegment[]>(mrtRouteSegments);
+  const busRouteOverlayRef = useRef<BusRouteOverlay | null>(busRouteOverlay);
   const sensorVisibilityRef = useRef(sensorVisibility);
+  const lastFittedBusRouteKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
     onStopClickRef.current = onStopClick;
@@ -652,6 +860,38 @@ function useMapController({
     }
     applyMrtRouteFocus(map, routeGeoJson.features.length > 0);
   }, [mrtRouteSegments]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    busRouteOverlayRef.current = busRouteOverlay;
+    if (!map) return;
+
+    const geoJson = buildBusRouteGeoJson(busRouteOverlay);
+    const source = map.getSource("bus-route") as
+      maplibregl.GeoJSONSource | undefined;
+    if (source) {
+      source.setData(geoJson);
+    }
+
+    const stopsGeoJson = buildBusRouteStopsGeoJson(busRouteOverlay);
+    const stopsSource = map.getSource("bus-route-stops") as
+      maplibregl.GeoJSONSource | undefined;
+    if (stopsSource) {
+      stopsSource.setData(stopsGeoJson);
+    }
+
+    const overlayKey = busRouteOverlay
+      ? `${busRouteOverlay.serviceNo}:${busRouteOverlay.direction}:${busRouteOverlay.selectedPathIndex ?? busRouteOverlay.selectedStopIndex ?? "x"}:${busRouteOverlay.path.length}`
+      : null;
+
+    if (overlayKey && overlayKey !== lastFittedBusRouteKeyRef.current) {
+      fitMapToBusRoute(map, busRouteOverlay);
+      lastFittedBusRouteKeyRef.current = overlayKey;
+    }
+    if (!overlayKey) {
+      lastFittedBusRouteKeyRef.current = null;
+    }
+  }, [busRouteOverlay]);
 
   useEffect(() => {
     if (!containerRef.current || mapRef.current) {
@@ -758,6 +998,103 @@ function useMapController({
         },
       });
 
+      // Bus route overlay: polyline + remaining stops from selected → terminus.
+      const initialBusRouteGeoJson = buildBusRouteGeoJson(
+        busRouteOverlayRef.current,
+      );
+      const initialBusRouteStopsGeoJson = buildBusRouteStopsGeoJson(
+        busRouteOverlayRef.current,
+      );
+      map.addSource("bus-route", {
+        type: "geojson",
+        data: initialBusRouteGeoJson.features.length
+          ? initialBusRouteGeoJson
+          : EMPTY_BUS_ROUTE_GEOJSON,
+      });
+      map.addSource("bus-route-stops", {
+        type: "geojson",
+        data: initialBusRouteStopsGeoJson.features.length
+          ? initialBusRouteStopsGeoJson
+          : EMPTY_BUS_ROUTE_STOPS_GEOJSON,
+      });
+      map.addLayer({
+        id: "bus-route-casing-layer",
+        type: "line",
+        source: "bus-route",
+        layout: {
+          "line-cap": "round",
+          "line-join": "round",
+        },
+        paint: {
+          "line-color": MAP_COLORS.paper,
+          "line-width": 7.5,
+          "line-opacity": 0.65,
+        },
+      });
+      map.addLayer({
+        id: "bus-route-layer",
+        type: "line",
+        source: "bus-route",
+        layout: {
+          "line-cap": "round",
+          "line-join": "round",
+        },
+        paint: {
+          "line-color": MAP_COLORS.bus,
+          "line-width": 4.6,
+          "line-opacity": 0.95,
+        },
+      });
+      // Route stops sit above the general bus-stops layer so they stay visible
+      // when zoomed out along the active service path.
+      map.addLayer({
+        id: "bus-route-stops-layer",
+        type: "circle",
+        source: "bus-route-stops",
+        paint: {
+          "circle-radius": [
+            "match",
+            ["get", "role"],
+            "selected",
+            7,
+            "terminus",
+            6.5,
+            5,
+          ],
+          "circle-color": MAP_COLORS.bus,
+          "circle-opacity": 1,
+          "circle-stroke-width": [
+            "match",
+            ["get", "role"],
+            "selected",
+            2.5,
+            "terminus",
+            2,
+            1.5,
+          ],
+          "circle-stroke-color": MAP_COLORS.paper,
+        },
+      });
+      map.addLayer({
+        id: "bus-route-stops-label-layer",
+        type: "symbol",
+        source: "bus-route-stops",
+        minzoom: 12,
+        layout: {
+          "text-field": ["get", "Description"],
+          "text-size": 10,
+          "text-anchor": "top",
+          "text-offset": [0, 0.9],
+          "text-optional": true,
+          "text-max-width": 10,
+        },
+        paint: {
+          "text-color": MAP_COLORS.ink,
+          "text-halo-color": MAP_COLORS.paper,
+          "text-halo-width": 1.2,
+        },
+      });
+
       layerListenerCleanups.push(
         registerLayerMouseListener(
           map,
@@ -775,6 +1112,25 @@ function useMapController({
           map,
           "mouseleave",
           "bus-stops-layer",
+          handleInteractiveLayerLeave,
+        ),
+        // Same click handler: route stop codes resolve via busStopsRef.
+        registerLayerMouseListener(
+          map,
+          "click",
+          "bus-route-stops-layer",
+          handleBusStopClick,
+        ),
+        registerLayerMouseListener(
+          map,
+          "mouseenter",
+          "bus-route-stops-layer",
+          handleInteractiveLayerEnter,
+        ),
+        registerLayerMouseListener(
+          map,
+          "mouseleave",
+          "bus-route-stops-layer",
           handleInteractiveLayerLeave,
         ),
       );

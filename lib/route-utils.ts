@@ -23,6 +23,9 @@ export { extractClientIp };
 // 5-digit LTA bus stop code, as accepted by the LTA BusArrival endpoint.
 export const BUS_STOP_ID_RE = /^\d{5}$/;
 
+// LTA bus service numbers: digits with optional trailing letter(s), e.g. 12, 12e, NR1.
+export const BUS_SERVICE_NO_RE = /^[A-Za-z0-9]{1,8}$/;
+
 type AppError = ExternalApiError | SchemaParseError | TimeoutError;
 
 const errorToResponse = (
@@ -33,6 +36,13 @@ const errorToResponse = (
     const headers: Record<string, string> = {};
     if (error.status === 429) {
       headers["Retry-After"] = "60";
+    }
+    // Domain not-found (e.g. unknown bus service) is a client-facing 404.
+    if (error.status === 404) {
+      return Response.json(
+        { error: error.message || `${serviceLabel} not found` },
+        { status: 404 },
+      );
     }
     // 4xx (including 429) -> 503 (we treat the upstream as "temporarily
     // unavailable" since the request itself was well-formed); 5xx -> 502;
