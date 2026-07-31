@@ -286,6 +286,10 @@ const MRT_LINE_STATIONS: Record<string, string[]> = {
     "Clementi",
     "West Coast",
     "Jurong Lake District",
+    "CR20 (Taman Jurong)",
+    "CR21 (Jurong Pier)",
+    "CR22 (Jurong Industrial Estate)",
+    "CR23 (Gul Circle)",
   ],
   "Johor Bahru-Singapore RTS": ["Bukit Chagar", "Woodlands North"],
 };
