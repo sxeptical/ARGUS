@@ -3,6 +3,7 @@
 import {
   useEffect,
   useMemo,
+  useRef,
   useState,
   type Dispatch,
   type SetStateAction,
@@ -72,11 +73,13 @@ function toBusRouteOverlay(
 async function fetchBusRoute(
   serviceNo: string,
   stopId: string | null,
+  signal?: AbortSignal,
 ): Promise<BusRouteResponse> {
   const params = new URLSearchParams({ serviceNo });
   if (stopId) params.set("stopId", stopId);
   const response = await fetch(`/api/bus-routes?${params.toString()}`, {
     cache: "no-store",
+    signal,
   });
   if (!response.ok) {
     const payload = (await response.json().catch(() => null)) as {
@@ -228,6 +231,8 @@ function useDashboardState() {
   const [selectedStop, setSelectedStop] = useState<BusStop | null>(null);
   const [busRouteState, setBusRouteState] =
     useState<BusRouteUiState>(IDLE_BUS_ROUTE_STATE);
+  const busRouteRequestIdRef = useRef(0);
+  const busRouteAbortRef = useRef<AbortController | null>(null);
   const [selectedCamera, setSelectedCamera] = useState<TrafficCamera | null>(
     null,
   );
@@ -450,8 +455,19 @@ function useDashboardState() {
     return () => clearTimeout(timer);
   }, []);
 
+  const invalidateBusRouteRequest = () => {
+    busRouteRequestIdRef.current += 1;
+    busRouteAbortRef.current?.abort();
+    busRouteAbortRef.current = null;
+  };
+
   const showBusRoute = (serviceNo: string) => {
+    invalidateBusRouteRequest();
+    const requestId = busRouteRequestIdRef.current;
     const stopCode = selectedStop?.BusStopCode ?? null;
+    const abort = new AbortController();
+    busRouteAbortRef.current = abort;
+
     setBusRouteState({
       serviceNo,
       status: "loading",
@@ -460,40 +476,33 @@ function useDashboardState() {
       activeDirection: null,
     });
 
-    void fetchBusRoute(serviceNo, stopCode)
+    void fetchBusRoute(serviceNo, stopCode, abort.signal)
       .then((data) => {
-        setBusRouteState((prev) => {
-          // Ignore stale responses if the user switched/cleared mid-flight.
-          if (prev.serviceNo !== serviceNo || prev.status !== "loading") {
-            return prev;
-          }
-          return {
-            serviceNo: data.serviceNo,
-            status: "ready",
-            error: null,
-            data,
-            activeDirection: pickDefaultDirection(data),
-          };
+        if (requestId !== busRouteRequestIdRef.current) return;
+        setBusRouteState({
+          serviceNo: data.serviceNo,
+          status: "ready",
+          error: null,
+          data,
+          activeDirection: pickDefaultDirection(data),
         });
       })
       .catch((err: unknown) => {
-        setBusRouteState((prev) => {
-          if (prev.serviceNo !== serviceNo || prev.status !== "loading") {
-            return prev;
-          }
-          return {
-            serviceNo,
-            status: "error",
-            error:
-              err instanceof Error ? err.message : "Unable to load bus route",
-            data: null,
-            activeDirection: null,
-          };
+        if (requestId !== busRouteRequestIdRef.current) return;
+        if (err instanceof DOMException && err.name === "AbortError") return;
+        setBusRouteState({
+          serviceNo,
+          status: "error",
+          error:
+            err instanceof Error ? err.message : "Unable to load bus route",
+          data: null,
+          activeDirection: null,
         });
       });
   };
 
   const clearBusRoute = () => {
+    invalidateBusRouteRequest();
     setBusRouteState(IDLE_BUS_ROUTE_STATE);
   };
 
@@ -508,7 +517,9 @@ function useDashboardState() {
 
   const handleSelectStop = (stop: BusStop) => {
     setSelectedStop(stop);
-    // Changing stop clears any active route; user can re-show from the new stop.
+    // Changing stop clears any active route and invalidates in-flight fetches
+    // so a slower response for the previous stop cannot overwrite this one.
+    invalidateBusRouteRequest();
     setBusRouteState(IDLE_BUS_ROUTE_STATE);
   };
 

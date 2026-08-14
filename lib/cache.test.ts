@@ -219,4 +219,58 @@ describe("Cache", () => {
       expect(calls).toBe(2);
     });
   });
+
+  describe("instance isolation", () => {
+    test("two CacheLive instances do not share in-flight producers for the same key", async () => {
+      const cache1 = Effect.runSync(Cache.pipe(Effect.provide(CacheLive)));
+      const cache2 = Effect.runSync(Cache.pipe(Effect.provide(CacheLive)));
+
+      const results = await Effect.runPromise(
+        Effect.all(
+          [
+            cache1.get(
+              "shared-key",
+              60_000,
+              Effect.gen(function* () {
+                yield* Effect.sleep("30 millis");
+                return "from-one";
+              }),
+            ),
+            cache2.get(
+              "shared-key",
+              60_000,
+              Effect.gen(function* () {
+                yield* Effect.sleep("30 millis");
+                return "from-two";
+              }),
+            ),
+          ],
+          { concurrency: "unbounded" },
+        ),
+      );
+
+      expect(results).toEqual(["from-one", "from-two"]);
+    });
+
+    test("clearing one instance does not drop another instance's in-flight producer", async () => {
+      const cache1 = Effect.runSync(Cache.pipe(Effect.provide(CacheLive)));
+      const cache2 = Effect.runSync(Cache.pipe(Effect.provide(CacheLive)));
+
+      const second = Effect.runPromise(
+        cache2.get(
+          "shared-key",
+          60_000,
+          Effect.gen(function* () {
+            yield* Effect.sleep("40 millis");
+            return "still-two";
+          }),
+        ),
+      );
+
+      await Effect.runPromise(Effect.sleep("5 millis"));
+      Effect.runSync(cache1.clear("shared-key"));
+
+      expect(await second).toBe("still-two");
+    });
+  });
 });
