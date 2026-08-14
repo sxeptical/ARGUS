@@ -7,11 +7,10 @@
  *    (de-duplicated via a per-key Map of memoized Effects).
  *  - When the map reaches `MAX_ENTRIES`, the oldest entry is evicted.
  *
- * The cached entries are held in an Effect `Ref` so the service is fully
- * injectable via `Layer`. The in-flight Map is module-level; it is safe
- * because JavaScript is single-threaded and Effect fibers are cooperatively
- * scheduled, so the check-then-set sequence below is atomic with respect
- * to other fibers.
+ * The cached entries and the in-flight Map are both constructed inside
+ * `make`, so each `CacheLive` instance isolates its own producers. Within
+ * an instance the check-then-set is atomic because JavaScript is
+ * single-threaded and Effect fibers are cooperatively scheduled.
  *
  * A `CacheLive` layer is exported for production use; tests provide a
  * custom `Layer.succeed(Cache, ...)` instead.
@@ -39,11 +38,6 @@ interface CacheState {
   entries: Map<string, CacheEntry>;
 }
 
-// Module-level in-flight registry. Each entry stores the inner Effect of
-// `Effect.cached(producer)`, i.e. the `await Deferred` that all callers share.
-// Late joiners `yield*` the same inner and receive the same value.
-const inFlight = new Map<string, ProducerEffect<unknown, unknown, unknown>>();
-
 const evictOldest = (entries: Map<string, CacheEntry>): void => {
   if (entries.size < MAX_ENTRIES) return;
   let oldestKey = "";
@@ -59,6 +53,11 @@ const evictOldest = (entries: Map<string, CacheEntry>): void => {
 
 const make = Effect.gen(function* () {
   const state = yield* Ref.make<CacheState>({ entries: new Map() });
+  // Per-instance in-flight registry. Each entry stores the inner Effect of
+  // `Effect.cached(producer)`, i.e. the `await Deferred` that callers of
+  // *this* cache share. Late joiners `yield*` the same inner and receive
+  // the same value. A second CacheLive must not see this map.
+  const inFlight = new Map<string, ProducerEffect<unknown, unknown, unknown>>();
 
   const get: Cache["get"] = <A, E, R>(
     key: string,

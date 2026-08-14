@@ -107,8 +107,8 @@ export const RateLimitLive: Layer.Layer<RateLimit, never, never> = Layer.effect(
 /**
  * Extract the originating client IP from the request. Header priority:
  *
- * 1. `x-vercel-forwarded-for` — set by Vercel's edge proxy; always trusted
- *    when present (cannot be spoofed by the client).
+ * 1. When running on Vercel (`VERCEL=1`), `x-vercel-forwarded-for` — set and
+ *    overwritten by Vercel's edge, so it cannot be spoofed by the client.
  * 2. When `ARGUS_TRUST_PROXY_HEADERS=true`, trust `x-real-ip` and
  *    `x-forwarded-for` (standard proxy headers). Use the first hop (leftmost
  *    value) which is the original client when behind a single trusted proxy.
@@ -117,14 +117,17 @@ export const RateLimitLive: Layer.Layer<RateLimit, never, never> = Layer.effect(
  *    limit bucket (intentionally prevents spoofed per-client limits).
  * 4. Falls back to `127.0.0.1` for local/dev requests with no proxy header.
  *
- * On Vercel, `x-vercel-forwarded-for` is always set by the edge, so
- * `x-real-ip` / `x-forwarded-for` are never read (Vercel overwrites them).
+ * `x-vercel-forwarded-for` is ignored unless `VERCEL=1`. On a self-hosted
+ * deployment a client can supply that header themselves.
  */
 export function extractClientIp(request: Request): string {
-  const vercelForwarded = request.headers.get("x-vercel-forwarded-for");
-  if (vercelForwarded) return vercelForwarded.split(",")[0].trim();
-
+  const onVercel = process.env.VERCEL === "1";
   const trustProxy = process.env.ARGUS_TRUST_PROXY_HEADERS === "true";
+
+  if (onVercel) {
+    const vercelForwarded = request.headers.get("x-vercel-forwarded-for");
+    if (vercelForwarded) return vercelForwarded.split(",")[0].trim();
+  }
 
   if (trustProxy) {
     const realIp = request.headers.get("x-real-ip");
@@ -133,9 +136,8 @@ export function extractClientIp(request: Request): string {
     if (forwarded) return forwarded.split(",")[0].trim();
   }
 
-  // On Vercel without x-vercel-forwarded-for (shouldn't happen), trust the
-  // real-ip header since Vercel sets it. On self-hosted without the trust
-  // flag, return a shared bucket key to prevent spoofable per-client limits.
+  // Self-hosted without the trust flag (or Vercel without its edge header):
+  // share one untrusted bucket so clients cannot mint a fresh IP per request.
   if (!trustProxy) {
     return "unknown";
   }

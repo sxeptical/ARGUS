@@ -64,9 +64,12 @@ const BUSROUTER_ROUTES_FALLBACK_URL =
 const FLIGHT_TIMEOUT_MS = 6_000;
 const DEFAULT_TIMEOUT_MS = 10_000;
 const BUS_STOPS_TIMEOUT_MS = 35_000; // 35s aggregate timeout for multi-page fetch
-const BUS_ROUTES_TIMEOUT_MS = 45_000; // 45s aggregate timeout for multi-page BusRoutes
+const BUS_ROUTES_TIMEOUT_MS = 90_000; // 90s aggregate timeout for multi-page BusRoutes
 const BUS_ROUTES_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
-const BUS_ROUTES_MAX_PAGES = 40;
+const BUS_ROUTES_PAGE_SIZE = 500;
+const BUS_ROUTES_PAGE_CONCURRENCY = 4;
+/** Safety cap above the known ~26–27k-row BusRoutes dataset (500 rows/page). */
+export const BUS_ROUTES_MAX_PAGES = 128;
 const BUSROUTER_GEOMETRY_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const BUSROUTER_GEOMETRY_TIMEOUT_MS = 15_000;
 const MAX_BUSROUTER_PATH_POINTS = 2_500;
@@ -102,10 +105,69 @@ const withTimeout = <A, E, R>(
     ),
   );
 
+const errorTag = (e: unknown): string | undefined =>
+  e && typeof e === "object" && "_tag" in e
+    ? String((e as { _tag: unknown })._tag)
+    : undefined;
+
+const toAppHttpError = (
+  service: string,
+  e: unknown,
+): ExternalApiError | SchemaParseError | TimeoutError => {
+  const tag = errorTag(e);
+  if (tag === "TimeoutError") {
+    return e as TimeoutError;
+  }
+  if (tag === "TimeoutException") {
+    return fromTimeoutException(service, e);
+  }
+  if (tag === "SchemaParseError") {
+    return e as SchemaParseError;
+  }
+  if (tag === "ExternalApiError") {
+    return e as ExternalApiError;
+  }
+  // Body decode failures from `response.json` are ResponseError { reason: "Decode" }.
+  if (tag === "ResponseError") {
+    const reason =
+      e && typeof e === "object" && "reason" in e
+        ? String((e as { reason: unknown }).reason)
+        : "";
+    if (reason === "Decode") {
+      return new SchemaParseError({
+        service,
+        message:
+          e instanceof Error
+            ? e.message
+            : `${service} returned malformed JSON`,
+      });
+    }
+    return new ExternalApiError({
+      service,
+      status: 502,
+      message:
+        e instanceof Error
+          ? e.message
+          : `${service} response body failed`,
+    });
+  }
+  return new ExternalApiError({
+    service,
+    status: 502,
+    message:
+      e instanceof Error
+        ? e.message
+        : `${service} request failed: ${String(e)}`,
+  });
+};
+
 // Internal helper: a single typed HTTP GET that returns the decoded JSON.
 // Schemas are passed as `any` to avoid Effect's complex Schema generic
 // machinery; callers cast the result back to the expected shape.
-const httpGetJson = (
+//
+// The timeout covers the full request + status + body + schema path so a
+// server that sends headers and then stalls the body still fails as TimeoutError.
+export const httpGetJson = (
   service: string,
   url: string,
   headers: Record<string, string>,
@@ -116,49 +178,9 @@ const httpGetJson = (
   unknown,
   ExternalApiError | SchemaParseError | TimeoutError,
   HttpClient.HttpClient
-> => {
-  // Apply the shared timeout, then map transport-level failures
-  // (HttpClientError, request aborts) into ExternalApiError. The timeout
-  // and the transport-error mapping share the same `catchAll` because we
-  // need both to flow into the typed-error channel.
-  const request = HttpClient.get(url, { headers }).pipe(
-    Effect.timeout(Duration.millis(timeoutMs)),
-  );
-
-  const response = request.pipe(
-    Effect.catchTag("TimeoutException", (cause) =>
-      Effect.fail(fromTimeoutException(service, cause) as TimeoutError),
-    ),
-    Effect.catchAll(
-      (
-        e,
-      ): Effect.Effect<never, TimeoutError | ExternalApiError, never> => {
-        // TimeoutError was already mapped above — pass it through unchanged
-        // so callers (e.g. flight fallback) see a clean TimeoutError.
-        // Only wrap transport/network failures as ExternalApiError.
-        const tag =
-          e && typeof e === "object" && "_tag" in e
-            ? (e as { _tag: string })._tag
-            : undefined;
-        if (tag === "TimeoutError") {
-          return Effect.fail(e as unknown as TimeoutError);
-        }
-        return Effect.fail(
-          new ExternalApiError({
-            service,
-            status: 502,
-            message:
-              e instanceof Error
-                ? e.message
-                : `${service} request failed: ${String(e)}`,
-          }),
-        );
-      },
-    ),
-  );
-
-  return Effect.gen(function* () {
-    const ok = yield* response;
+> =>
+  Effect.gen(function* () {
+    const ok = yield* HttpClient.get(url, { headers });
 
     if (ok.status === 404) {
       return yield* Effect.fail(
@@ -185,15 +207,24 @@ const httpGetJson = (
     // for the LTA / Data.gov.sg / Aviationstack / OpenSky payloads. Read the
     // body with `.json` and decode it directly with our Schema instead.
     const body = yield* ok.json;
-    return yield* Schema.decodeUnknown(decode)(body).pipe(
+    // `decode` is intentionally untyped (`any`) so Schema's environment
+    // parameter would otherwise widen to `unknown`. Pin only R here —
+    // the AppError union on the surrounding effect stays inferred.
+    const decoded = Schema.decodeUnknown(decode)(body).pipe(
       Effect.mapError((cause) => fromParseError(service, cause)),
-    );
-  }) as Effect.Effect<
-    unknown,
-    ExternalApiError | SchemaParseError | TimeoutError,
-    HttpClient.HttpClient
-  >;
-};
+    ) as Effect.Effect<unknown, SchemaParseError>;
+    return yield* decoded;
+  }).pipe(
+    Effect.timeout(Duration.millis(timeoutMs)),
+    Effect.catchAll(
+      (
+        e,
+      ): Effect.Effect<
+        never,
+        ExternalApiError | SchemaParseError | TimeoutError
+      > => Effect.fail(toAppHttpError(service, e)),
+    ),
+  );
 
 const getLtaApiKey = (): Effect.Effect<string, ExternalApiError, never> =>
   Effect.gen(function* () {
@@ -378,6 +409,73 @@ const buildBusRoutesIndex = (rows: ReadonlyArray<LtaBusRouteRow>): BusRoutesInde
   return raw;
 };
 
+type LtaPage<T> = { readonly value: ReadonlyArray<T> } | null;
+
+/**
+ * Page an LTA OData collection until a short page is received.
+ * If the safety cap is reached while the last page is still full, fail
+ * instead of returning a silently truncated dataset.
+ */
+export const collectLtaPages = <A, E, R>(
+  fetchPage: (skip: number) => Effect.Effect<LtaPage<A>, E, R>,
+  options: {
+    readonly pageSize: number;
+    readonly maxPages: number;
+    readonly service: string;
+    readonly concurrency?: number;
+  },
+): Effect.Effect<A[], E | ExternalApiError, R> =>
+  Effect.gen(function* () {
+    const pageSize = options.pageSize;
+    const maxPages = options.maxPages;
+    const concurrency = Math.max(1, options.concurrency ?? 1);
+    const allRows: A[] = [];
+    let pagesFetched = 0;
+    let lastPageWasFull = false;
+
+    while (pagesFetched < maxPages) {
+      const batchSize = Math.min(concurrency, maxPages - pagesFetched);
+      const skips = Array.from(
+        { length: batchSize },
+        (_, i) => (pagesFetched + i) * pageSize,
+      );
+      const batch = yield* Effect.all(
+        skips.map((skip) => fetchPage(skip)),
+        { concurrency: batchSize },
+      );
+
+      let reachedEnd = false;
+      for (const page of batch) {
+        pagesFetched += 1;
+        if (!page || !Array.isArray(page.value)) {
+          lastPageWasFull = false;
+          reachedEnd = true;
+          break;
+        }
+        allRows.push(...page.value);
+        if (page.value.length < pageSize) {
+          lastPageWasFull = false;
+          reachedEnd = true;
+          break;
+        }
+        lastPageWasFull = true;
+      }
+      if (reachedEnd) break;
+    }
+
+    if (pagesFetched >= maxPages && lastPageWasFull) {
+      return yield* Effect.fail(
+        new ExternalApiError({
+          service: options.service,
+          status: 502,
+          message: `${options.service} pagination hit the ${maxPages}-page safety cap with a full last page; refusing to use a truncated dataset`,
+        }),
+      );
+    }
+
+    return allRows;
+  });
+
 const fetchAndIndexBusRoutes = (): Effect.Effect<
   BusRoutesIndex,
   ExternalApiError | SchemaParseError | TimeoutError,
@@ -386,20 +484,22 @@ const fetchAndIndexBusRoutes = (): Effect.Effect<
   withTimeout(
     "lta-bus-routes",
     Effect.gen(function* () {
-      const allRows: LtaBusRouteRow[] = [];
-      for (let pages = 0, skip = 0; pages < BUS_ROUTES_MAX_PAGES; pages += 1) {
-        const page = yield* ltaGet<{
-          readonly value: ReadonlyArray<LtaBusRouteRow>;
-        }>(`/BusRoutes?$skip=${skip}`, LtaBusRoutesResponseSchema).pipe(
-          Effect.catchTag("ExternalApiError", (e) =>
-            e.status === 404 ? Effect.succeed(null) : Effect.fail(e),
+      const allRows = yield* collectLtaPages(
+        (skip) =>
+          ltaGet<{
+            readonly value: ReadonlyArray<LtaBusRouteRow>;
+          }>(`/BusRoutes?$skip=${skip}`, LtaBusRoutesResponseSchema).pipe(
+            Effect.catchTag("ExternalApiError", (e) =>
+              e.status === 404 ? Effect.succeed(null) : Effect.fail(e),
+            ),
           ),
-        );
-        if (!page || !Array.isArray(page.value)) break;
-        allRows.push(...page.value);
-        if (page.value.length < 500) break;
-        skip += 500;
-      }
+        {
+          pageSize: BUS_ROUTES_PAGE_SIZE,
+          maxPages: BUS_ROUTES_MAX_PAGES,
+          service: "lta",
+          concurrency: BUS_ROUTES_PAGE_CONCURRENCY,
+        },
+      );
       return buildBusRoutesIndex(allRows);
     }),
     BUS_ROUTES_TIMEOUT_MS,

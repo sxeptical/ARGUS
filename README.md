@@ -164,7 +164,7 @@ After editing env vars in Vercel, redeploy the project. Vercel deployments do no
 
 - Flight direction is best-effort. Aviationstack airport metadata is used when available; otherwise heading relative to Changi is used.
 - Serverless memory is not guaranteed across Vercel invocations, so cached fallbacks help during warm periods but should not be treated as durable storage.
-- The bundled cache and rate limiter are in-memory, per-runtime-instance protections. **In production on Vercel, each serverless instance has its own rate limit state** — limits are not shared across instances or cold starts. For hard cross-instance limits, use Vercel Firewall, an edge middleware KV store, or Redis. Vercel also overwrites some forwarding headers at the edge (e.g. `x-vercel-forwarded-for`), which the IP extractor prioritises.
+- The bundled cache and rate limiter are in-memory, per-runtime-instance protections. **In production on Vercel, each serverless instance has its own rate limit state** — limits are not shared across instances or cold starts. For hard cross-instance limits, use Vercel Firewall, an edge middleware KV store, or Redis. On Vercel (`VERCEL=1`) the IP extractor trusts `x-vercel-forwarded-for`, which the edge overwrites. Self-hosted deployments ignore that header unless `ARGUS_TRUST_PROXY_HEADERS=true` is set behind a trusted proxy.
 - API rate limits matter. Flight polling is the most likely source of quota pressure.
 
 ---
