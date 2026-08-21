@@ -43,12 +43,18 @@ interface WindowState {
   ipWindows: Map<string, WindowEntry>;
 }
 
-const evictOldestIfNeeded = (windows: Map<string, WindowEntry>): void => {
+// Evict the oldest window when at capacity. The current caller's own entry is
+// never a candidate: evicting it mid-check would reset their count to 1 and
+// hand them a fresh limit window every time they happened to be oldest.
+const evictOldestIfNeeded = (
+  windows: Map<string, WindowEntry>,
+  currentKey: string,
+): void => {
   if (windows.size < MAX_ENTRIES) return;
   let oldestKey = "";
   let oldest = Infinity;
   for (const [key, entry] of windows) {
-    if (entry.windowStart < oldest) {
+    if (key !== currentKey && entry.windowStart < oldest) {
       oldest = entry.windowStart;
       oldestKey = key;
     }
@@ -69,7 +75,7 @@ const make = Effect.gen(function* () {
       const now = Date.now();
 
       return yield* Ref.modify(state, (s) => {
-        evictOldestIfNeeded(s.ipWindows);
+        evictOldestIfNeeded(s.ipWindows, key);
         const entry = s.ipWindows.get(key);
         if (!entry || now - entry.windowStart > windowMs) {
           s.ipWindows.set(key, { count: 1, windowStart: now });
