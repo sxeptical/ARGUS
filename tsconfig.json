@@ -18,6 +18,9 @@
         "name": "next"
       }
     ],
+    // TypeScript 7 defaults `types` to [] (no automatic @types inclusion);
+    // keep Node globals available for the API routes and lib code.
+    "types": ["node"],
     "paths": {
       "@/*": ["./*"]
     }

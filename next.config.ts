@@ -12,10 +12,10 @@ const securityHeaders = [
   },
   {
     key: "Content-Security-Policy",
-    // MapLibre uses blob: workers and Carto tile fetches. Next.js dev
-    // needs 'unsafe-eval' + 'unsafe-inline' for HMR; production builds
-    // only need 'unsafe-inline' for runtime style injection. We loosen
-    // only where necessary and document why.
+    // MapLibre loads its worker same-origin (public/maplibre/) and Carto
+    // serves the basemap tiles. Next.js dev needs 'unsafe-eval' +
+    // 'unsafe-inline' for HMR; production builds only need 'unsafe-inline'
+    // for runtime style injection. We loosen only where necessary.
     value: [
       "default-src 'self'",
       // Next.js inlines small scripts; dev mode needs eval for HMR.
@@ -29,9 +29,11 @@ const securityHeaders = [
       "connect-src 'self' https://*.basemaps.cartocdn.com",
       // Google Fonts (loaded via stylesheet) and self-hosted font data URIs.
       "font-src 'self' data: https://fonts.gstatic.com",
-      // MapLibre creates blob: web workers for vector tile parsing.
-      "worker-src 'self' blob:",
-      "child-src 'self' blob:",
+      // MapLibre v6 loads its ESM worker from a same-origin URL
+      // (public/maplibre/, copied by scripts/copy-maplibre-worker.mjs), so no
+      // blob: worker allowance is needed anymore. Carto tile fetches remain.
+      "worker-src 'self'",
+      "child-src 'self'",
       "frame-ancestors 'none'",
       "base-uri 'self'",
       "object-src 'none'",
@@ -41,6 +43,17 @@ const securityHeaders = [
 
 const nextConfig: NextConfig = {
   poweredByHeader: false,
+  experimental: {
+    // TypeScript setup: `typescript` resolves to @typescript/typescript6
+    // (the TS 6.0.2 API that typescript-eslint still requires) while
+    // @typescript/native provides the actual TS 7 `tsc` binary used by
+    // `bun run typecheck`. Next's default CLI checker needs the physical
+    // typescript/bin/tsc from the `typescript` package, which the API-only
+    // compat package does not ship — so builds type-check via the JS API
+    // instead. Identical type-checking semantics; see
+    // https://devblogs.microsoft.com/typescript/announcing-typescript-7-0/
+    useTypeScriptCli: false,
+  },
   images: {
     // Disabled because camera images are dynamic external URLs from LTA;
     // unoptimized avoids Next.js image processing overhead and cost on Vercel.
