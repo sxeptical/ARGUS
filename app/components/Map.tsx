@@ -1,6 +1,15 @@
 import { useEffect, useRef } from "react";
-import maplibregl from "maplibre-gl";
+// maplibre-gl v6 is ESM-only: default imports no longer work, so use a
+// namespace import (keeps all maplibregl.* value and type usages intact).
+import * as maplibregl from "maplibre-gl";
+import { setWorkerUrl } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
+
+// The ESM worker cannot be resolved inside the bundler module graph (its
+// maplibre-gl-shared.mjs sibling goes missing), so serve it from public/
+// instead. scripts/copy-maplibre-worker.mjs copies both files at build time
+// via the predev/prebuild hooks.
+setWorkerUrl("/maplibre/maplibre-gl-worker.mjs");
 import { isRouteableMrtStation, type MrtRouteSegment } from "@/lib/mrt-routing";
 import mrtLinesData from "@/public/mrt-lines.json";
 import type {
