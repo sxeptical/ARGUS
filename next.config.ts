@@ -44,13 +44,14 @@ const securityHeaders = [
 const nextConfig: NextConfig = {
   poweredByHeader: false,
   experimental: {
-    // TypeScript setup: `typescript` resolves to @typescript/typescript6
-    // (the TS 6.0.2 API that typescript-eslint still requires) while
-    // @typescript/native provides the actual TS 7 `tsc` binary used by
-    // `bun run typecheck`. Next's default CLI checker needs the physical
-    // typescript/bin/tsc from the `typescript` package, which the API-only
-    // compat package does not ship — so builds type-check via the JS API
-    // instead. Identical type-checking semantics; see
+    // TypeScript setup: the project installs real typescript@6 as the
+    // canonical compiler API (required by typescript-eslint and Next's
+    // API-based build checker) plus @typescript/native (TS 7) whose binary
+    // backs `bun run typecheck`. Next's default CLI checker requires a
+    // physical typescript/bin/tsc from the typescript package itself and
+    // mis-resolves aliased installs on some environments, so builds
+    // type-check via the JS API here instead. TS 7 compiles identically to
+    // TS 6 per Microsoft; see
     // https://devblogs.microsoft.com/typescript/announcing-typescript-7-0/
     useTypeScriptCli: false,
   },
