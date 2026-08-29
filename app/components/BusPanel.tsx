@@ -1,20 +1,17 @@
 import { useEffect, useMemo, useState } from "react";
 import useSWR from "swr";
 import TerminalPanel from "@/app/components/TerminalPanel";
-import type {
-  BusArrival,
-  BusRouteDirection,
-  BusRouteResponse,
-  BusStop,
-} from "@/types";
-
-export type BusRouteUiState = {
-  serviceNo: string | null;
-  status: "idle" | "loading" | "error" | "ready";
-  error: string | null;
-  data: BusRouteResponse | null;
-  activeDirection: number | null;
-};
+import {
+  IDLE_BUS_ROUTE_STATE,
+  type BusRouteUiState,
+} from "@/app/hooks/use-bus-route";
+import { apiFetch } from "@/lib/api-fetch";
+import {
+  mergePointStores,
+  readPointStore,
+  writePointStore,
+} from "@/lib/local-history";
+import type { BusArrival, BusRouteDirection, BusStop } from "@/types";
 
 type BusPanelProps = {
   busStops: BusStop[];
@@ -33,26 +30,17 @@ type BusArrivalHistoryPoint = {
   thirdMinutes: number | null;
 };
 
-type BusArrivalHistoryStore = Record<string, BusArrivalHistoryPoint[]>;
+type BusArrivalHistoryStore = Record<
+  string,
+  ReadonlyArray<BusArrivalHistoryPoint>
+>;
 
 const BUS_ARRIVAL_HISTORY_STORAGE_KEY = "argus.bus-arrival-history.v1";
 const BUS_ARRIVAL_HISTORY_SAMPLE_MS = 5 * 60 * 1000;
 const BUS_ARRIVAL_HISTORY_MAX_POINTS_PER_SERVICE = 288;
+const BUS_ARRIVAL_HISTORY_MAX_SERVICES = 40;
 const BUS_ARRIVAL_REFRESH_MS = 15 * 1000;
 const EMPTY_BUS_ARRIVALS: BusArrival[] = [];
-
-async function fetchBusArrivals(url: string): Promise<BusArrival[]> {
-  const response = await fetch(url, { cache: "no-store" });
-
-  if (!response.ok) {
-    const payload = (await response.json().catch(() => null)) as {
-      error?: string;
-    } | null;
-    throw new Error(payload?.error || "Unable to fetch bus arrivals");
-  }
-
-  return (await response.json()) as BusArrival[];
-}
 
 function getArrivalHistoryKey(stopCode: string, serviceNo: string): string {
   return `${stopCode}:${serviceNo}`;
@@ -74,42 +62,6 @@ function isBusArrivalHistoryPoint(
   return true;
 }
 
-function readBusArrivalHistory(): BusArrivalHistoryStore {
-  if (typeof window === "undefined") return {};
-  try {
-    const raw = window.localStorage.getItem(BUS_ARRIVAL_HISTORY_STORAGE_KEY);
-    if (!raw) return {};
-    const parsed = JSON.parse(raw) as unknown;
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-      return {};
-    }
-    const store = parsed as Record<string, unknown>;
-    const result: BusArrivalHistoryStore = {};
-    for (const [key, value] of Object.entries(store)) {
-      if (!Array.isArray(value)) continue;
-      const validPoints = value.filter(isBusArrivalHistoryPoint);
-      if (validPoints.length > 0) {
-        result[key] = validPoints;
-      }
-    }
-    return result;
-  } catch {
-    return {};
-  }
-}
-
-function writeBusArrivalHistory(history: BusArrivalHistoryStore): void {
-  if (typeof window === "undefined") return;
-  try {
-    window.localStorage.setItem(
-      BUS_ARRIVAL_HISTORY_STORAGE_KEY,
-      JSON.stringify(history),
-    );
-  } catch {
-    // Keep live arrivals working even when localStorage is unavailable.
-  }
-}
-
 function minutesUntil(iso?: string, now = Date.now()): number | null {
   if (!iso) return null;
   const timestamp = Date.parse(iso);
@@ -120,7 +72,7 @@ function minutesUntil(iso?: string, now = Date.now()): number | null {
 function appendBusArrivalHistory(
   history: BusArrivalHistoryStore,
   stopCode: string,
-  arrivals: BusArrival[],
+  arrivals: ReadonlyArray<BusArrival>,
 ): BusArrivalHistoryStore {
   const now = Date.now();
   let changed = false;
@@ -152,19 +104,11 @@ function appendBusArrivalHistory(
   return changed ? next : history;
 }
 
-const IDLE_ROUTE_STATE: BusRouteUiState = {
-  serviceNo: null,
-  status: "idle",
-  error: null,
-  data: null,
-  activeDirection: null,
-};
-
 export default function BusPanel({
   busStops,
   selectedStop,
   onSelectStop,
-  routeState = IDLE_ROUTE_STATE,
+  routeState = IDLE_BUS_ROUTE_STATE,
   onShowRoute,
   onClearRoute,
   onSelectRouteDirection,
@@ -187,7 +131,7 @@ export default function BusPanel({
     data: arrivals = EMPTY_BUS_ARRIVALS,
     error: arrivalsError,
     isLoading,
-  } = useSWR<BusArrival[], Error>(arrivalsUrl, fetchBusArrivals, {
+  } = useSWR<BusArrival[], Error>(arrivalsUrl, apiFetch<BusArrival[]>, {
     refreshInterval: BUS_ARRIVAL_REFRESH_MS,
     onSuccess: (nextArrivals, key) => {
       const queryStart = key.indexOf("?");
@@ -197,9 +141,24 @@ export default function BusPanel({
       if (!stopCode || nextArrivals.length === 0) return;
 
       setArrivalHistory((previous) => {
-        const next = appendBusArrivalHistory(previous, stopCode, nextArrivals);
+        // Merge storage at write time so an early SWR callback cannot replace
+        // history before the hydration timer runs.
+        const persisted = readPointStore(
+          BUS_ARRIVAL_HISTORY_STORAGE_KEY,
+          isBusArrivalHistoryPoint,
+        );
+        const next = appendBusArrivalHistory(
+          mergePointStores(persisted, previous),
+          stopCode,
+          nextArrivals,
+        );
         if (next === previous) return previous;
-        writeBusArrivalHistory(next);
+        writePointStore(
+          BUS_ARRIVAL_HISTORY_STORAGE_KEY,
+          next,
+          BUS_ARRIVAL_HISTORY_MAX_POINTS_PER_SERVICE,
+          BUS_ARRIVAL_HISTORY_MAX_SERVICES,
+        );
         return next;
       });
     },
@@ -222,11 +181,23 @@ export default function BusPanel({
   }, [busStops, search]);
 
   useEffect(() => {
-    const timer = setTimeout(
-      () => setArrivalHistory(readBusArrivalHistory()),
-      0,
-    );
-    return () => clearTimeout(timer);
+    const timer = window.setTimeout(() => {
+      setArrivalHistory((current) => {
+        const persisted = readPointStore(
+          BUS_ARRIVAL_HISTORY_STORAGE_KEY,
+          isBusArrivalHistoryPoint,
+        );
+        const merged = mergePointStores(persisted, current);
+        writePointStore(
+          BUS_ARRIVAL_HISTORY_STORAGE_KEY,
+          merged,
+          BUS_ARRIVAL_HISTORY_MAX_POINTS_PER_SERVICE,
+          BUS_ARRIVAL_HISTORY_MAX_SERVICES,
+        );
+        return merged;
+      });
+    }, 0);
+    return () => window.clearTimeout(timer);
   }, []);
 
   const visibleArrivals = useMemo(() => {
@@ -381,13 +352,13 @@ function ServiceRow({
   onSelectDirection,
 }: {
   service: BusArrival;
-  history: BusArrivalHistoryPoint[];
+  history: ReadonlyArray<BusArrivalHistoryPoint>;
   expanded: boolean;
   onToggle: () => void;
   routeActive: boolean;
   routeStatus: BusRouteUiState["status"];
   routeError: string | null;
-  routeDirections: BusRouteDirection[];
+  routeDirections: ReadonlyArray<BusRouteDirection>;
   activeDirection: number | null;
   onToggleRoute: () => void;
   onSelectDirection?: (direction: number) => void;
@@ -523,7 +494,7 @@ function RouteSummary({
   directions,
   activeDirection,
 }: {
-  directions: BusRouteDirection[];
+  directions: ReadonlyArray<BusRouteDirection>;
   activeDirection: number | null;
 }) {
   const active =
@@ -589,7 +560,7 @@ function DeepBusDetail({
 function ArrivalPatternDetail({
   history,
 }: {
-  history: BusArrivalHistoryPoint[];
+  history: ReadonlyArray<BusArrivalHistoryPoint>;
 }) {
   const values = history
     .map((point) => point.nextMinutes)

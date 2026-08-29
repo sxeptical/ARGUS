@@ -6,6 +6,6 @@ export async function GET(request: Request) {
     request,
     "weather",
     { maxRequests: 120, serviceLabel: "Weather data" },
-    getWeather(),
+    () => getWeather(),
   );
 }

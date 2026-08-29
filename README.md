@@ -6,7 +6,7 @@ https://www.argusint.live
 
 [![Next.js](https://img.shields.io/badge/Next.js-16-black?logo=nextdotjs)](https://nextjs.org/)
 [![React](https://img.shields.io/badge/React-19-61dafb?logo=react&logoColor=111)](https://react.dev/)
-[![MapLibre](https://img.shields.io/badge/MapLibre-5.24-21b8a6)](https://maplibre.org/)
+[![MapLibre](https://img.shields.io/badge/MapLibre-6.4-21b8a6)](https://maplibre.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-ready-3178c6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![Vercel](https://img.shields.io/badge/Deploy-Vercel-black?logo=vercel)](https://vercel.com/)
 [![Bun](https://img.shields.io/badge/Bun-1.4-f9f1e1?logo=bun&logoColor=f472b6)](https://bun.sh/)
@@ -118,16 +118,18 @@ Weather and news currently use public endpoints and do not require keys.
 ```text
 app/
   api/                 Next.js route handlers for live data
-  components/          Dashboard panels and MapLibre map
+  components/          Dashboard panels and focused MapLibre helpers
+  hooks/               Dashboard data, route, history, and MRT state
   page.tsx             Main command-center layout
 lib/
-  api-clients.ts       External API clients, parsing, fallback logic
+  api-clients/         Typed HTTP clients split by source/domain
   cache.ts             In-memory TTL cache
+  mrt-network.ts       Canonical MRT stations, coordinates, and line status
+  mrt-routing.ts       Routing graph derived from the canonical network
   rate-limit.ts        Lightweight API route rate limiting
-public/
-  mrt-lines.json       MRT line geometry
 types/
-  index.ts             Shared TypeScript data contracts
+  schemas.ts           Runtime schemas and schema-derived contracts
+  index.ts             Client-facing domain contracts
 ```
 
 ---
@@ -139,6 +141,9 @@ bun run dev      # Start local development
 bun run build    # Production build
 bun run start    # Start production server
 bun run lint     # ESLint
+bun run test     # Unit and regression tests
+bun run typecheck # Native TypeScript 7 check
+bun run verify   # Typecheck, lint, test, and production build
 ```
 
 ---
@@ -168,4 +173,3 @@ After editing env vars in Vercel, redeploy the project. Vercel deployments do no
 - API rate limits matter. Flight polling is the most likely source of quota pressure.
 
 ---
-

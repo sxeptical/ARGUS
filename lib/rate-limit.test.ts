@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { extractClientIp } from "./rate-limit";
+import { Effect } from "effect";
+import { extractClientIp, RateLimit, RateLimitLive } from "./rate-limit";
 
 const originalVercel = process.env.VERCEL;
 const originalTrustProxy = process.env.ARGUS_TRUST_PROXY_HEADERS;
@@ -67,5 +68,70 @@ describe("extractClientIp", () => {
     process.env.ARGUS_TRUST_PROXY_HEADERS = "true";
 
     expect(extractClientIp(requestWith({}))).toBe("127.0.0.1");
+  });
+});
+
+describe("RateLimit service", () => {
+  test("allows through the threshold and blocks the next request", async () => {
+    const result = await Effect.runPromise(
+      Effect.gen(function* () {
+        const limiter = yield* RateLimit;
+        const first = yield* limiter.check("203.0.113.1", {
+          scope: "threshold",
+          maxRequests: 2,
+          windowMs: 60_000,
+        });
+        const second = yield* limiter.check("203.0.113.1", {
+          scope: "threshold",
+          maxRequests: 2,
+          windowMs: 60_000,
+        });
+        const third = yield* limiter.check("203.0.113.1", {
+          scope: "threshold",
+          maxRequests: 2,
+          windowMs: 60_000,
+        });
+        return { first, second, third };
+      }).pipe(Effect.provide(RateLimitLive)),
+    );
+
+    expect(result.first.allowed).toBe(true);
+    expect(result.second.allowed).toBe(true);
+    expect(result.second.remaining).toBe(0);
+    expect(result.third.allowed).toBe(false);
+  });
+
+  test("resets after the window and isolates scopes", async () => {
+    const result = await Effect.runPromise(
+      Effect.gen(function* () {
+        const limiter = yield* RateLimit;
+        yield* limiter.check("203.0.113.2", {
+          scope: "one",
+          maxRequests: 1,
+          windowMs: 10,
+        });
+        const blocked = yield* limiter.check("203.0.113.2", {
+          scope: "one",
+          maxRequests: 1,
+          windowMs: 10,
+        });
+        const otherScope = yield* limiter.check("203.0.113.2", {
+          scope: "two",
+          maxRequests: 1,
+          windowMs: 10,
+        });
+        yield* Effect.sleep("15 millis");
+        const reset = yield* limiter.check("203.0.113.2", {
+          scope: "one",
+          maxRequests: 1,
+          windowMs: 10,
+        });
+        return { blocked, otherScope, reset };
+      }).pipe(Effect.provide(RateLimitLive)),
+    );
+
+    expect(result.blocked.allowed).toBe(false);
+    expect(result.otherScope.allowed).toBe(true);
+    expect(result.reset.allowed).toBe(true);
   });
 });
