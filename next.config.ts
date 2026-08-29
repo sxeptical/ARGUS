@@ -12,8 +12,8 @@ const securityHeaders = [
   },
   {
     key: "Content-Security-Policy",
-    // MapLibre loads its worker same-origin (public/maplibre/) and Carto
-    // serves the basemap tiles. Next.js dev needs 'unsafe-eval' +
+    // MapLibre loads its worker same-origin (public/maplibre/) and
+    // OpenFreeMap serves the keyless basemap. Next.js dev needs 'unsafe-eval' +
     // 'unsafe-inline' for HMR; production builds only need 'unsafe-inline'
     // for runtime style injection. We loosen only where necessary.
     value: [
@@ -23,15 +23,15 @@ const securityHeaders = [
       `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ""}`,
       // Tailwind emits inline styles at runtime; runtime style injection.
       "style-src 'self' 'unsafe-inline'",
-      // Camera images (data.gov.sg, LTA S3), Carto basemap tiles.
-      "img-src 'self' data: blob: https://images.data.gov.sg https://datamall2.mytransport.sg https://dm-traffic-camera-itsc.s3.ap-southeast-1.amazonaws.com https://*.basemaps.cartocdn.com https://a.basemaps.cartocdn.com https://b.basemaps.cartocdn.com",
-      // Carto tile JSON and vector tile fetches.
-      "connect-src 'self' https://*.basemaps.cartocdn.com",
+      // Camera images (data.gov.sg, LTA S3) and OpenFreeMap raster assets.
+      "img-src 'self' data: blob: https://images.data.gov.sg https://datamall2.mytransport.sg https://dm-traffic-camera-itsc.s3.ap-southeast-1.amazonaws.com https://tiles.openfreemap.org",
+      // OpenFreeMap style, vector/raster tiles, sprites, and glyphs.
+      "connect-src 'self' https://tiles.openfreemap.org",
       // Google Fonts (loaded via stylesheet) and self-hosted font data URIs.
       "font-src 'self' data: https://fonts.gstatic.com",
       // MapLibre v6 loads its ESM worker from a same-origin URL
       // (public/maplibre/, copied by scripts/copy-maplibre-worker.mjs), so no
-      // blob: worker allowance is needed anymore. Carto tile fetches remain.
+      // blob: worker allowance is needed anymore.
       "worker-src 'self'",
       "child-src 'self'",
       "frame-ancestors 'none'",
