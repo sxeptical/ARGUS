@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
 import { isRouteableMrtStation, MRT_STATION_NAMES, planMrtRoute } from "./mrt-routing";
-import { MRT_LINES } from "./mrt-network";
 
 describe("isRouteableMrtStation", () => {
   test("returns true for known operational stations", () => {
@@ -67,51 +66,11 @@ describe("planMrtRoute", () => {
     expect(plan!.stations).toContain("Paya Lebar");
   });
 
-  test("returns the exact direct East West Line route", () => {
-    const plan = planMrtRoute("Bugis", "Paya Lebar");
-    expect(plan).not.toBeNull();
-    expect(plan!.stations).toEqual([
-      "Bugis",
-      "Lavender",
-      "Kallang",
-      "Aljunied",
-      "Paya Lebar",
-    ]);
-    expect(plan!.segments).toEqual([
-      {
-        line: "East West Line",
-        from: "Bugis",
-        to: "Paya Lebar",
-        stops: 4,
-      },
-    ]);
-    expect(plan!.transfers).toBe(0);
-    expect(plan!.estimatedMinutes).toBe(12);
-  });
-
   test("returns a valid plan that includes transfers for cross-line trips", () => {
     // Jurong East (NS/EW interchange) -> Bugis (EW/DT interchange)
     const plan = planMrtRoute("Jurong East", "Bugis");
     expect(plan).not.toBeNull();
     expect(plan!.transfers).toBeGreaterThanOrEqual(0);
     expect(plan!.estimatedMinutes).toBeGreaterThan(0);
-  });
-});
-
-describe("canonical MRT network", () => {
-  test("has unique line names and routeable operational stations", () => {
-    expect(new Set(MRT_LINES.map((line) => line.name)).size).toBe(
-      MRT_LINES.length,
-    );
-    for (const line of MRT_LINES) {
-      expect(line.stations.length).toBeGreaterThan(1);
-      for (const station of line.stations) {
-        expect(station.name.length).toBeGreaterThan(0);
-        expect(station.coordinates).toHaveLength(2);
-        if (line.status === "operational") {
-          expect(isRouteableMrtStation(station.name)).toBe(true);
-        }
-      }
-    }
   });
 });

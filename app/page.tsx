@@ -27,7 +27,6 @@ import {
   formatAltitudeFeet,
   formatSpeedKmh,
 } from "@/lib/formatters";
-import { MRT_LINES } from "@/lib/mrt-network";
 import type {
   FlightState,
   TrafficCamera,
@@ -122,7 +121,7 @@ function useDashboardState() {
       key: "mrt",
       label: "MRT Network",
       note: "lines + stations",
-      value: MRT_LINES.length,
+      value: 10,
       tone: "text-signal-mrt",
     },
   ];

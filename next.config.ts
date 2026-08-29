@@ -13,7 +13,8 @@ const securityHeaders = [
   {
     key: "Content-Security-Policy",
     // MapLibre loads its worker same-origin (public/maplibre/) and
-    // OpenFreeMap serves the keyless basemap. Next.js dev needs 'unsafe-eval' +
+    // OpenFreeMap serves the keyless basemap. Next.js dev needs
+    // 'unsafe-eval' +
     // 'unsafe-inline' for HMR; production builds only need 'unsafe-inline'
     // for runtime style injection. We loosen only where necessary.
     value: [

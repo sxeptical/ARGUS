@@ -10,27 +10,31 @@ import "maplibre-gl/dist/maplibre-gl.css";
 // instead. scripts/copy-maplibre-worker.mjs copies both files at build time
 // via the predev/prebuild hooks.
 setWorkerUrl("/maplibre/maplibre-gl-worker.mjs");
-import type { MrtRouteSegment } from "@/lib/mrt-routing";
-import {
-  EMPTY_BUS_ROUTE_GEOJSON,
-  EMPTY_BUS_ROUTE_STOPS_GEOJSON,
-  buildBusRouteGeoJson,
-  buildBusRouteStopsGeoJson,
-  fitMapToBusRoute,
-  type BusRouteOverlay,
-} from "@/app/components/map-bus-route";
-export type { BusRouteOverlay } from "@/app/components/map-bus-route";
-import {
-  MRT_LINES_GEOJSON,
-  MRT_STATIONS_GEOJSON,
-  applyMrtRouteFocus,
-  buildMrtRouteGeoJson,
-} from "@/app/components/map-mrt";
+import { isRouteableMrtStation, type MrtRouteSegment } from "@/lib/mrt-routing";
+import mrtLinesData from "@/public/mrt-lines.json";
 import type {
+  BusRouteStop,
   BusStop,
   FlightState,
+  MRTGeoJson,
   TrafficCamera,
 } from "@/types";
+
+/** Active bus service route drawn as road-following (or stop-chord) polylines. */
+export type BusRouteOverlay = {
+  serviceNo: string;
+  direction: number;
+  stops: ReadonlyArray<BusRouteStop>;
+  /** Index into `stops` for the selected stop (stop-chord fallback). */
+  selectedStopIndex: number | null;
+  /**
+   * Road-following polyline [lng, lat] when available. Empty → fall back to
+   * connecting `stops` with straight segments.
+   */
+  path: ReadonlyArray<readonly [number, number]>;
+  /** Index into `path` nearest the selected stop for remaining-path emphasis. */
+  selectedPathIndex: number | null;
+};
 
 type MapProps = {
   busStops: BusStop[];
@@ -46,7 +50,7 @@ type MapProps = {
   onCameraClick: (camera: TrafficCamera) => void;
   onFlightClick: (flight: FlightState) => void;
   onMrtStationClick?: (stationName: string) => void;
-  mrtRouteSegments?: ReadonlyArray<MrtRouteSegment>;
+  mrtRouteSegments?: MrtRouteSegment[];
   busRouteOverlay?: BusRouteOverlay | null;
 };
 
@@ -62,7 +66,694 @@ const MAP_COLORS = {
   bus: "#54ffae",
 } as const;
 
+/**
+ * OpenFreeMap's stock dark style is intentionally near-black. Increase the
+ * contrast of only the provider's base layers before ARGUS adds its own MRT,
+ * bus, flight, and camera overlays, so those signal colours remain intact.
+ */
+function improveDarkBasemapContrast(map: maplibregl.Map): void {
+  for (const layer of map.getStyle().layers ?? []) {
+    const id = layer.id.toLowerCase();
+    try {
+      switch (layer.type) {
+        case "background":
+          map.setPaintProperty(layer.id, "background-color", "#101316");
+          break;
+        case "fill": {
+          const color = id.includes("water")
+            ? "#102b3d"
+            : id.includes("park") ||
+                id.includes("wood") ||
+                id.includes("landcover")
+              ? "#19291f"
+              : id.includes("building")
+                ? "#292d31"
+                : "#1b1f22";
+          map.setPaintProperty(layer.id, "fill-color", color);
+          map.setPaintProperty(layer.id, "fill-outline-color", "#30363b");
+          break;
+        }
+        case "line": {
+          const color =
+            id.includes("road") || id.includes("highway")
+              ? "#596169"
+              : id.includes("water")
+                ? "#24506a"
+                : id.includes("boundary")
+                  ? "#4b5563"
+                  : "#41484f";
+          map.setPaintProperty(layer.id, "line-color", color);
+          break;
+        }
+        case "symbol":
+          map.setPaintProperty(layer.id, "text-color", "#aeb6bf");
+          map.setPaintProperty(layer.id, "text-halo-color", "#101316");
+          map.setPaintProperty(layer.id, "text-halo-width", 1);
+          break;
+        case "raster":
+          map.setPaintProperty(layer.id, "raster-saturation", -0.7);
+          map.setPaintProperty(layer.id, "raster-brightness-max", 0.55);
+          break;
+      }
+    } catch {
+      // Some third-party layers use expressions that cannot be replaced by
+      // every paint property. Keep the provider default for those layers.
+    }
+  }
+}
+
+const MRT_LINE_STATIONS: Record<string, string[]> = {
+  "North South Line": [
+    "Jurong East",
+    "Bukit Batok",
+    "Bukit Gombak",
+    "Choa Chu Kang",
+    "Yew Tee",
+    "Kranji",
+    "Marsiling",
+    "Woodlands",
+    "Admiralty",
+    "Sembawang",
+    "Canberra",
+    "Yishun",
+    "Khatib",
+    "Yio Chu Kang",
+    "Ang Mo Kio",
+    "Bishan",
+    "Braddell",
+    "Toa Payoh",
+    "Novena",
+    "Newton",
+    "Orchard",
+    "Somerset",
+    "Dhoby Ghaut",
+    "City Hall",
+    "Raffles Place",
+    "Marina Bay",
+    "Marina South Pier",
+  ],
+  "East West Line": [
+    "Tuas Link",
+    "Tuas West Road",
+    "Tuas Crescent",
+    "Gul Circle",
+    "Joo Koon",
+    "Pioneer",
+    "Boon Lay",
+    "Lakeside",
+    "Chinese Garden",
+    "Jurong East",
+    "Clementi",
+    "Dover",
+    "Buona Vista",
+    "Commonwealth",
+    "Queenstown",
+    "Redhill",
+    "Tiong Bahru",
+    "Outram Park",
+    "Tanjong Pagar",
+    "Raffles Place",
+    "City Hall",
+    "Bugis",
+    "Lavender",
+    "Kallang",
+    "Aljunied",
+    "Paya Lebar",
+    "Eunos",
+    "Kembangan",
+    "Bedok",
+    "Tanah Merah",
+    "Simei",
+    "Tampines",
+    "Pasir Ris",
+  ],
+  "Changi Airport Branch": ["Tanah Merah", "Expo", "Changi Airport"],
+  "North East Line": [
+    "HarbourFront",
+    "Outram Park",
+    "Chinatown",
+    "Clarke Quay",
+    "Dhoby Ghaut",
+    "Little India",
+    "Farrer Park",
+    "Boon Keng",
+    "Potong Pasir",
+    "Woodleigh",
+    "Serangoon",
+    "Kovan",
+    "Hougang",
+    "Buangkok",
+    "Sengkang",
+    "Punggol",
+    "Punggol Coast",
+  ],
+  "Circle Line": [
+    "Dhoby Ghaut",
+    "Bras Basah",
+    "Esplanade",
+    "Promenade",
+    "Nicoll Highway",
+    "Stadium",
+    "Mountbatten",
+    "Dakota",
+    "Paya Lebar",
+    "MacPherson",
+    "Tai Seng",
+    "Bartley",
+    "Serangoon",
+    "Lorong Chuan",
+    "Bishan",
+    "Marymount",
+    "Caldecott",
+    "Botanic Gardens",
+    "Farrer Road",
+    "Holland Village",
+    "Buona Vista",
+    "one-north",
+    "Kent Ridge",
+    "Haw Par Villa",
+    "Pasir Panjang",
+    "Labrador Park",
+    "Telok Blangah",
+    "HarbourFront",
+  ],
+  "Circle Line Extension": [
+    "HarbourFront",
+    "Keppel",
+    "Cantonment",
+    "Prince Edward Road",
+    "Marina Bay",
+  ],
+  "Downtown Line": [
+    "Bukit Panjang",
+    "Cashew",
+    "Hillview",
+    "Beauty World",
+    "King Albert Park",
+    "Sixth Avenue",
+    "Tan Kah Kee",
+    "Botanic Gardens",
+    "Stevens",
+    "Newton",
+    "Little India",
+    "Rochor",
+    "Bugis",
+    "Promenade",
+    "Bayfront",
+    "Downtown",
+    "Telok Ayer",
+    "Chinatown",
+    "Fort Canning",
+    "Bencoolen",
+    "Jalan Besar",
+    "Bendemeer",
+    "Geylang Bahru",
+    "Mattar",
+    "MacPherson",
+    "Ubi",
+    "Kaki Bukit",
+    "Bedok North",
+    "Bedok Reservoir",
+    "Tampines West",
+    "Tampines",
+    "Tampines East",
+    "Upper Changi",
+    "Expo",
+  ],
+  // TEL operational: Woodlands North → Bayshore (27 stations, 27 coordinates)
+  "Thomson-East Coast Line": [
+    "Woodlands North",
+    "Woodlands",
+    "Woodlands South",
+    "Springleaf",
+    "Lentor",
+    "Mayflower",
+    "Bright Hill",
+    "Upper Thomson",
+    "Caldecott",
+    "Stevens",
+    "Napier",
+    "Orchard Boulevard",
+    "Orchard",
+    "Great World",
+    "Havelock",
+    "Outram Park",
+    "Maxwell",
+    "Shenton Way",
+    "Marina Bay",
+    "Gardens by the Bay",
+    "Tanjong Rhu",
+    "Katong Park",
+    "Tanjong Katong",
+    "Marine Parade",
+    "Marine Terrace",
+    "Siglap",
+    "Bayshore",
+  ],
+  // TEL Stage 5 extension — planned 2H 2026, NOT yet operational (non-routeable on map)
+  "Thomson-East Coast Line Extension": [
+    "Bayshore",
+    "Bedok South",
+    "Sungei Bedok",
+  ],
+  "Jurong Region Line": [
+    "Choa Chu Kang",
+    "Choa Chu Kang West",
+    "JS2A",
+    "Tengah",
+    "Hong Kah",
+    "Corporation",
+    "Jurong West",
+    "Bahar Junction",
+    "Boon Lay",
+    "Enterprise",
+    "Tukang",
+    "Jurong Hill",
+    "Jurong Pier",
+  ],
+  "Jurong Region Line West Branch": [
+    "Bahar Junction",
+    "Gek Poh",
+    "Tawas",
+    "Nanyang Gateway",
+    "Nanyang Crescent",
+    "Peng Kang Hill",
+  ],
+  "Jurong Region Line East Branch": [
+    "Tengah",
+    "Tengah Plantation",
+    "Tengah Park",
+    "Bukit Batok West",
+    "Toh Guan",
+    "Jurong East",
+    "Jurong Town Hall",
+    "Pandan Reservoir",
+  ],
+  // WCE: Pandan Reservoir (JE7) -> West Coast (CRL CR18) -> Kent Ridge (CCL); late 2030s / early 2040s
+  "Jurong Region Line West Coast Extension": [
+    "Pandan Reservoir",
+    "West Coast",
+    "Kent Ridge",
+  ],
+  "Cross Island Line": [
+    "Aviation Park",
+    "Loyang",
+    "Pasir Ris",
+    "Tampines North",
+    "Defu",
+    "Hougang",
+    "Serangoon North",
+    "Tavistock",
+    "Ang Mo Kio",
+    "Teck Ghee",
+    "Bright Hill",
+    "Turf City",
+    "King Albert Park",
+    "Clementi",
+    "West Coast",
+    "Jurong Lake District",
+    "CR20 (Taman Jurong)",
+    "CR21 (Jurong Pier)",
+    "CR22 (Jurong Industrial Estate)",
+    "CR23 (Gul Circle)",
+  ],
+  "Johor Bahru-Singapore RTS": ["Bukit Chagar", "Woodlands North"],
+};
+
+const MRT_LINES = mrtLinesData as MRTGeoJson;
 const EMPTY_MRT_ROUTE_SEGMENTS: MrtRouteSegment[] = [];
+
+type BusRouteLineGeoJson = {
+  type: "FeatureCollection";
+  features: Array<{
+    type: "Feature";
+    properties: {
+      kind: "remaining";
+      serviceNo: string;
+    };
+    geometry: {
+      type: "LineString";
+      coordinates: [number, number][];
+    };
+  }>;
+};
+
+type BusRouteStopsGeoJson = {
+  type: "FeatureCollection";
+  features: Array<{
+    type: "Feature";
+    properties: {
+      BusStopCode: string;
+      Description: string;
+      role: "selected" | "terminus" | "stop";
+      sequence: number;
+    };
+    geometry: {
+      type: "Point";
+      coordinates: [number, number];
+    };
+  }>;
+};
+
+const EMPTY_BUS_ROUTE_GEOJSON: BusRouteLineGeoJson = {
+  type: "FeatureCollection",
+  features: [],
+};
+
+const EMPTY_BUS_ROUTE_STOPS_GEOJSON: BusRouteStopsGeoJson = {
+  type: "FeatureCollection",
+  features: [],
+};
+
+/**
+ * Resolve the polyline to draw for a bus route overlay.
+ *
+ * When the user selected a stop, only the remaining segment from that stop
+ * to the terminus is returned (not the full outbound+return geometry, and
+ * not the portion already travelled).
+ */
+function resolveBusRouteDrawPath(
+  overlay: BusRouteOverlay,
+): Array<[number, number]> {
+  const fullCoords: Array<[number, number]> =
+    overlay.path.length >= 2
+      ? overlay.path.map(([lng, lat]) => [lng, lat])
+      : overlay.stops.map(
+          (stop) => [stop.longitude, stop.latitude] as [number, number],
+        );
+
+  if (fullCoords.length < 2) return [];
+
+  // Prefer path index (road geometry); fall back to stop index (chords).
+  const startIdx =
+    overlay.path.length >= 2
+      ? overlay.selectedPathIndex
+      : overlay.selectedStopIndex;
+
+  if (startIdx !== null && startIdx >= 0 && startIdx < fullCoords.length - 1) {
+    return fullCoords.slice(startIdx);
+  }
+
+  // No stop context (or stop is the terminus) → full active direction only.
+  return fullCoords;
+}
+
+/** Stops on the remaining path (selected stop → terminus), inclusive. */
+function resolveRemainingRouteStops(
+  overlay: BusRouteOverlay,
+): ReadonlyArray<BusRouteStop> {
+  if (overlay.stops.length === 0) return [];
+  const startIdx =
+    overlay.selectedStopIndex !== null &&
+    overlay.selectedStopIndex >= 0 &&
+    overlay.selectedStopIndex < overlay.stops.length
+      ? overlay.selectedStopIndex
+      : 0;
+  return overlay.stops.slice(startIdx);
+}
+
+function buildBusRouteGeoJson(
+  overlay: BusRouteOverlay | null | undefined,
+): BusRouteLineGeoJson {
+  if (!overlay || (overlay.path.length < 2 && overlay.stops.length < 2)) {
+    return { type: "FeatureCollection", features: [] };
+  }
+
+  const drawCoords = resolveBusRouteDrawPath(overlay);
+  if (drawCoords.length < 2) {
+    return { type: "FeatureCollection", features: [] };
+  }
+
+  // Single polyline only — remaining path from selected stop to destination.
+  return {
+    type: "FeatureCollection",
+    features: [
+      {
+        type: "Feature",
+        properties: { kind: "remaining", serviceNo: overlay.serviceNo },
+        geometry: { type: "LineString", coordinates: drawCoords },
+      },
+    ],
+  };
+}
+
+function buildBusRouteStopsGeoJson(
+  overlay: BusRouteOverlay | null | undefined,
+): BusRouteStopsGeoJson {
+  if (!overlay) return EMPTY_BUS_ROUTE_STOPS_GEOJSON;
+  const remaining = resolveRemainingRouteStops(overlay);
+  if (remaining.length === 0) return EMPTY_BUS_ROUTE_STOPS_GEOJSON;
+
+  const lastIdx = remaining.length - 1;
+  return {
+    type: "FeatureCollection",
+    features: remaining.flatMap((stop, index) => {
+      if (
+        !Number.isFinite(stop.latitude) ||
+        !Number.isFinite(stop.longitude)
+      ) {
+        return [];
+      }
+      const role: "selected" | "terminus" | "stop" =
+        index === 0
+          ? "selected"
+          : index === lastIdx
+            ? "terminus"
+            : "stop";
+      return [
+        {
+          type: "Feature" as const,
+          properties: {
+            BusStopCode: stop.busStopCode,
+            Description: stop.description,
+            role,
+            sequence: stop.stopSequence,
+          },
+          geometry: {
+            type: "Point" as const,
+            coordinates: [stop.longitude, stop.latitude] as [number, number],
+          },
+        },
+      ];
+    }),
+  };
+}
+
+function fitMapToBusRoute(
+  map: maplibregl.Map,
+  overlay: BusRouteOverlay | null | undefined,
+) {
+  if (!overlay) return;
+  const drawCoords = resolveBusRouteDrawPath(overlay);
+  if (drawCoords.length < 2) return;
+  const bounds = new maplibregl.LngLatBounds();
+  for (const [lng, lat] of drawCoords) {
+    bounds.extend([lng, lat]);
+  }
+  // Include remaining stop points so termini stay in frame even if the path
+  // slightly undershoots stop coordinates.
+  for (const stop of resolveRemainingRouteStops(overlay)) {
+    if (Number.isFinite(stop.longitude) && Number.isFinite(stop.latitude)) {
+      bounds.extend([stop.longitude, stop.latitude]);
+    }
+  }
+  if (bounds.isEmpty()) return;
+  map.fitBounds(bounds, {
+    padding: { top: 48, bottom: 72, left: 48, right: 48 },
+    maxZoom: 14,
+    duration: 600,
+  });
+}
+
+type MRTStationGeoJson = {
+  type: "FeatureCollection";
+  features: Array<{
+    type: "Feature";
+    properties: {
+      name: string;
+      label: string;
+      line: string;
+      color: string;
+      routeable: boolean;
+    };
+    geometry: {
+      type: "Point";
+      coordinates: [number, number];
+    };
+  }>;
+};
+
+type MRTRouteGeoJson = {
+  type: "FeatureCollection";
+  features: Array<{
+    type: "Feature";
+    properties: {
+      line: string;
+      color: string;
+    };
+    geometry: {
+      type: "LineString";
+      coordinates: [number, number][];
+    };
+  }>;
+};
+
+function interpolateStations(
+  coordinates: number[][],
+  stationNames: string[],
+  line: string,
+  color: string,
+): MRTStationGeoJson["features"] {
+  if (coordinates.length < 2 || stationNames.length === 0) return [];
+  if (coordinates.length === stationNames.length) {
+    return stationNames.map((stationName, index) => {
+      const [lng, lat] = coordinates[index];
+      return {
+        type: "Feature" as const,
+        properties: {
+          name: stationName,
+          label: stationName,
+          line,
+          color,
+          routeable: isRouteableMrtStation(stationName),
+        },
+        geometry: {
+          type: "Point" as const,
+          coordinates: [lng, lat] as [number, number],
+        },
+      };
+    });
+  }
+
+  if (stationNames.length === 1) {
+    const [lng, lat] = coordinates[0];
+    return [
+      {
+        type: "Feature",
+        properties: {
+          name: stationNames[0],
+          label: stationNames[0],
+          line,
+          color,
+          routeable: isRouteableMrtStation(stationNames[0]),
+        },
+        geometry: {
+          type: "Point",
+          coordinates: [lng, lat],
+        },
+      },
+    ];
+  }
+
+  const segmentLengths: number[] = [];
+  let totalLength = 0;
+
+  for (let i = 0; i < coordinates.length - 1; i += 1) {
+    const [lng1, lat1] = coordinates[i];
+    const [lng2, lat2] = coordinates[i + 1];
+    const segmentLength = Math.hypot(lng2 - lng1, lat2 - lat1);
+    segmentLengths.push(segmentLength);
+    totalLength += segmentLength;
+  }
+
+  if (totalLength === 0) return [];
+
+  return stationNames.map((stationName, index) => {
+    const targetDistance = (totalLength * index) / (stationNames.length - 1);
+    let traversed = 0;
+    let segmentIndex = 0;
+
+    while (
+      segmentIndex < segmentLengths.length - 1 &&
+      traversed + segmentLengths[segmentIndex] < targetDistance
+    ) {
+      traversed += segmentLengths[segmentIndex];
+      segmentIndex += 1;
+    }
+
+    const currentSegmentLength = segmentLengths[segmentIndex];
+    const ratio =
+      currentSegmentLength > 0
+        ? (targetDistance - traversed) / currentSegmentLength
+        : 0;
+
+    const [startLng, startLat] = coordinates[segmentIndex];
+    const [endLng, endLat] = coordinates[segmentIndex + 1];
+    const lng = startLng + (endLng - startLng) * ratio;
+    const lat = startLat + (endLat - startLat) * ratio;
+
+    return {
+      type: "Feature" as const,
+      properties: {
+        name: stationName,
+        label: stationName,
+        line,
+        color,
+        routeable: isRouteableMrtStation(stationName),
+      },
+      geometry: {
+        type: "Point" as const,
+        coordinates: [lng, lat] as [number, number],
+      },
+    };
+  });
+}
+
+function buildRouteGeoJson(
+  mrtLines: MRTGeoJson,
+  routeSegments: MrtRouteSegment[],
+): MRTRouteGeoJson {
+  const features: MRTRouteGeoJson["features"] = [];
+  const lineFeaturesByName = new globalThis.Map(
+    mrtLines.features.map((feature) => [feature.properties.name, feature]),
+  );
+
+  for (const segment of routeSegments) {
+    if (segment.stops <= 0) continue;
+    const lineFeature = lineFeaturesByName.get(segment.line);
+    if (!lineFeature) continue;
+
+    const stationNames = MRT_LINE_STATIONS[segment.line] ?? [];
+    if (stationNames.length === 0) continue;
+
+    const stationFeatures = interpolateStations(
+      lineFeature.geometry.coordinates,
+      stationNames,
+      segment.line,
+      lineFeature.properties.color,
+    );
+    if (stationFeatures.length !== stationNames.length) continue;
+
+    const fromIndex = stationNames.indexOf(segment.from);
+    const toIndex = stationNames.indexOf(segment.to);
+    if (fromIndex < 0 || toIndex < 0 || fromIndex === toIndex) continue;
+
+    const startIndex = Math.min(fromIndex, toIndex);
+    const endIndex = Math.max(fromIndex, toIndex);
+    const sliced = stationFeatures
+      .slice(startIndex, endIndex + 1)
+      .map((feature) => feature.geometry.coordinates);
+    const coordinates = fromIndex <= toIndex ? sliced : [...sliced].reverse();
+    if (coordinates.length < 2) continue;
+
+    features.push({
+      type: "Feature",
+      properties: {
+        line: segment.line,
+        color: lineFeature.properties.color,
+      },
+      geometry: {
+        type: "LineString",
+        coordinates: coordinates as [number, number][],
+      },
+    });
+  }
+
+  return {
+    type: "FeatureCollection",
+    features,
+  };
+}
 
 function buildPlaneIcon(size = 64): ImageData {
   const canvas = document.createElement("canvas");
@@ -112,6 +803,53 @@ function registerLayerMouseListener(
   return () => map.off(eventName, layerId, listener);
 }
 
+function applyMrtRouteFocus(map: maplibregl.Map, hasRoute: boolean) {
+  if (map.getLayer("mrt-lines-layer")) {
+    map.setPaintProperty(
+      "mrt-lines-layer",
+      "line-opacity",
+      hasRoute ? 0.15 : 0.96,
+    );
+  }
+  if (map.getLayer("mrt-lines-casing-layer")) {
+    map.setPaintProperty(
+      "mrt-lines-casing-layer",
+      "line-opacity",
+      hasRoute ? 0.12 : 0.84,
+    );
+  }
+  if (map.getLayer("mrt-lines-future-layer")) {
+    map.setPaintProperty(
+      "mrt-lines-future-layer",
+      "line-opacity",
+      hasRoute ? 0.08 : 0.82,
+    );
+  }
+  if (map.getLayer("mrt-lines-future-casing-layer")) {
+    map.setPaintProperty(
+      "mrt-lines-future-casing-layer",
+      "line-opacity",
+      hasRoute ? 0.07 : 0.72,
+    );
+  }
+  if (map.getLayer("mrt-stations-layer")) {
+    map.setPaintProperty("mrt-stations-layer", "circle-opacity", [
+      "case",
+      ["get", "routeable"],
+      hasRoute ? 0.3 : 1,
+      hasRoute ? 0.12 : 0.35,
+    ]);
+  }
+  if (map.getLayer("mrt-stations-label-layer")) {
+    map.setPaintProperty("mrt-stations-label-layer", "text-opacity", [
+      "case",
+      ["get", "routeable"],
+      hasRoute ? 0.35 : 1,
+      hasRoute ? 0.08 : 0.45,
+    ]);
+  }
+}
+
 function useLazyRef<T>(createValue: () => T): { current: T } {
   const ref = useRef<T | null>(null);
   if (ref.current === null) {
@@ -148,11 +886,11 @@ function useMapController({
   const onStopClickRef = useRef(onStopClick);
   const onFlightClickRef = useRef(onFlightClick);
   const onMrtStationClickRef = useRef(onMrtStationClick);
-  const mrtRouteSegmentsRef = useRef<ReadonlyArray<MrtRouteSegment>>(
-    mrtRouteSegments,
-  );
+  const mrtLinesRef = useRef<MRTGeoJson | null>(null);
+  const mrtRouteSegmentsRef = useRef<MrtRouteSegment[]>(mrtRouteSegments);
   const busRouteOverlayRef = useRef<BusRouteOverlay | null>(busRouteOverlay);
   const sensorVisibilityRef = useRef(sensorVisibility);
+  const lastFittedBusRouteKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
     onStopClickRef.current = onStopClick;
@@ -200,7 +938,11 @@ function useMapController({
     const map = mapRef.current;
     if (!map) return;
     mrtRouteSegmentsRef.current = mrtRouteSegments;
-    const routeGeoJson = buildMrtRouteGeoJson(mrtRouteSegmentsRef.current);
+    if (!mrtLinesRef.current) return;
+    const routeGeoJson = buildRouteGeoJson(
+      mrtLinesRef.current,
+      mrtRouteSegmentsRef.current,
+    );
     const routeSource = map.getSource("mrt-route") as
       maplibregl.GeoJSONSource | undefined;
     if (routeSource) {
@@ -228,11 +970,16 @@ function useMapController({
       stopsSource.setData(stopsGeoJson);
     }
 
-    // The overlay changes only when a route/direction changes. Refit on that
-    // explicit state transition rather than relying on a lossy hand-built key
-    // that can miss same-length geometry changes.
-    if (busRouteOverlay) {
+    const overlayKey = busRouteOverlay
+      ? `${busRouteOverlay.serviceNo}:${busRouteOverlay.direction}:${busRouteOverlay.selectedPathIndex ?? busRouteOverlay.selectedStopIndex ?? "x"}:${busRouteOverlay.path.length}`
+      : null;
+
+    if (overlayKey && overlayKey !== lastFittedBusRouteKeyRef.current) {
       fitMapToBusRoute(map, busRouteOverlay);
+      lastFittedBusRouteKeyRef.current = overlayKey;
+    }
+    if (!overlayKey) {
+      lastFittedBusRouteKeyRef.current = null;
     }
   }, [busRouteOverlay]);
 
@@ -243,9 +990,6 @@ function useMapController({
 
     const map = new maplibregl.Map({
       container: containerRef.current,
-      // OpenFreeMap is a MapLibre-native, attribution-compliant public
-      // basemap with no account or API key. CARTO now watermarks anonymous
-      // tile requests with "API KEY REQUIRED".
       style: "https://tiles.openfreemap.org/styles/dark",
       center: [103.8198, 1.3521],
       zoom: 10.8,
@@ -291,6 +1035,8 @@ function useMapController({
     };
 
     const handleMapLoad = () => {
+      improveDarkBasemapContrast(map);
+
       map.addSource("bus-stops", {
         type: "geojson",
         data: {
@@ -556,9 +1302,12 @@ function useMapController({
       );
 
       try {
+        const geoJson = MRT_LINES;
+        mrtLinesRef.current = geoJson;
+
         map.addSource("mrt-lines", {
           type: "geojson",
-          data: MRT_LINES_GEOJSON,
+          data: geoJson,
         });
 
         map.addLayer({
@@ -623,7 +1372,8 @@ function useMapController({
           },
         });
 
-        const initialRouteGeoJson = buildMrtRouteGeoJson(
+        const initialRouteGeoJson = buildRouteGeoJson(
+          geoJson,
           mrtRouteSegmentsRef.current,
         );
 
@@ -666,71 +1416,105 @@ function useMapController({
 
         applyMrtRouteFocus(map, initialRouteGeoJson.features.length > 0);
 
-        map.addSource("mrt-stations", {
-          type: "geojson",
-          data: MRT_STATIONS_GEOJSON,
+        const stationLabelSet = new Set<string>();
+        const stationFeatures = geoJson.features.flatMap((lineFeature) => {
+          const stationNames =
+            MRT_LINE_STATIONS[lineFeature.properties.name] ?? [];
+          const features = interpolateStations(
+            lineFeature.geometry.coordinates,
+            stationNames,
+            lineFeature.properties.name,
+            lineFeature.properties.color,
+          );
+
+          return features.map((feature) => {
+            const stationKey = feature.properties.name.toLowerCase();
+            if (stationLabelSet.has(stationKey)) {
+              return {
+                ...feature,
+                properties: {
+                  ...feature.properties,
+                  label: "",
+                },
+              };
+            }
+            stationLabelSet.add(stationKey);
+            return feature;
+          });
         });
 
-        map.addLayer({
-          id: "mrt-stations-layer",
-          type: "circle",
-          source: "mrt-stations",
-          layout: {
-            visibility: sensorVisibilityRef.current.mrt ? "visible" : "none",
-          },
-          paint: {
-            "circle-radius": 4,
-            "circle-color": ["get", "color"],
-            "circle-opacity": ["case", ["get", "routeable"], 1, 0.35],
-            "circle-stroke-width": 1,
-            "circle-stroke-color": [
-              "case",
-              ["get", "routeable"],
-              MAP_COLORS.paper,
-              MAP_COLORS.muted,
-            ],
-          },
-        });
+        if (stationFeatures.length > 0) {
+          const stationsGeoJson: MRTStationGeoJson = {
+            type: "FeatureCollection",
+            features: stationFeatures,
+          };
 
-        map.addLayer({
-          id: "mrt-stations-label-layer",
-          type: "symbol",
-          source: "mrt-stations",
-          minzoom: 11.5,
-          layout: {
-            visibility: sensorVisibilityRef.current.mrt ? "visible" : "none",
-            "text-field": ["get", "label"],
-            "text-size": 10,
-            "text-anchor": "top",
-            "text-offset": [0, 1],
-          },
-          paint: {
-            "text-color": MAP_COLORS.ink,
-            "text-halo-color": MAP_COLORS.paper,
-            "text-halo-width": 1,
-          },
-        });
+          map.addSource("mrt-stations", {
+            type: "geojson",
+            data: stationsGeoJson,
+          });
 
-        layerListenerCleanups.push(
-          registerLayerMouseListener(
-            map,
-            "click",
-            "mrt-stations-layer",
-            handleMrtStationClick,
-          ),
-          registerLayerMouseListener(
-            map,
-            "mouseenter",
-            "mrt-stations-layer",
-            handleMrtStationEnter,
-          ),
-          registerLayerMouseListener(
-            map,
-            "mouseleave",
-            "mrt-stations-layer",
-            handleInteractiveLayerLeave,
-          ),
-        );
+          map.addLayer({
+            id: "mrt-stations-layer",
+            type: "circle",
+            source: "mrt-stations",
+            layout: {
+              visibility: sensorVisibilityRef.current.mrt ? "visible" : "none",
+            },
+            paint: {
+              "circle-radius": 4,
+              "circle-color": ["get", "color"],
+              "circle-opacity": ["case", ["get", "routeable"], 1, 0.35],
+              "circle-stroke-width": 1,
+              "circle-stroke-color": [
+                "case",
+                ["get", "routeable"],
+                MAP_COLORS.paper,
+                MAP_COLORS.muted,
+              ],
+            },
+          });
+
+          map.addLayer({
+            id: "mrt-stations-label-layer",
+            type: "symbol",
+            source: "mrt-stations",
+            minzoom: 11.5,
+            layout: {
+              visibility: sensorVisibilityRef.current.mrt ? "visible" : "none",
+              "text-field": ["get", "label"],
+              "text-size": 10,
+              "text-anchor": "top",
+              "text-offset": [0, 1],
+            },
+            paint: {
+              "text-color": MAP_COLORS.ink,
+              "text-halo-color": MAP_COLORS.paper,
+              "text-halo-width": 1,
+            },
+          });
+
+          layerListenerCleanups.push(
+            registerLayerMouseListener(
+              map,
+              "click",
+              "mrt-stations-layer",
+              handleMrtStationClick,
+            ),
+            registerLayerMouseListener(
+              map,
+              "mouseenter",
+              "mrt-stations-layer",
+              handleMrtStationEnter,
+            ),
+            registerLayerMouseListener(
+              map,
+              "mouseleave",
+              "mrt-stations-layer",
+              handleInteractiveLayerLeave,
+            ),
+          );
+        }
       } catch (error) {
         console.warn("MRT layer failed to initialize", error);
       }

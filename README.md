@@ -118,15 +118,16 @@ Weather and news currently use public endpoints and do not require keys.
 ```text
 app/
   api/                 Next.js route handlers for live data
-  components/          Dashboard panels and focused MapLibre helpers
+  components/          Dashboard panels and MapLibre map
   hooks/               Dashboard data, route, history, and MRT state
   page.tsx             Main command-center layout
 lib/
   api-clients/         Typed HTTP clients split by source/domain
   cache.ts             In-memory TTL cache
-  mrt-network.ts       Canonical MRT stations, coordinates, and line status
-  mrt-routing.ts       Routing graph derived from the canonical network
+  mrt-routing.ts       MRT route planning
   rate-limit.ts        Lightweight API route rate limiting
+public/
+  mrt-lines.json       MRT line geometry
 types/
   schemas.ts           Runtime schemas and schema-derived contracts
   index.ts             Client-facing domain contracts
