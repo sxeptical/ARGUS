@@ -55,3 +55,20 @@ export interface FlightState {
   direction: FlightDirection;
   lastContact: number | null;
 }
+
+/** GeoJSON contract used by the restored pre-refactor Map component. */
+export interface MRTGeoJson {
+  type: "FeatureCollection";
+  features: Array<{
+    type: "Feature";
+    properties: {
+      name: string;
+      color: string;
+      status?: "operational" | "future";
+    };
+    geometry: {
+      type: "LineString";
+      coordinates: number[][];
+    };
+  }>;
+}
