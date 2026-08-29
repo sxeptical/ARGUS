@@ -1,12 +1,7 @@
 import TerminalPanel from "@/app/components/TerminalPanel";
+import { formatSgTime } from "@/lib/formatters";
 import type { WeatherData, WeatherHistoryPoint } from "@/types";
 import { useState, type ReactNode } from "react";
-
-function formatTime(iso: string): string {
-  return new Date(iso).toLocaleTimeString("en-SG", {
-    timeZone: "Asia/Singapore",
-  });
-}
 
 function formatMetric(value: number | null, unit: string): string {
   return value === null ? "—" : `${value}${unit}`;
@@ -61,7 +56,7 @@ export default function WeatherPanel({ weather, history }: WeatherPanelProps) {
         </div>
 
         <div className="text-[11px] text-muted" suppressHydrationWarning>
-          Updated {formatTime(weather.lastUpdated)}
+          Updated {formatSgTime(weather.lastUpdated)}
         </div>
       </div>
     </TerminalPanel>
@@ -271,7 +266,7 @@ function MetricHistorySummary({
         </span>
       </div>
       <div className="text-[10px] opacity-75">
-        Since {formatTime(firstTimestamp)}. Stored locally in this browser.
+        Since {formatSgTime(firstTimestamp)}. Stored locally in this browser.
       </div>
     </div>
   );

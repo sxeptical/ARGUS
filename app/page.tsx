@@ -1,94 +1,39 @@
 "use client";
 
 import {
+  useCallback,
   useEffect,
   useMemo,
-  useRef,
   useState,
   type Dispatch,
   type SetStateAction,
 } from "react";
-import BusPanel, {
-  type BusRouteUiState,
-} from "@/app/components/BusPanel";
+import BusPanel from "@/app/components/BusPanel";
 import CameraPanel from "@/app/components/CameraPanel";
 import FlightPanel from "@/app/components/FlightPanel";
-import Map, { type BusRouteOverlay } from "@/app/components/Map";
+import Map from "@/app/components/Map";
 import MrtRoutePanel from "@/app/components/MrtRoutePanel";
-import { MRT_ROUTE_DEFAULTS, planMrtRoute } from "@/lib/mrt-routing";
 import NewsPanel from "@/app/components/NewsPanel";
 import UpdateAvailableToast from "@/app/components/UpdateAvailableToast";
 import WeatherPanel from "@/app/components/WeatherPanel";
-import { cachedClientFetch } from "@/lib/client-cache";
+import { useBusRoute } from "@/app/hooks/use-bus-route";
+import {
+  useDashboardSources,
+  type SourceState,
+} from "@/app/hooks/use-dashboard-sources";
+import { useMrtPlanner } from "@/app/hooks/use-mrt-planner";
+import { useWeatherHistory } from "@/app/hooks/use-weather-history";
+import {
+  formatAltitudeFeet,
+  formatSpeedKmh,
+} from "@/lib/formatters";
+import { MRT_LINES } from "@/lib/mrt-network";
 import type {
-  BusRouteResponse,
-  BusStop,
   FlightState,
-  NewsItem,
   TrafficCamera,
   WeatherData,
   WeatherHistoryPoint,
 } from "@/types";
-
-const IDLE_BUS_ROUTE_STATE: BusRouteUiState = {
-  serviceNo: null,
-  status: "idle",
-  error: null,
-  data: null,
-  activeDirection: null,
-};
-
-function pickDefaultDirection(data: BusRouteResponse): number {
-  const preferred = data.directions.find((d) => d.preferred);
-  if (preferred) return preferred.direction;
-  // Prefer a direction that actually contains the selected stop.
-  const withStop = data.directions.find((d) => d.selectedStopIndex !== null);
-  if (withStop) return withStop.direction;
-  return data.directions[0]?.direction ?? 1;
-}
-
-function toBusRouteOverlay(
-  state: BusRouteUiState,
-): BusRouteOverlay | null {
-  if (state.status !== "ready" || !state.data || state.activeDirection === null) {
-    return null;
-  }
-  const direction = state.data.directions.find(
-    (d) => d.direction === state.activeDirection,
-  );
-  if (!direction) return null;
-  const hasPath = direction.path.length >= 2;
-  const hasStops = direction.stops.length >= 2;
-  if (!hasPath && !hasStops) return null;
-  return {
-    serviceNo: state.data.serviceNo,
-    direction: direction.direction,
-    stops: direction.stops,
-    selectedStopIndex: direction.selectedStopIndex,
-    path: direction.path ?? [],
-    selectedPathIndex: direction.selectedPathIndex ?? null,
-  };
-}
-
-async function fetchBusRoute(
-  serviceNo: string,
-  stopId: string | null,
-  signal?: AbortSignal,
-): Promise<BusRouteResponse> {
-  const params = new URLSearchParams({ serviceNo });
-  if (stopId) params.set("stopId", stopId);
-  const response = await fetch(`/api/bus-routes?${params.toString()}`, {
-    cache: "no-store",
-    signal,
-  });
-  if (!response.ok) {
-    const payload = (await response.json().catch(() => null)) as {
-      error?: string;
-    } | null;
-    throw new Error(payload?.error || "Unable to fetch bus route");
-  }
-  return (await response.json()) as BusRouteResponse;
-}
 
 type SensorKey = "flights" | "cameras" | "busStops" | "mrt";
 
@@ -102,165 +47,23 @@ type SensorRow = {
 
 type SensorStatsRow = Omit<SensorRow, "key">;
 
-type SourceStatus = "pending" | "loading" | "ok" | "error";
-
-type SourceState = {
-  readonly label: string;
-  readonly status: SourceStatus;
-  readonly message?: string;
-};
-
-const WEATHER_HISTORY_STORAGE_KEY = "argus.weather.history.v1";
-const WEATHER_HISTORY_MAX_POINTS = 288; // 24 hours at a 5-minute cadence
-
-const DEFAULT_WEATHER: WeatherData = {
-  temperature: null,
-  humidity: null,
-  psi: null,
-  psiStatus: "Unknown",
-  forecast: "Loading...",
-  lastUpdated: new Date().toISOString(),
-};
-
-// Matches the server-side disabled state in app/api/flights/route.ts.
-// The flights route returns [] permanently while the upstream provider is
-// unavailable. When this flag is true, the client skips scheduling polls
-// for /api/flights to avoid wasted network traffic every 15s.
-const FLIGHTS_API_DISABLED = true;
-
-const SOURCE_REFRESH_MS = {
-  busStops: 60 * 1000,
-  cameras: 60 * 1000,
-  weather: 5 * 60 * 1000,
-  news: 5 * 60 * 1000,
-  flights: 15 * 1000,
-} as const;
-
-function startPolling(callback: () => void, intervalMs: number) {
-  return setInterval(callback, intervalMs);
-}
-
-function isWeatherHistoryPoint(value: unknown): value is WeatherHistoryPoint {
-  if (!value || typeof value !== "object") return false;
-  const candidate = value as Partial<WeatherHistoryPoint>;
-  return (
-    typeof candidate.timestamp === "string" &&
-    (candidate.temperature === null ||
-      typeof candidate.temperature === "number") &&
-    (candidate.humidity === null || typeof candidate.humidity === "number") &&
-    (candidate.psi === null || typeof candidate.psi === "number")
+function summarizeFlights(flights: readonly FlightState[]) {
+  return flights.reduce(
+    (summary, flight) => {
+      summary[flight.direction] += 1;
+      return summary;
+    },
+    { inbound: 0, outbound: 0, transit: 0 },
   );
-}
-
-function readWeatherHistory(): WeatherHistoryPoint[] {
-  if (typeof window === "undefined") return [];
-  try {
-    const raw = window.localStorage.getItem(WEATHER_HISTORY_STORAGE_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw) as unknown;
-    if (!Array.isArray(parsed)) return [];
-    return parsed
-      .filter(isWeatherHistoryPoint)
-      .sort((a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp))
-      .slice(-WEATHER_HISTORY_MAX_POINTS);
-  } catch {
-    return [];
-  }
-}
-
-function writeWeatherHistory(history: WeatherHistoryPoint[]): void {
-  if (typeof window === "undefined") return;
-  try {
-    window.localStorage.setItem(
-      WEATHER_HISTORY_STORAGE_KEY,
-      JSON.stringify(history.slice(-WEATHER_HISTORY_MAX_POINTS)),
-    );
-  } catch {
-    // Ignore storage quota / private browsing failures. The live dashboard
-    // should keep working even when local history cannot be persisted.
-  }
-}
-
-function appendWeatherHistory(
-  history: WeatherHistoryPoint[],
-  weather: WeatherData,
-): WeatherHistoryPoint[] {
-  const hasReading =
-    weather.temperature !== null ||
-    weather.humidity !== null ||
-    weather.psi !== null;
-  if (!hasReading) return history;
-
-  const point: WeatherHistoryPoint = {
-    timestamp: weather.lastUpdated,
-    temperature: weather.temperature,
-    humidity: weather.humidity,
-    psi: weather.psi,
-  };
-  const existingIndex = history.findIndex(
-    (item) => item.timestamp === point.timestamp,
-  );
-  if (
-    existingIndex >= 0 &&
-    history[existingIndex].temperature === point.temperature &&
-    history[existingIndex].humidity === point.humidity &&
-    history[existingIndex].psi === point.psi
-  ) {
-    return history;
-  }
-
-  const next =
-    existingIndex >= 0
-      ? history.map((item, index) => (index === existingIndex ? point : item))
-      : [...history, point];
-
-  return next
-    .sort((a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp))
-    .slice(-WEATHER_HISTORY_MAX_POINTS);
 }
 
 function useDashboardState() {
-  const [busStops, setBusStops] = useState<BusStop[]>([]);
-  const [cameras, setCameras] = useState<TrafficCamera[]>([]);
-  const [weather, setWeather] = useState<WeatherData>(DEFAULT_WEATHER);
-  const [weatherHistory, setWeatherHistory] = useState<WeatherHistoryPoint[]>(
-    [],
-  );
-  const [news, setNews] = useState<NewsItem[]>([]);
-  const [flights, setFlights] = useState<FlightState[]>([]);
-  const [selectedStop, setSelectedStop] = useState<BusStop | null>(null);
-  const [busRouteState, setBusRouteState] =
-    useState<BusRouteUiState>(IDLE_BUS_ROUTE_STATE);
-  const busRouteRequestIdRef = useRef(0);
-  const busRouteAbortRef = useRef<AbortController | null>(null);
-  const [selectedCamera, setSelectedCamera] = useState<TrafficCamera | null>(
-    null,
-  );
-  const [selectedFlight, setSelectedFlight] = useState<FlightState | null>(
-    null,
-  );
-  const [mrtStartStation, setMrtStartStation] = useState(
-    MRT_ROUTE_DEFAULTS.start,
-  );
-  const [mrtEndStation, setMrtEndStation] = useState(MRT_ROUTE_DEFAULTS.end);
-  const [mrtMapPickTarget, setMrtMapPickTarget] = useState<"start" | "end">(
-    "start",
-  );
-  const [error, setError] = useState<string | null>(null);
-  const [bootComplete, setBootComplete] = useState(false);
-  const [sourceStates, setSourceStates] = useState<Record<string, SourceState>>(
-    {
-      "bus stops": { label: "LTA Bus Network", status: "pending" },
-      cameras: { label: "Traffic Cameras", status: "pending" },
-      weather: { label: "Weather Grid", status: "pending" },
-      news: { label: "OSINT Stream", status: "pending" },
-      flights: {
-        label: "Airspace Feed",
-        status: FLIGHTS_API_DISABLED ? "ok" : "pending",
-        message: FLIGHTS_API_DISABLED ? "disabled" : undefined,
-      },
-    },
-  );
+  const data = useDashboardSources();
+  const busRoute = useBusRoute();
+  const mrt = useMrtPlanner();
+  const weatherHistory = useWeatherHistory(data.weather);
+  const [selectedCameraId, setSelectedCameraId] = useState<string | null>(null);
+  const [selectedFlightId, setSelectedFlightId] = useState<string | null>(null);
   const [sensorVisibility, setSensorVisibility] = useState<
     Record<SensorKey, boolean>
   >({
@@ -270,348 +73,89 @@ function useDashboardState() {
     mrt: true,
   });
 
-  useEffect(() => {
-    let mounted = true;
-    const failedSources = new Set<string>();
-
-    const syncErrorState = () => {
-      if (!mounted) return;
-      const errors = Array.from(failedSources);
-      setError(
-        errors.length > 0
-          ? `Some data sources failed: ${errors.join(", ")}`
-          : null,
-      );
-    };
-
-    const updateSourceState = (
-      label: string,
-      status: SourceStatus,
-      message?: string,
-    ) => {
-      if (!mounted) return;
-      setSourceStates((prev) => {
-        const current = prev[label];
-        if (!current) return prev;
-        return {
-          ...prev,
-          [label]: {
-            ...current,
-            status,
-            message: message ?? current.message,
-          },
-        };
-      });
-    };
-
-    const loadSource = async <T,>(
-      label: string,
-      url: string,
-      ttlMs: number,
-      setState: (value: T) => void,
-    ) => {
-      updateSourceState(label, "loading");
-      try {
-        const data = await cachedClientFetch<T>(url, ttlMs);
-        if (!mounted) return;
-        setState(data);
-        failedSources.delete(label);
-        updateSourceState(label, "ok");
-      } catch (err) {
-        if (!mounted) return;
-        failedSources.add(label);
-        updateSourceState(
-          label,
-          "error",
-          err instanceof Error ? err.message : "Network error",
-        );
-      } finally {
-        syncErrorState();
-      }
-    };
-
-    const scheduleSource = <T,>(
-      label: string,
-      url: string,
-      intervalMs: number,
-      setState: (value: T) => void,
-    ) => {
-      return startPolling(() => {
-        void loadSource<T>(label, url, intervalMs, setState);
-      }, intervalMs);
-    };
-
-    void Promise.all([
-      loadSource<BusStop[]>(
-        "bus stops",
-        "/api/bus-stops",
-        SOURCE_REFRESH_MS.busStops,
-        setBusStops,
-      ),
-      loadSource<TrafficCamera[]>(
-        "cameras",
-        "/api/cameras",
-        SOURCE_REFRESH_MS.cameras,
-        setCameras,
-      ),
-      loadSource<WeatherData>(
-        "weather",
-        "/api/weather",
-        SOURCE_REFRESH_MS.weather,
-        (value) => {
-          setWeather(value);
-          setWeatherHistory((previous) => {
-            const next = appendWeatherHistory(previous, value);
-            if (next === previous) return previous;
-            writeWeatherHistory(next);
-            return next;
-          });
-        },
-      ),
-      loadSource<NewsItem[]>(
-        "news",
-        "/api/news",
-        SOURCE_REFRESH_MS.news,
-        setNews,
-      ),
-      // Skip flights polling when the API is permanently disabled — avoids
-      // wasteful 15s network round-trips for an always-empty response.
-      ...(!FLIGHTS_API_DISABLED
-        ? [
-            loadSource<FlightState[]>(
-              "flights",
-              "/api/flights",
-              SOURCE_REFRESH_MS.flights,
-              setFlights,
-            ),
-          ]
-        : []),
-    ])
-      .catch((err: unknown) => {
-        if (!mounted) return;
-        setError(
-          err instanceof Error ? err.message : "Unknown dashboard error",
-        );
-      })
-      .finally(() => {
-        if (mounted) setBootComplete(true);
-      });
-
-    const busStopsTimer = scheduleSource<BusStop[]>(
-      "bus stops",
-      "/api/bus-stops",
-      SOURCE_REFRESH_MS.busStops,
-      setBusStops,
-    );
-    const camerasTimer = scheduleSource<TrafficCamera[]>(
-      "cameras",
-      "/api/cameras",
-      SOURCE_REFRESH_MS.cameras,
-      setCameras,
-    );
-    const weatherTimer = scheduleSource<WeatherData>(
-      "weather",
-      "/api/weather",
-      SOURCE_REFRESH_MS.weather,
-      (value) => {
-        setWeather(value);
-        setWeatherHistory((previous) => {
-          const next = appendWeatherHistory(previous, value);
-          if (next === previous) return previous;
-          writeWeatherHistory(next);
-          return next;
-        });
-      },
-    );
-    const newsTimer = scheduleSource<NewsItem[]>(
-      "news",
-      "/api/news",
-      SOURCE_REFRESH_MS.news,
-      setNews,
-    );
-    // Skip flights polling when the API is permanently disabled (see
-    // FLIGHTS_API_DISABLED constant and app/api/flights/route.ts).
-    const flightsTimer = FLIGHTS_API_DISABLED
-      ? undefined
-      : scheduleSource<FlightState[]>(
-          "flights",
-          "/api/flights",
-          SOURCE_REFRESH_MS.flights,
-          setFlights,
-        );
-
-    return () => {
-      mounted = false;
-      clearInterval(busStopsTimer);
-      clearInterval(camerasTimer);
-      clearInterval(weatherTimer);
-      clearInterval(newsTimer);
-      if (flightsTimer !== undefined) clearInterval(flightsTimer);
-    };
-  }, []);
-
-  useEffect(() => {
-    const timer = setTimeout(() => setWeatherHistory(readWeatherHistory()), 0);
-    return () => clearTimeout(timer);
-  }, []);
-
-  const invalidateBusRouteRequest = () => {
-    busRouteRequestIdRef.current += 1;
-    busRouteAbortRef.current?.abort();
-    busRouteAbortRef.current = null;
-  };
-
-  const showBusRoute = (serviceNo: string) => {
-    invalidateBusRouteRequest();
-    const requestId = busRouteRequestIdRef.current;
-    const stopCode = selectedStop?.BusStopCode ?? null;
-    const abort = new AbortController();
-    busRouteAbortRef.current = abort;
-
-    setBusRouteState({
-      serviceNo,
-      status: "loading",
-      error: null,
-      data: null,
-      activeDirection: null,
-    });
-
-    void fetchBusRoute(serviceNo, stopCode, abort.signal)
-      .then((data) => {
-        if (requestId !== busRouteRequestIdRef.current) return;
-        setBusRouteState({
-          serviceNo: data.serviceNo,
-          status: "ready",
-          error: null,
-          data,
-          activeDirection: pickDefaultDirection(data),
-        });
-      })
-      .catch((err: unknown) => {
-        if (requestId !== busRouteRequestIdRef.current) return;
-        if (err instanceof DOMException && err.name === "AbortError") return;
-        setBusRouteState({
-          serviceNo,
-          status: "error",
-          error:
-            err instanceof Error ? err.message : "Unable to load bus route",
-          data: null,
-          activeDirection: null,
-        });
-      });
-  };
-
-  const clearBusRoute = () => {
-    invalidateBusRouteRequest();
-    setBusRouteState(IDLE_BUS_ROUTE_STATE);
-  };
-
-  const selectBusRouteDirection = (direction: number) => {
-    setBusRouteState((prev) => {
-      if (prev.status !== "ready" || !prev.data) return prev;
-      const exists = prev.data.directions.some((d) => d.direction === direction);
-      if (!exists) return prev;
-      return { ...prev, activeDirection: direction };
-    });
-  };
-
-  const handleSelectStop = (stop: BusStop) => {
-    setSelectedStop(stop);
-    // Changing stop clears any active route and invalidates in-flight fetches
-    // so a slower response for the previous stop cannot overwrite this one.
-    invalidateBusRouteRequest();
-    setBusRouteState(IDLE_BUS_ROUTE_STATE);
-  };
-
-  const busRouteOverlay = useMemo(
-    () => toBusRouteOverlay(busRouteState),
-    [busRouteState],
+  const selectedCamera = useMemo(
+    () =>
+      data.cameras.find((camera) => camera.CameraID === selectedCameraId) ??
+      null,
+    [data.cameras, selectedCameraId],
   );
-
-  const inboundFlights = useMemo(
-    () => flights.filter((flight) => flight.direction === "inbound").length,
-    [flights],
+  const selectedFlight = useMemo(
+    () => data.flights.find((flight) => flight.id === selectedFlightId) ?? null,
+    [data.flights, selectedFlightId],
   );
-  const outboundFlights = useMemo(
-    () => flights.filter((flight) => flight.direction === "outbound").length,
-    [flights],
+  const selectCamera = useCallback(
+    (camera: TrafficCamera) => setSelectedCameraId(camera.CameraID),
+    [],
   );
-  const transitFlights = useMemo(
-    () => flights.filter((flight) => flight.direction === "transit").length,
-    [flights],
+  const selectFlight = useCallback(
+    (flight: FlightState) => setSelectedFlightId(flight.id),
+    [],
   );
-  const mrtRoutePlan = useMemo(
-    () => planMrtRoute(mrtStartStation, mrtEndStation),
-    [mrtStartStation, mrtEndStation],
+  const flightSummary = useMemo(
+    () => summarizeFlights(data.flights),
+    [data.flights],
   );
 
   const sensorRows: SensorRow[] = [
     {
-      key: "flights" as const,
+      key: "flights",
       label: "Air Activity",
       note: "live tracks",
-      value: flights.length,
+      value: data.flights.length,
       tone: "text-signal-inbound",
     },
     {
-      key: "cameras" as const,
+      key: "cameras",
       label: "Road Cameras",
       note: "stream nodes",
-      value: cameras.length,
+      value: data.cameras.length,
       tone: "text-signal-camera",
     },
     {
-      key: "busStops" as const,
+      key: "busStops",
       label: "Bus Stops",
       note: "monitor points",
-      value: busStops.length,
+      value: data.busStops.length,
       tone: "text-signal-bus",
     },
     {
-      key: "mrt" as const,
+      key: "mrt",
       label: "MRT Network",
       note: "lines + stations",
-      value: 10,
+      value: MRT_LINES.length,
       tone: "text-signal-mrt",
     },
   ];
-
   const sensorStatsRows: SensorStatsRow[] = [
     {
       label: "Inbound Flights",
       note: "approach vector",
-      value: inboundFlights,
+      value: flightSummary.inbound,
       tone: "text-signal-inbound",
     },
     {
       label: "Outbound Flights",
       note: "departure vector",
-      value: outboundFlights,
+      value: flightSummary.outbound,
       tone: "text-signal-outbound",
     },
     {
       label: "Transit Flights",
       note: "crossing tracks",
-      value: transitFlights,
+      value: flightSummary.transit,
       tone: "text-signal-transit",
     },
     {
       label: "OSINT Feed",
       note: "news stream",
-      value: news.length,
+      value: data.news.length,
       tone: "text-ink",
     },
   ];
-
-  const sources = Object.values(sourceStates);
-  const activeSources = sources.filter((source) => source.message !== "disabled");
-  const onlineSourceCount = activeSources.filter(
-    (source) => source.status === "ok",
-  ).length;
   const visibleSensorCount = sensorRows.filter(
     (row) => sensorVisibility[row.key],
   ).length;
-  const signalBars = sources.map((source) => ({
+  const signalBars = data.sources.map((source) => ({
     label:
       source.message === "disabled"
         ? `${source.label} (off)`
@@ -633,44 +177,45 @@ function useDashboardState() {
             ? "bg-warning"
             : "bg-danger",
   }));
-  const systemStatus = error ? "Degraded" : "Live";
 
   return {
-    activeSources,
-    bootComplete,
-    busRouteOverlay,
-    busRouteState,
-    busStops,
-    cameras,
-    clearBusRoute,
-    error,
-    flights,
-    handleSelectStop,
-    mrtEndStation,
-    mrtMapPickTarget,
-    mrtRoutePlan,
-    mrtStartStation,
-    news,
-    onlineSourceCount,
-    selectBusRouteDirection,
+    activeSources: data.activeSources,
+    bootComplete: data.bootComplete,
+    busRouteOverlay: busRoute.overlay,
+    busRouteState: busRoute.state,
+    busStops: data.busStops,
+    cameras: data.cameras,
+    clearBusRoute: busRoute.clear,
+    error: data.error,
+    flights: data.flights,
+    handleSelectStop: busRoute.selectStop,
+    mrtEndStation: mrt.end,
+    mrtMapPickTarget: mrt.mapPickTarget,
+    mrtRoutePlan: mrt.plan,
+    mrtStartStation: mrt.start,
+    news: data.news,
+    onlineSourceCount: data.onlineSourceCount,
+    pickMrtStation: mrt.pickStation,
+    resetMrtRoute: mrt.reset,
+    selectBusRouteDirection: busRoute.selectDirection,
     selectedCamera,
     selectedFlight,
-    selectedStop,
+    selectedStop: busRoute.selectedStop,
     sensorRows,
     sensorStatsRows,
     sensorVisibility,
-    setMrtEndStation,
-    setMrtMapPickTarget,
-    setMrtStartStation,
-    setSelectedCamera,
-    setSelectedFlight,
+    setMrtEndStation: mrt.setEnd,
+    setMrtMapPickTarget: mrt.setMapPickTarget,
+    setMrtStartStation: mrt.setStart,
+    setSelectedCamera: selectCamera,
+    setSelectedFlight: selectFlight,
     setSensorVisibility,
-    showBusRoute,
+    showBusRoute: busRoute.show,
     signalBars,
-    sources,
-    systemStatus,
+    sources: data.sources,
+    systemStatus: data.error ? "Degraded" : "Live",
     visibleSensorCount,
-    weather,
+    weather: data.weather,
     weatherHistory,
   };
 }
@@ -693,6 +238,8 @@ export default function Home() {
     mrtStartStation,
     news,
     onlineSourceCount,
+    pickMrtStation,
+    resetMrtRoute,
     selectBusRouteDirection,
     selectedCamera,
     selectedFlight,
@@ -762,15 +309,7 @@ export default function Home() {
               onStopClick={handleSelectStop}
               onCameraClick={setSelectedCamera}
               onFlightClick={setSelectedFlight}
-              onMrtStationClick={(stationName) => {
-                if (mrtMapPickTarget === "start") {
-                  setMrtStartStation(stationName);
-                  setMrtMapPickTarget("end");
-                } else {
-                  setMrtEndStation(stationName);
-                  setMrtMapPickTarget("start");
-                }
-              }}
+              onMrtStationClick={pickMrtStation}
               mrtRouteSegments={mrtRoutePlan?.segments ?? []}
               busRouteOverlay={busRouteOverlay}
             />
@@ -790,17 +329,14 @@ export default function Home() {
           <section className="grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-2 sm:gap-3 2xl:grid-cols-4">
             <div className="min-h-0 overflow-auto">
               <MrtRoutePanel
+                route={mrtRoutePlan}
                 startStation={mrtStartStation}
                 endStation={mrtEndStation}
                 onStartChange={setMrtStartStation}
                 onEndChange={setMrtEndStation}
                 mapPickTarget={mrtMapPickTarget}
                 onMapPickTargetChange={setMrtMapPickTarget}
-                onReset={() => {
-                  setMrtStartStation(MRT_ROUTE_DEFAULTS.start);
-                  setMrtEndStation(MRT_ROUTE_DEFAULTS.end);
-                  setMrtMapPickTarget("start");
-                }}
+                onReset={resetMrtRoute}
               />
             </div>
             <div className="min-h-0 overflow-auto">
@@ -993,7 +529,7 @@ function LayersSidebar({
   sensorRows: ReadonlyArray<SensorRow>;
   sensorStatsRows: ReadonlyArray<SensorStatsRow>;
   sensorVisibility: Record<SensorKey, boolean>;
-  setSelectedFlight: Dispatch<SetStateAction<FlightState | null>>;
+  setSelectedFlight: (flight: FlightState) => void;
   setSensorVisibility: Dispatch<
     SetStateAction<Record<SensorKey, boolean>>
   >;
@@ -1384,14 +920,4 @@ function LegendDot({ tone, label }: { tone: string; label: string }) {
       <span>{label}</span>
     </span>
   );
-}
-
-function formatAltitudeFeet(altitude: number | null): string {
-  if (!Number.isFinite(altitude)) return "N/A";
-  return `${Math.round((altitude as number) * 3.28084).toLocaleString()} ft`;
-}
-
-function formatSpeedKmh(speed: number | null): string {
-  if (!Number.isFinite(speed)) return "N/A";
-  return `${Math.round((speed as number) * 3.6)} km/h`;
 }

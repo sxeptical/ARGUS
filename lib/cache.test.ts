@@ -198,6 +198,33 @@ describe("Cache", () => {
     });
   });
 
+  describe("peek", () => {
+    test("reads a fresh value without running or caching a producer", () => {
+      const cache = Effect.runSync(Cache.pipe(Effect.provide(CacheLive)));
+      Effect.runSync(cache.set("snapshot", [1, 2, 3]));
+
+      expect(Effect.runSync(cache.peek<number[]>("snapshot", 60_000))).toEqual([
+        1, 2, 3,
+      ]);
+      expect(Effect.runSync(cache.peek("missing", 60_000))).toBeNull();
+    });
+
+    test("returns null for an expired value without overwriting it", () => {
+      const cache = Effect.runSync(Cache.pipe(Effect.provide(CacheLive)));
+      Effect.runSync(cache.set("old-snapshot", "last-good"));
+      const start = Date.now();
+      while (Date.now() - start < 5) {
+        /* let the one-millisecond max age expire */
+      }
+
+      expect(Effect.runSync(cache.peek("old-snapshot", 1))).toBeNull();
+      // A wider age still sees the original value: peek did not write null.
+      expect(Effect.runSync(cache.peek("old-snapshot", 60_000))).toBe(
+        "last-good",
+      );
+    });
+  });
+
   describe("clear", () => {
     test("clearing a specific key forces a fresh producer call", () => {
       const cache = Effect.runSync(

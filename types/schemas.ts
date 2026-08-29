@@ -1,8 +1,10 @@
 /**
  * Effect Schema definitions for external API responses consumed by the server.
- * The plain TypeScript interfaces in `@/types` remain the source of truth for
- * the React client (which has no Effect runtime); these Schemas validate and
- * decode upstream responses before they reach a route handler.
+ *
+ * These Schemas are the single source of truth for upstream payload shapes:
+ * they validate and decode responses before those reach a route handler, and
+ * the client-facing types in `@/types` are derived from them (via
+ * `Schema.Schema.Type`) so the two can never drift.
  *
  * Schemas are intentionally permissive: required fields use their exact
  * type, optional fields use `Schema.optional`, nullable fields use
@@ -98,12 +100,16 @@ export const BusRouteResponseSchema = Schema.Struct({
   directions: Schema.Array(BusRouteDirectionSchema),
 });
 
-const RawTrafficImageSchema = Schema.Struct({
+export const RawTrafficImageSchema = Schema.Struct({
   CameraID: Schema.String,
   Latitude: Schema.Number,
   Longitude: Schema.Number,
   ImageLink: Schema.String,
 });
+
+export type RawTrafficImage = Schema.Schema.Type<
+  typeof RawTrafficImageSchema
+>;
 
 const TrafficImageCamerasEntrySchema = Schema.Struct({
   Cameras: Schema.Array(RawTrafficImageSchema),
@@ -170,6 +176,13 @@ export const DataGovTemperatureResponseSchema = Schema.Struct({
   items: Schema.optional(Schema.Array(TemperatureItemSchema)),
 });
 
+/**
+ * The relative-humidity endpoint is verified to return the same
+ * `{ items: [{ timestamp?, update_timestamp?, readings: [{ value }] }] }`
+ * shape as air-temperature. Aliased deliberately: if the humidity endpoint
+ * ever diverges, split this into its own schema so the difference is
+ * explicit rather than silently tolerated.
+ */
 export const DataGovHumidityResponseSchema = DataGovTemperatureResponseSchema;
 
 // ---------- Aviationstack ----------
@@ -215,6 +228,10 @@ export const AviationStackFlightSchema = Schema.Struct({
   aircraft: Schema.optional(Schema.NullOr(AviationStackAircraftSchema)),
   live: Schema.optional(Schema.NullOr(AviationStackLiveSchema)),
 });
+
+export type AviationStackFlight = Schema.Schema.Type<
+  typeof AviationStackFlightSchema
+>;
 
 const AviationStackErrorInfoSchema = Schema.Struct({
   code: Schema.optional(Schema.Union(Schema.String, Schema.Number)),
@@ -264,3 +281,41 @@ export const OpenSkyResponseSchema = Schema.Struct({
   time: Schema.Number,
   states: Schema.NullOr(Schema.Array(OpenSkyStateSchema)),
 });
+
+// ---------- Schema-derived contracts ----------
+
+export type BusStop = Schema.Schema.Type<typeof BusStopSchema>;
+export type BusArrival = Schema.Schema.Type<typeof BusArrivalSchema>;
+export type BusRouteStop = Schema.Schema.Type<typeof BusRouteStopSchema>;
+export type BusRouteDirection = Schema.Schema.Type<
+  typeof BusRouteDirectionSchema
+>;
+export type BusRouteResponse = Schema.Schema.Type<
+  typeof BusRouteResponseSchema
+>;
+export type LtaBusStopsResponse = Schema.Schema.Type<
+  typeof LtaBusStopsResponseSchema
+>;
+export type LtaBusArrivalsResponse = Schema.Schema.Type<
+  typeof LtaBusArrivalsResponseSchema
+>;
+export type LtaBusRoutesResponse = Schema.Schema.Type<
+  typeof LtaBusRoutesResponseSchema
+>;
+export type LtaTrafficImagesResponse = Schema.Schema.Type<
+  typeof LtaTrafficImagesResponseSchema
+>;
+export type DataGovForecastResponse = Schema.Schema.Type<
+  typeof DataGovForecastResponseSchema
+>;
+export type DataGovPsiResponse = Schema.Schema.Type<
+  typeof DataGovPsiResponseSchema
+>;
+export type DataGovTemperatureResponse = Schema.Schema.Type<
+  typeof DataGovTemperatureResponseSchema
+>;
+export type AviationStackResponse = Schema.Schema.Type<
+  typeof AviationStackResponseSchema
+>;
+export type OpenSkyState = Schema.Schema.Type<typeof OpenSkyStateSchema>;
+export type OpenSkyResponse = Schema.Schema.Type<typeof OpenSkyResponseSchema>;

@@ -24,12 +24,27 @@ export class TimeoutError extends Data.TaggedError("TimeoutError")<{
   readonly message: string;
 }> {}
 
+/** A well-formed request whose query parameters failed validation (HTTP 400). */
+export class BadRequestError extends Data.TaggedError("BadRequestError")<{
+  readonly message: string;
+}> {}
+
 /**
- * The union of every error this server emits. Use as the `E` parameter of
- * any route-level `Effect` so that handlers and the `handle` helper can
- * pattern-match on the three tags exhaustively.
+ * The error channel of every external API client. Kept separate from
+ * `AppError` so client programs cannot accidentally succeed with a
+ * route-only error, while route programs can embed clients directly.
  */
-export type AppError = ExternalApiError | SchemaParseError | TimeoutError;
+export type UpstreamError =
+  | ExternalApiError
+  | SchemaParseError
+  | TimeoutError;
+
+/**
+ * The union of every error a route handler can emit. Use as the `E`
+ * parameter of any route-level `Effect` so that the `handle` helper can
+ * pattern-match on the tags exhaustively.
+ */
+export type AppError = UpstreamError | BadRequestError;
 
 /**
  * Convenience constructor for `TimeoutError` from an `Effect` `TimeoutException`.

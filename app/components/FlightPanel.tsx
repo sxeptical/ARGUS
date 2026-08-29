@@ -1,4 +1,8 @@
 import TerminalPanel from "@/app/components/TerminalPanel";
+import {
+  formatAltitudeFeet,
+  formatSpeedKmh,
+} from "@/lib/formatters";
 import type { FlightState } from "@/types";
 
 type FlightPanelProps = {
@@ -59,7 +63,7 @@ export default function FlightPanel({
                     </span>
                   </div>
                   <div className="text-muted">
-                    {flight.originCountry} • {formatSpeed(flight.velocity)} • {formatAltitude(flight.altitude)}
+                    {flight.originCountry} • {formatSpeedKmh(flight.velocity)} • {formatAltitudeFeet(flight.altitude)}
                   </div>
                 </button>
               );
@@ -92,16 +96,4 @@ function directionClassName(direction: FlightState["direction"]): string {
   if (direction === "inbound") return "text-success";
   if (direction === "outbound") return "text-danger";
   return "text-info";
-}
-
-function formatSpeed(speed: number | null): string {
-  if (!Number.isFinite(speed)) return "speed N/A";
-  const kmh = Math.round((speed as number) * 3.6);
-  return `${kmh} km/h`;
-}
-
-function formatAltitude(altitude: number | null): string {
-  if (!Number.isFinite(altitude)) return "alt N/A";
-  const feet = Math.round((altitude as number) * 3.28084);
-  return `${feet.toLocaleString()} ft`;
 }

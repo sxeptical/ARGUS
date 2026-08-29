@@ -6,6 +6,6 @@ export async function GET(request: Request) {
     request,
     "bus-stops",
     { maxRequests: 60, serviceLabel: "Bus stop data" },
-    getBusStops(),
+    () => getBusStops(),
   );
 }

@@ -10,7 +10,8 @@
     "start": "next start",
     "lint": "eslint",
     "test": "bun test",
-    "typecheck": "node node_modules/@typescript/native/bin/tsc --noEmit"
+    "typecheck": "node node_modules/@typescript/native/bin/tsc --noEmit",
+    "verify": "bun run typecheck && bun run lint && bun test && bun run build"
   },
   "dependencies": {
     "@effect/platform": "^0.96.3",
@@ -31,6 +32,6 @@
     "eslint": "^9.39.5",
     "eslint-config-next": "16.3.2",
     "tailwindcss": "^4.3.3",
-    "typescript": "^6.0.3"
+    "typescript": "6.0.3"
   }
 }

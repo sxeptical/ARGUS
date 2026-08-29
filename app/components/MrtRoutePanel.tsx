@@ -1,8 +1,11 @@
-import { useMemo } from "react";
 import TerminalPanel from "@/app/components/TerminalPanel";
-import { MRT_STATION_NAMES, planMrtRoute } from "@/lib/mrt-routing";
+import {
+  MRT_STATION_NAMES,
+  type MrtRoutePlan,
+} from "@/lib/mrt-routing";
 
 type MrtRoutePanelProps = {
+  route: MrtRoutePlan | null;
   startStation: string;
   endStation: string;
   onStartChange: (station: string) => void;
@@ -13,6 +16,7 @@ type MrtRoutePanelProps = {
 };
 
 export default function MrtRoutePanel({
+  route,
   startStation,
   endStation,
   onStartChange,
@@ -21,14 +25,6 @@ export default function MrtRoutePanel({
   onMapPickTargetChange,
   onReset,
 }: MrtRoutePanelProps) {
-  const route = useMemo(
-    () =>
-      startStation && endStation
-        ? planMrtRoute(startStation, endStation)
-        : null,
-    [startStation, endStation],
-  );
-
   const canSwap = startStation !== endStation;
 
   return (

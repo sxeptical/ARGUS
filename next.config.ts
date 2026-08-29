@@ -50,8 +50,8 @@ const nextConfig: NextConfig = {
     // backs `bun run typecheck`. Next's default CLI checker requires a
     // physical typescript/bin/tsc from the typescript package itself and
     // mis-resolves aliased installs on some environments, so builds
-    // type-check via the JS API here instead. TS 7 compiles identically to
-    // TS 6 per Microsoft; see
+    // type-check via the JS API here instead. `stableTypeOrdering` is
+    // enabled in tsconfig so TS 6 and TS 7 use compatible ordering; see
     // https://devblogs.microsoft.com/typescript/announcing-typescript-7-0/
     useTypeScriptCli: false,
   },

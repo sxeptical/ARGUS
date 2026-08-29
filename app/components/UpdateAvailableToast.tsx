@@ -27,8 +27,8 @@ function shortVersion(version: string): string {
 
 export default function UpdateAvailableToast() {
   const initialVersionRef = useRef<string | null>(null);
+  const dismissedVersionRef = useRef<string | null>(null);
   const [availableVersion, setAvailableVersion] = useState<string | null>(null);
-  const [dismissedVersion, setDismissedVersion] = useState<string | null>(null);
 
   const checkForUpdate = useCallback(async () => {
     const latestVersion = await fetchDeploymentVersion();
@@ -41,11 +41,11 @@ export default function UpdateAvailableToast() {
 
     if (
       latestVersion !== initialVersionRef.current &&
-      latestVersion !== dismissedVersion
+      latestVersion !== dismissedVersionRef.current
     ) {
       setAvailableVersion(latestVersion);
     }
-  }, [dismissedVersion]);
+  }, []);
 
   useEffect(() => {
     void checkForUpdate();
@@ -86,7 +86,7 @@ export default function UpdateAvailableToast() {
           type="button"
           className="action-button shrink-0"
           onClick={() => {
-            setDismissedVersion(availableVersion);
+            dismissedVersionRef.current = availableVersion;
             setAvailableVersion(null);
           }}
         >

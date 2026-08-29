@@ -1,19 +1,13 @@
 import { getFlights } from "@/lib/api-clients";
+import { FLIGHTS_ENABLED } from "@/lib/features";
 import { handle } from "@/lib/route-utils";
-
-const FLIGHTS_API_DISABLED = true;
+import { Effect } from "effect";
 
 export async function GET(request: Request) {
-  // Flight data is temporarily disabled while the upstream provider is
-  // unavailable. Return an empty feed so the dashboard remains healthy.
-  if (FLIGHTS_API_DISABLED) {
-    return Response.json([]);
-  }
-
   return handle(
     request,
     "flights",
     { maxRequests: 60, serviceLabel: "Flight data" },
-    getFlights(),
+    () => (FLIGHTS_ENABLED ? getFlights() : Effect.succeed([])),
   );
 }

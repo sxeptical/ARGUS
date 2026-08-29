@@ -6,6 +6,6 @@ export async function GET(request: Request) {
     request,
     "news",
     { maxRequests: 120, serviceLabel: "News data" },
-    getNews(),
+    () => getNews(),
   );
 }

@@ -1,20 +1,18 @@
 /**
  * Shared route handler helper for the ARGUS server.
  *
- * Every route handler is a one-liner: `export const GET = (request) =>
- * handle(request, "scope", { maxRequests: 60 }, producer)`. The helper:
- *  1. Runs the rate-limit check, returning a 429 if exceeded.
- *  2. Runs the producer Effect through the shared runtime.
- *  3. Maps the success value to a 200 JSON response.
- *  4. Maps each `AppError` tag to the right HTTP status, preserving the
- *     JSON shapes and headers the pre-change `getExternalApiErrorResponse`
- *     helper emitted.
+ * Rate limiting is deliberately the outermost operation: malformed query
+ * strings consume the same request budget as valid ones, so validation
+ * cannot be used to bypass endpoint throttling. The producer is lazy and is
+ * not invoked until the request is allowed.
  */
 import { Effect } from "effect";
-import { runtime } from "@/lib/effect-runtime";
-import { extractClientIp } from "@/lib/rate-limit";
-import { RateLimit } from "@/lib/rate-limit";
-import { ExternalApiError, SchemaParseError, TimeoutError } from "@/lib/errors";
+import { runtime, type AppContext } from "@/lib/effect-runtime";
+import { extractClientIp, RateLimit } from "@/lib/rate-limit";
+import {
+  BadRequestError,
+  type AppError,
+} from "@/lib/errors";
 
 export type RateLimitDecision = import("@/lib/rate-limit").RateLimitDecision;
 export type RateLimitOptions = import("@/lib/rate-limit").RateLimitOptions;
@@ -26,64 +24,100 @@ export const BUS_STOP_ID_RE = /^\d{5}$/;
 // LTA bus service numbers: digits with optional trailing letter(s), e.g. 12, 12e, NR1.
 export const BUS_SERVICE_NO_RE = /^[A-Za-z0-9]{1,8}$/;
 
-type AppError = ExternalApiError | SchemaParseError | TimeoutError;
-
-const errorToResponse = (
-  error: AppError,
-  serviceLabel: string,
-): Response => {
-  if (error._tag === "ExternalApiError") {
-    const headers: Record<string, string> = {};
-    if (error.status === 429) {
-      headers["Retry-After"] = "60";
-    }
-    // Domain not-found (e.g. unknown bus service) is a client-facing 404.
-    if (error.status === 404) {
-      return Response.json(
-        { error: error.message || `${serviceLabel} not found` },
-        { status: 404 },
-      );
-    }
-    // 4xx (including 429) -> 503 (we treat the upstream as "temporarily
-    // unavailable" since the request itself was well-formed); 5xx -> 502;
-    // anything else -> 503 as a safe default.
-    const status =
-      error.status >= 500 ? 502 : 503;
-    return Response.json(
-      { error: `${serviceLabel} is temporarily unavailable` },
-      { status, headers },
-    );
-  }
-  if (error._tag === "TimeoutError") {
-    return Response.json(
-      { error: `${serviceLabel} timed out` },
-      { status: 504 },
-    );
-  }
-  // SchemaParseError
-  return Response.json(
-    { error: `${serviceLabel} returned an unexpected response` },
-    { status: 502 },
-  );
+type RouteOptions = {
+  readonly maxRequests?: number;
+  readonly windowMs?: number;
+  readonly serviceLabel: string;
 };
 
-export async function handle<A, R>(
+/** Read and validate a required query parameter, preserving existing errors. */
+export function requiredQueryParam(
+  request: Request,
+  name: string,
+  pattern: RegExp,
+  requirement: string,
+): string {
+  const value = new URL(request.url).searchParams.get(name)?.trim() ?? "";
+  if (!value) {
+    throw new BadRequestError({
+      message: `Query param ${name} is required`,
+    });
+  }
+  if (!pattern.test(value)) {
+    throw new BadRequestError({
+      message: `Query param ${name} ${requirement}`,
+    });
+  }
+  return value;
+}
+
+/** Read and validate an optional query parameter. */
+export function optionalQueryParam(
+  request: Request,
+  name: string,
+  pattern: RegExp,
+  requirement: string,
+): string | undefined {
+  const value = new URL(request.url).searchParams.get(name)?.trim() || undefined;
+  if (value !== undefined && !pattern.test(value)) {
+    throw new BadRequestError({
+      message: `Query param ${name} ${requirement}`,
+    });
+  }
+  return value;
+}
+
+const errorToResponse = (error: AppError, serviceLabel: string): Response => {
+  switch (error._tag) {
+    case "BadRequestError":
+      return Response.json({ error: error.message }, { status: 400 });
+    case "ExternalApiError": {
+      const headers: Record<string, string> = {};
+      if (error.status === 429) {
+        headers["Retry-After"] = "60";
+        return Response.json(
+          { error: `${serviceLabel} is temporarily rate limited` },
+          { status: 429, headers },
+        );
+      }
+      if (error.status === 404) {
+        return Response.json(
+          { error: error.message || `${serviceLabel} not found` },
+          { status: 404 },
+        );
+      }
+      return Response.json(
+        { error: `${serviceLabel} is temporarily unavailable` },
+        { status: error.status >= 500 ? 502 : 503 },
+      );
+    }
+    case "TimeoutError":
+      return Response.json(
+        { error: `${serviceLabel} timed out` },
+        { status: 504 },
+      );
+    case "SchemaParseError":
+      return Response.json(
+        { error: `${serviceLabel} returned an unexpected response` },
+        { status: 502 },
+      );
+  }
+};
+
+export async function handle<A>(
   request: Request,
   scope: string,
-  options: { maxRequests?: number; windowMs?: number; serviceLabel: string },
-  program: Effect.Effect<A, AppError, R>,
+  options: RouteOptions,
+  produce: () => Effect.Effect<A, AppError, AppContext>,
 ): Promise<Response> {
   const ip = extractClientIp(request);
 
-  // Run the rate-limit check on the shared runtime. If the runtime itself
-  // fails (e.g. layer construction error, fiber cancellation) we return 500
-  // rather than letting the unhandled rejection crash the server process.
-  let decision: import("@/lib/rate-limit").RateLimitDecision;
+  let decision: RateLimitDecision;
   try {
     decision = await runtime.runPromise(
       Effect.gen(function* () {
-        const rl = yield* RateLimit;
-        return yield* rl.check(ip, {
+        const limiter = yield* RateLimit;
+        return yield* limiter.check(ip, {
           scope,
           maxRequests: options.maxRequests,
           windowMs: options.windowMs,
@@ -107,44 +141,44 @@ export async function handle<A, R>(
         headers: {
           "Retry-After": String(retryAfterSeconds),
           "X-RateLimit-Remaining": String(decision.remaining),
-          "X-RateLimit-Reset": String(Date.now() + decision.resetMs),
+          // Conventional Unix timestamp in seconds (not milliseconds).
+          "X-RateLimit-Reset": String(
+            Math.ceil((Date.now() + decision.resetMs) / 1000),
+          ),
         },
       },
     );
   }
 
+  let program: Effect.Effect<A, AppError, AppContext>;
   try {
-    const exit = await runtime.runPromiseExit(
-      program as Effect.Effect<A, AppError, never>,
-    );
-    if (exit._tag === "Success") {
-      return Response.json(exit.value);
-    }
-    const cause = exit.cause;
-    if (cause._tag === "Fail") {
-      const failure = cause.error;
-      if (failure instanceof ExternalApiError) {
-        return errorToResponse(failure, options.serviceLabel);
-      }
-      if (failure instanceof SchemaParseError) {
-        return errorToResponse(failure, options.serviceLabel);
-      }
-      if (failure instanceof TimeoutError) {
-        return errorToResponse(failure, options.serviceLabel);
-      }
-      console.error(`[${scope}] unhandled failure`, failure);
-    } else {
-      console.error(`[${scope}] unhandled cause`, cause);
-    }
-    return Response.json(
-      { error: "Internal server error" },
-      { status: 500 },
-    );
+    program = produce();
   } catch (error) {
-    console.error(`[${scope}] unhandled error`, error);
+    if (error instanceof BadRequestError) {
+      return errorToResponse(error, options.serviceLabel);
+    }
+    console.error(`[${scope}] request setup failed`, error);
     return Response.json(
       { error: "Internal server error" },
       { status: 500 },
     );
   }
+
+  try {
+    const exit = await runtime.runPromiseExit(program);
+    if (exit._tag === "Success") {
+      return Response.json(exit.value);
+    }
+    if (exit.cause._tag === "Fail") {
+      return errorToResponse(exit.cause.error, options.serviceLabel);
+    }
+    console.error(`[${scope}] unhandled cause`, exit.cause);
+  } catch (error) {
+    console.error(`[${scope}] unhandled error`, error);
+  }
+
+  return Response.json(
+    { error: "Internal server error" },
+    { status: 500 },
+  );
 }

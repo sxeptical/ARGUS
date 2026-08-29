@@ -6,6 +6,6 @@ export async function GET(request: Request) {
     request,
     "cameras",
     { maxRequests: 120, serviceLabel: "Traffic camera data" },
-    getTrafficCameras(),
+    () => getTrafficCameras(),
   );
 }

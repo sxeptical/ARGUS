@@ -29,6 +29,11 @@ export interface Cache {
     producer: ProducerEffect<A, E, R>,
   ) => ProducerEffect<A, E, R>;
   readonly set: <A>(key: string, value: A) => Effect.Effect<void>;
+  /** Read a fresh value without running or caching a producer. */
+  readonly peek: <A>(
+    key: string,
+    maxAgeMs: number,
+  ) => Effect.Effect<A | null>;
   readonly clear: (key?: string) => Effect.Effect<void>;
 }
 
@@ -130,6 +135,15 @@ const make = Effect.gen(function* () {
       return s;
     });
 
+  const peek: Cache["peek"] = <A>(key: string, maxAgeMs: number) =>
+    Ref.get(state).pipe(
+      Effect.map((s) => {
+        const entry = s.entries.get(key);
+        if (!entry || Date.now() - entry.timestamp >= maxAgeMs) return null;
+        return entry.value as A;
+      }),
+    );
+
   const clear: Cache["clear"] = (key) =>
     Ref.update(state, (s) => {
       if (key) {
@@ -142,8 +156,7 @@ const make = Effect.gen(function* () {
       return s;
     });
 
-  return { get, set, clear } satisfies Cache;
+  return { get, set, peek, clear } satisfies Cache;
 });
 
 export const CacheLive: Layer.Layer<Cache, never, never> = Layer.effect(Cache, make);
-
