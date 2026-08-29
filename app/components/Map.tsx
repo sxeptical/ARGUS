@@ -243,26 +243,10 @@ function useMapController({
 
     const map = new maplibregl.Map({
       container: containerRef.current,
-      style: {
-        version: 8,
-        sources: {
-          carto: {
-            type: "raster",
-            tiles: [
-              "https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png",
-              "https://b.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png",
-            ],
-            tileSize: 256,
-          },
-        },
-        layers: [
-          {
-            id: "carto-layer",
-            type: "raster",
-            source: "carto",
-          },
-        ],
-      },
+      // OpenFreeMap is a MapLibre-native, attribution-compliant public
+      // basemap with no account or API key. CARTO now watermarks anonymous
+      // tile requests with "API KEY REQUIRED".
+      style: "https://tiles.openfreemap.org/styles/dark",
       center: [103.8198, 1.3521],
       zoom: 10.8,
     });
