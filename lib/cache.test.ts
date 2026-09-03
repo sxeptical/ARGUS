@@ -217,11 +217,11 @@ describe("Cache", () => {
         /* let the one-millisecond max age expire */
       }
 
-      expect(Effect.runSync(cache.peek("old-snapshot", 1))).toBeNull();
+      expect(Effect.runSync(cache.peek<string>("old-snapshot", 1))).toBeNull();
       // A wider age still sees the original value: peek did not write null.
-      expect(Effect.runSync(cache.peek("old-snapshot", 60_000))).toBe(
-        "last-good",
-      );
+      expect(
+        Effect.runSync(cache.peek<string>("old-snapshot", 60_000)),
+      ).toBe("last-good");
     });
   });
 

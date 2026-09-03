@@ -72,6 +72,19 @@ const errorToResponse = (error: AppError, serviceLabel: string): Response => {
     case "BadRequestError":
       return Response.json({ error: error.message }, { status: 400 });
     case "ExternalApiError": {
+      // Missing server-side API keys are a deployment misconfiguration, not a
+      // transient upstream outage. Surface as 500 so ops can distinguish
+      // "not configured" from "temporarily unavailable".
+      if (
+        error.status === 401 &&
+        /missing|placeholder|API_KEY/i.test(error.message)
+      ) {
+        console.error(`[${serviceLabel}] misconfigured: ${error.message}`);
+        return Response.json(
+          { error: `${serviceLabel} is not configured` },
+          { status: 500 },
+        );
+      }
       const headers: Record<string, string> = {};
       if (error.status === 429) {
         headers["Retry-After"] = "60";

@@ -133,6 +133,9 @@ export default function BusPanel({
     isLoading,
   } = useSWR<BusArrival[], Error>(arrivalsUrl, apiFetch<BusArrival[]>, {
     refreshInterval: BUS_ARRIVAL_REFRESH_MS,
+    dedupingInterval: 5_000,
+    errorRetryCount: 3,
+    errorRetryInterval: 5_000,
     onSuccess: (nextArrivals, key) => {
       const queryStart = key.indexOf("?");
       const stopCode = new URLSearchParams(key.slice(queryStart + 1)).get(

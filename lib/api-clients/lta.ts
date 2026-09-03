@@ -144,6 +144,7 @@ export const getBusStops = (): Effect.Effect<
               pageSize: 500,
               maxPages: 20,
               service: "lta",
+              concurrency: 4,
             },
           );
           return pages as BusStop[];

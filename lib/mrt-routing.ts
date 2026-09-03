@@ -1,3 +1,5 @@
+import { MRT_OPERATIONAL_LINE_STATIONS } from "@/lib/mrt-network";
+
 type GraphEdge = {
   to: string;
   weight: number;
@@ -61,195 +63,61 @@ function getTransferMinutes(station: string, lineCount: number): number {
     : MINUTES_PER_TRANSFER_TWO_LINE;
 }
 
-const MRT_OPERATIONAL_LINE_STATIONS: Record<string, string[]> = {
-  "North South Line": [
-    "Jurong East",
-    "Bukit Batok",
-    "Bukit Gombak",
-    "Choa Chu Kang",
-    "Yew Tee",
-    "Kranji",
-    "Marsiling",
-    "Woodlands",
-    "Admiralty",
-    "Sembawang",
-    "Canberra",
-    "Yishun",
-    "Khatib",
-    "Yio Chu Kang",
-    "Ang Mo Kio",
-    "Bishan",
-    "Braddell",
-    "Toa Payoh",
-    "Novena",
-    "Newton",
-    "Orchard",
-    "Somerset",
-    "Dhoby Ghaut",
-    "City Hall",
-    "Raffles Place",
-    "Marina Bay",
-    "Marina South Pier",
-  ],
-  "East West Line": [
-    "Tuas Link",
-    "Tuas West Road",
-    "Tuas Crescent",
-    "Gul Circle",
-    "Joo Koon",
-    "Pioneer",
-    "Boon Lay",
-    "Lakeside",
-    "Chinese Garden",
-    "Jurong East",
-    "Clementi",
-    "Dover",
-    "Buona Vista",
-    "Commonwealth",
-    "Queenstown",
-    "Redhill",
-    "Tiong Bahru",
-    "Outram Park",
-    "Tanjong Pagar",
-    "Raffles Place",
-    "City Hall",
-    "Bugis",
-    "Lavender",
-    "Kallang",
-    "Aljunied",
-    "Paya Lebar",
-    "Eunos",
-    "Kembangan",
-    "Bedok",
-    "Tanah Merah",
-    "Simei",
-    "Tampines",
-    "Pasir Ris",
-  ],
-  "Changi Airport Branch": ["Tanah Merah", "Expo", "Changi Airport"],
-  "North East Line": [
-    "HarbourFront",
-    "Outram Park",
-    "Chinatown",
-    "Clarke Quay",
-    "Dhoby Ghaut",
-    "Little India",
-    "Farrer Park",
-    "Boon Keng",
-    "Potong Pasir",
-    "Woodleigh",
-    "Serangoon",
-    "Kovan",
-    "Hougang",
-    "Buangkok",
-    "Sengkang",
-    "Punggol",
-    "Punggol Coast",
-  ],
-  "Circle Line": [
-    "Dhoby Ghaut",
-    "Bras Basah",
-    "Esplanade",
-    "Promenade",
-    "Nicoll Highway",
-    "Stadium",
-    "Mountbatten",
-    "Dakota",
-    "Paya Lebar",
-    "MacPherson",
-    "Tai Seng",
-    "Bartley",
-    "Serangoon",
-    "Lorong Chuan",
-    "Bishan",
-    "Marymount",
-    "Caldecott",
-    "Botanic Gardens",
-    "Farrer Road",
-    "Holland Village",
-    "Buona Vista",
-    "one-north",
-    "Kent Ridge",
-    "Haw Par Villa",
-    "Pasir Panjang",
-    "Labrador Park",
-    "Telok Blangah",
-    "HarbourFront",
-  ],
-  "Circle Line Extension": [
-    "HarbourFront",
-    "Keppel",
-    "Cantonment",
-    "Prince Edward Road",
-    "Marina Bay",
-  ],
-  "Downtown Line": [
-    "Bukit Panjang",
-    "Cashew",
-    "Hillview",
-    "Beauty World",
-    "King Albert Park",
-    "Sixth Avenue",
-    "Tan Kah Kee",
-    "Botanic Gardens",
-    "Stevens",
-    "Newton",
-    "Little India",
-    "Rochor",
-    "Bugis",
-    "Promenade",
-    "Bayfront",
-    "Downtown",
-    "Telok Ayer",
-    "Chinatown",
-    "Fort Canning",
-    "Bencoolen",
-    "Jalan Besar",
-    "Bendemeer",
-    "Geylang Bahru",
-    "Mattar",
-    "MacPherson",
-    "Ubi",
-    "Kaki Bukit",
-    "Bedok North",
-    "Bedok Reservoir",
-    "Tampines West",
-    "Tampines",
-    "Tampines East",
-    "Upper Changi",
-    "Expo",
-  ],
-  // TEL operational: Woodlands North → Bayshore (TEL Stage 5 — Bedok South, Sungei Bedok — planned 2H 2026, NOT yet operational)
-  "Thomson-East Coast Line": [
-    "Woodlands North",
-    "Woodlands",
-    "Woodlands South",
-    "Springleaf",
-    "Lentor",
-    "Mayflower",
-    "Bright Hill",
-    "Upper Thomson",
-    "Caldecott",
-    "Stevens",
-    "Napier",
-    "Orchard Boulevard",
-    "Orchard",
-    "Great World",
-    "Havelock",
-    "Outram Park",
-    "Maxwell",
-    "Shenton Way",
-    "Marina Bay",
-    "Gardens by the Bay",
-    "Tanjong Rhu",
-    "Katong Park",
-    "Tanjong Katong",
-    "Marine Parade",
-    "Marine Terrace",
-    "Siglap",
-    "Bayshore",
-  ],
-};
+/** Minimal binary heap for Dijkstra — O(log V) push/pop instead of sort-per-pop. */
+type HeapEntry = { key: string; distance: number };
+
+class MinHeap {
+  private items: HeapEntry[] = [];
+
+  get size(): number {
+    return this.items.length;
+  }
+
+  push(entry: HeapEntry): void {
+    this.items.push(entry);
+    let i = this.items.length - 1;
+    while (i > 0) {
+      const parent = (i - 1) >> 1;
+      if (this.items[parent].distance <= this.items[i].distance) break;
+      [this.items[parent], this.items[i]] = [this.items[i], this.items[parent]];
+      i = parent;
+    }
+  }
+
+  pop(): HeapEntry | undefined {
+    if (this.items.length === 0) return undefined;
+    const top = this.items[0];
+    const last = this.items.pop();
+    if (this.items.length > 0 && last) {
+      this.items[0] = last;
+      let i = 0;
+      for (;;) {
+        const left = i * 2 + 1;
+        const right = i * 2 + 2;
+        let smallest = i;
+        if (
+          left < this.items.length &&
+          this.items[left].distance < this.items[smallest].distance
+        ) {
+          smallest = left;
+        }
+        if (
+          right < this.items.length &&
+          this.items[right].distance < this.items[smallest].distance
+        ) {
+          smallest = right;
+        }
+        if (smallest === i) break;
+        [this.items[i], this.items[smallest]] = [
+          this.items[smallest],
+          this.items[i],
+        ];
+        i = smallest;
+      }
+    }
+    return top;
+  }
+}
 
 const stationLineNodes = new Map<string, StationLineNode>();
 const stationToNodeKeys = new Map<string, string[]>();
@@ -393,7 +261,7 @@ export function planMrtRoute(start: string, end: string): MrtRoutePlan | null {
 
   const distances = new Map<string, number>();
   const previous = new Map<string, string | null>();
-  const queue: Array<{ key: string; distance: number }> = [];
+  const queue = new MinHeap();
 
   for (const key of startKeys) {
     distances.set(key, 0);
@@ -403,9 +271,8 @@ export function planMrtRoute(start: string, end: string): MrtRoutePlan | null {
 
   let bestEndKey: string | null = null;
 
-  while (queue.length > 0) {
-    queue.sort((a, b) => a.distance - b.distance);
-    const current = queue.shift();
+  while (queue.size > 0) {
+    const current = queue.pop();
     if (!current) break;
 
     const bestDistance = distances.get(current.key);

@@ -10,31 +10,29 @@ import "maplibre-gl/dist/maplibre-gl.css";
 // instead. scripts/copy-maplibre-worker.mjs copies both files at build time
 // via the predev/prebuild hooks.
 setWorkerUrl("/maplibre/maplibre-gl-worker.mjs");
-import { isRouteableMrtStation, type MrtRouteSegment } from "@/lib/mrt-routing";
+import type { MrtRouteSegment } from "@/lib/mrt-routing";
+import { MRT_DISPLAY_LINE_STATIONS } from "@/lib/mrt-network";
+import {
+  buildBusRouteGeoJson,
+  buildBusRouteStopsGeoJson,
+  buildRouteGeoJson,
+  interpolateStations,
+  resolveBusRouteDrawPath,
+  resolveRemainingRouteStops,
+  EMPTY_BUS_ROUTE_GEOJSON,
+  EMPTY_BUS_ROUTE_STOPS_GEOJSON,
+  type BusRouteOverlay,
+  type MRTStationGeoJson,
+} from "@/lib/map-geometry";
 import mrtLinesData from "@/public/mrt-lines.json";
 import type {
-  BusRouteStop,
   BusStop,
   FlightState,
   MRTGeoJson,
   TrafficCamera,
 } from "@/types";
 
-/** Active bus service route drawn as road-following (or stop-chord) polylines. */
-export type BusRouteOverlay = {
-  serviceNo: string;
-  direction: number;
-  stops: ReadonlyArray<BusRouteStop>;
-  /** Index into `stops` for the selected stop (stop-chord fallback). */
-  selectedStopIndex: number | null;
-  /**
-   * Road-following polyline [lng, lat] when available. Empty → fall back to
-   * connecting `stops` with straight segments.
-   */
-  path: ReadonlyArray<readonly [number, number]>;
-  /** Index into `path` nearest the selected stop for remaining-path emphasis. */
-  selectedPathIndex: number | null;
-};
+export type { BusRouteOverlay };
 
 type MapProps = {
   busStops: BusStop[];
@@ -122,422 +120,10 @@ function improveDarkBasemapContrast(map: maplibregl.Map): void {
   }
 }
 
-const MRT_LINE_STATIONS: Record<string, string[]> = {
-  "North South Line": [
-    "Jurong East",
-    "Bukit Batok",
-    "Bukit Gombak",
-    "Choa Chu Kang",
-    "Yew Tee",
-    "Kranji",
-    "Marsiling",
-    "Woodlands",
-    "Admiralty",
-    "Sembawang",
-    "Canberra",
-    "Yishun",
-    "Khatib",
-    "Yio Chu Kang",
-    "Ang Mo Kio",
-    "Bishan",
-    "Braddell",
-    "Toa Payoh",
-    "Novena",
-    "Newton",
-    "Orchard",
-    "Somerset",
-    "Dhoby Ghaut",
-    "City Hall",
-    "Raffles Place",
-    "Marina Bay",
-    "Marina South Pier",
-  ],
-  "East West Line": [
-    "Tuas Link",
-    "Tuas West Road",
-    "Tuas Crescent",
-    "Gul Circle",
-    "Joo Koon",
-    "Pioneer",
-    "Boon Lay",
-    "Lakeside",
-    "Chinese Garden",
-    "Jurong East",
-    "Clementi",
-    "Dover",
-    "Buona Vista",
-    "Commonwealth",
-    "Queenstown",
-    "Redhill",
-    "Tiong Bahru",
-    "Outram Park",
-    "Tanjong Pagar",
-    "Raffles Place",
-    "City Hall",
-    "Bugis",
-    "Lavender",
-    "Kallang",
-    "Aljunied",
-    "Paya Lebar",
-    "Eunos",
-    "Kembangan",
-    "Bedok",
-    "Tanah Merah",
-    "Simei",
-    "Tampines",
-    "Pasir Ris",
-  ],
-  "Changi Airport Branch": ["Tanah Merah", "Expo", "Changi Airport"],
-  "North East Line": [
-    "HarbourFront",
-    "Outram Park",
-    "Chinatown",
-    "Clarke Quay",
-    "Dhoby Ghaut",
-    "Little India",
-    "Farrer Park",
-    "Boon Keng",
-    "Potong Pasir",
-    "Woodleigh",
-    "Serangoon",
-    "Kovan",
-    "Hougang",
-    "Buangkok",
-    "Sengkang",
-    "Punggol",
-    "Punggol Coast",
-  ],
-  "Circle Line": [
-    "Dhoby Ghaut",
-    "Bras Basah",
-    "Esplanade",
-    "Promenade",
-    "Nicoll Highway",
-    "Stadium",
-    "Mountbatten",
-    "Dakota",
-    "Paya Lebar",
-    "MacPherson",
-    "Tai Seng",
-    "Bartley",
-    "Serangoon",
-    "Lorong Chuan",
-    "Bishan",
-    "Marymount",
-    "Caldecott",
-    "Botanic Gardens",
-    "Farrer Road",
-    "Holland Village",
-    "Buona Vista",
-    "one-north",
-    "Kent Ridge",
-    "Haw Par Villa",
-    "Pasir Panjang",
-    "Labrador Park",
-    "Telok Blangah",
-    "HarbourFront",
-  ],
-  "Circle Line Extension": [
-    "HarbourFront",
-    "Keppel",
-    "Cantonment",
-    "Prince Edward Road",
-    "Marina Bay",
-  ],
-  "Downtown Line": [
-    "Bukit Panjang",
-    "Cashew",
-    "Hillview",
-    "Beauty World",
-    "King Albert Park",
-    "Sixth Avenue",
-    "Tan Kah Kee",
-    "Botanic Gardens",
-    "Stevens",
-    "Newton",
-    "Little India",
-    "Rochor",
-    "Bugis",
-    "Promenade",
-    "Bayfront",
-    "Downtown",
-    "Telok Ayer",
-    "Chinatown",
-    "Fort Canning",
-    "Bencoolen",
-    "Jalan Besar",
-    "Bendemeer",
-    "Geylang Bahru",
-    "Mattar",
-    "MacPherson",
-    "Ubi",
-    "Kaki Bukit",
-    "Bedok North",
-    "Bedok Reservoir",
-    "Tampines West",
-    "Tampines",
-    "Tampines East",
-    "Upper Changi",
-    "Expo",
-  ],
-  // TEL operational: Woodlands North → Bayshore (27 stations, 27 coordinates)
-  "Thomson-East Coast Line": [
-    "Woodlands North",
-    "Woodlands",
-    "Woodlands South",
-    "Springleaf",
-    "Lentor",
-    "Mayflower",
-    "Bright Hill",
-    "Upper Thomson",
-    "Caldecott",
-    "Stevens",
-    "Napier",
-    "Orchard Boulevard",
-    "Orchard",
-    "Great World",
-    "Havelock",
-    "Outram Park",
-    "Maxwell",
-    "Shenton Way",
-    "Marina Bay",
-    "Gardens by the Bay",
-    "Tanjong Rhu",
-    "Katong Park",
-    "Tanjong Katong",
-    "Marine Parade",
-    "Marine Terrace",
-    "Siglap",
-    "Bayshore",
-  ],
-  // TEL Stage 5 extension — planned 2H 2026, NOT yet operational (non-routeable on map)
-  "Thomson-East Coast Line Extension": [
-    "Bayshore",
-    "Bedok South",
-    "Sungei Bedok",
-  ],
-  "Jurong Region Line": [
-    "Choa Chu Kang",
-    "Choa Chu Kang West",
-    "JS2A",
-    "Tengah",
-    "Hong Kah",
-    "Corporation",
-    "Jurong West",
-    "Bahar Junction",
-    "Boon Lay",
-    "Enterprise",
-    "Tukang",
-    "Jurong Hill",
-    "Jurong Pier",
-  ],
-  "Jurong Region Line West Branch": [
-    "Bahar Junction",
-    "Gek Poh",
-    "Tawas",
-    "Nanyang Gateway",
-    "Nanyang Crescent",
-    "Peng Kang Hill",
-  ],
-  "Jurong Region Line East Branch": [
-    "Tengah",
-    "Tengah Plantation",
-    "Tengah Park",
-    "Bukit Batok West",
-    "Toh Guan",
-    "Jurong East",
-    "Jurong Town Hall",
-    "Pandan Reservoir",
-  ],
-  // WCE: Pandan Reservoir (JE7) -> West Coast (CRL CR18) -> Kent Ridge (CCL); late 2030s / early 2040s
-  "Jurong Region Line West Coast Extension": [
-    "Pandan Reservoir",
-    "West Coast",
-    "Kent Ridge",
-  ],
-  "Cross Island Line": [
-    "Aviation Park",
-    "Loyang",
-    "Pasir Ris",
-    "Tampines North",
-    "Defu",
-    "Hougang",
-    "Serangoon North",
-    "Tavistock",
-    "Ang Mo Kio",
-    "Teck Ghee",
-    "Bright Hill",
-    "Turf City",
-    "King Albert Park",
-    "Clementi",
-    "West Coast",
-    "Jurong Lake District",
-    "CR20 (Taman Jurong)",
-    "CR21 (Jurong Pier)",
-    "CR22 (Jurong Industrial Estate)",
-    "CR23 (Gul Circle)",
-  ],
-  "Johor Bahru-Singapore RTS": ["Bukit Chagar", "Woodlands North"],
-};
+const MRT_LINE_STATIONS: Record<string, string[]> = MRT_DISPLAY_LINE_STATIONS;
 
 const MRT_LINES = mrtLinesData as MRTGeoJson;
 const EMPTY_MRT_ROUTE_SEGMENTS: MrtRouteSegment[] = [];
-
-type BusRouteLineGeoJson = {
-  type: "FeatureCollection";
-  features: Array<{
-    type: "Feature";
-    properties: {
-      kind: "remaining";
-      serviceNo: string;
-    };
-    geometry: {
-      type: "LineString";
-      coordinates: [number, number][];
-    };
-  }>;
-};
-
-type BusRouteStopsGeoJson = {
-  type: "FeatureCollection";
-  features: Array<{
-    type: "Feature";
-    properties: {
-      BusStopCode: string;
-      Description: string;
-      role: "selected" | "terminus" | "stop";
-      sequence: number;
-    };
-    geometry: {
-      type: "Point";
-      coordinates: [number, number];
-    };
-  }>;
-};
-
-const EMPTY_BUS_ROUTE_GEOJSON: BusRouteLineGeoJson = {
-  type: "FeatureCollection",
-  features: [],
-};
-
-const EMPTY_BUS_ROUTE_STOPS_GEOJSON: BusRouteStopsGeoJson = {
-  type: "FeatureCollection",
-  features: [],
-};
-
-/**
- * Resolve the polyline to draw for a bus route overlay.
- *
- * When the user selected a stop, only the remaining segment from that stop
- * to the terminus is returned (not the full outbound+return geometry, and
- * not the portion already travelled).
- */
-function resolveBusRouteDrawPath(
-  overlay: BusRouteOverlay,
-): Array<[number, number]> {
-  const fullCoords: Array<[number, number]> =
-    overlay.path.length >= 2
-      ? overlay.path.map(([lng, lat]) => [lng, lat])
-      : overlay.stops.map(
-          (stop) => [stop.longitude, stop.latitude] as [number, number],
-        );
-
-  if (fullCoords.length < 2) return [];
-
-  // Prefer path index (road geometry); fall back to stop index (chords).
-  const startIdx =
-    overlay.path.length >= 2
-      ? overlay.selectedPathIndex
-      : overlay.selectedStopIndex;
-
-  if (startIdx !== null && startIdx >= 0 && startIdx < fullCoords.length - 1) {
-    return fullCoords.slice(startIdx);
-  }
-
-  // No stop context (or stop is the terminus) → full active direction only.
-  return fullCoords;
-}
-
-/** Stops on the remaining path (selected stop → terminus), inclusive. */
-function resolveRemainingRouteStops(
-  overlay: BusRouteOverlay,
-): ReadonlyArray<BusRouteStop> {
-  if (overlay.stops.length === 0) return [];
-  const startIdx =
-    overlay.selectedStopIndex !== null &&
-    overlay.selectedStopIndex >= 0 &&
-    overlay.selectedStopIndex < overlay.stops.length
-      ? overlay.selectedStopIndex
-      : 0;
-  return overlay.stops.slice(startIdx);
-}
-
-function buildBusRouteGeoJson(
-  overlay: BusRouteOverlay | null | undefined,
-): BusRouteLineGeoJson {
-  if (!overlay || (overlay.path.length < 2 && overlay.stops.length < 2)) {
-    return { type: "FeatureCollection", features: [] };
-  }
-
-  const drawCoords = resolveBusRouteDrawPath(overlay);
-  if (drawCoords.length < 2) {
-    return { type: "FeatureCollection", features: [] };
-  }
-
-  // Single polyline only — remaining path from selected stop to destination.
-  return {
-    type: "FeatureCollection",
-    features: [
-      {
-        type: "Feature",
-        properties: { kind: "remaining", serviceNo: overlay.serviceNo },
-        geometry: { type: "LineString", coordinates: drawCoords },
-      },
-    ],
-  };
-}
-
-function buildBusRouteStopsGeoJson(
-  overlay: BusRouteOverlay | null | undefined,
-): BusRouteStopsGeoJson {
-  if (!overlay) return EMPTY_BUS_ROUTE_STOPS_GEOJSON;
-  const remaining = resolveRemainingRouteStops(overlay);
-  if (remaining.length === 0) return EMPTY_BUS_ROUTE_STOPS_GEOJSON;
-
-  const lastIdx = remaining.length - 1;
-  return {
-    type: "FeatureCollection",
-    features: remaining.flatMap((stop, index) => {
-      if (
-        !Number.isFinite(stop.latitude) ||
-        !Number.isFinite(stop.longitude)
-      ) {
-        return [];
-      }
-      const role: "selected" | "terminus" | "stop" =
-        index === 0
-          ? "selected"
-          : index === lastIdx
-            ? "terminus"
-            : "stop";
-      return [
-        {
-          type: "Feature" as const,
-          properties: {
-            BusStopCode: stop.busStopCode,
-            Description: stop.description,
-            role,
-            sequence: stop.stopSequence,
-          },
-          geometry: {
-            type: "Point" as const,
-            coordinates: [stop.longitude, stop.latitude] as [number, number],
-          },
-        },
-      ];
-    }),
-  };
-}
 
 function fitMapToBusRoute(
   map: maplibregl.Map,
@@ -563,196 +149,6 @@ function fitMapToBusRoute(
     maxZoom: 14,
     duration: 600,
   });
-}
-
-type MRTStationGeoJson = {
-  type: "FeatureCollection";
-  features: Array<{
-    type: "Feature";
-    properties: {
-      name: string;
-      label: string;
-      line: string;
-      color: string;
-      routeable: boolean;
-    };
-    geometry: {
-      type: "Point";
-      coordinates: [number, number];
-    };
-  }>;
-};
-
-type MRTRouteGeoJson = {
-  type: "FeatureCollection";
-  features: Array<{
-    type: "Feature";
-    properties: {
-      line: string;
-      color: string;
-    };
-    geometry: {
-      type: "LineString";
-      coordinates: [number, number][];
-    };
-  }>;
-};
-
-function interpolateStations(
-  coordinates: number[][],
-  stationNames: string[],
-  line: string,
-  color: string,
-): MRTStationGeoJson["features"] {
-  if (coordinates.length < 2 || stationNames.length === 0) return [];
-  if (coordinates.length === stationNames.length) {
-    return stationNames.map((stationName, index) => {
-      const [lng, lat] = coordinates[index];
-      return {
-        type: "Feature" as const,
-        properties: {
-          name: stationName,
-          label: stationName,
-          line,
-          color,
-          routeable: isRouteableMrtStation(stationName),
-        },
-        geometry: {
-          type: "Point" as const,
-          coordinates: [lng, lat] as [number, number],
-        },
-      };
-    });
-  }
-
-  if (stationNames.length === 1) {
-    const [lng, lat] = coordinates[0];
-    return [
-      {
-        type: "Feature",
-        properties: {
-          name: stationNames[0],
-          label: stationNames[0],
-          line,
-          color,
-          routeable: isRouteableMrtStation(stationNames[0]),
-        },
-        geometry: {
-          type: "Point",
-          coordinates: [lng, lat],
-        },
-      },
-    ];
-  }
-
-  const segmentLengths: number[] = [];
-  let totalLength = 0;
-
-  for (let i = 0; i < coordinates.length - 1; i += 1) {
-    const [lng1, lat1] = coordinates[i];
-    const [lng2, lat2] = coordinates[i + 1];
-    const segmentLength = Math.hypot(lng2 - lng1, lat2 - lat1);
-    segmentLengths.push(segmentLength);
-    totalLength += segmentLength;
-  }
-
-  if (totalLength === 0) return [];
-
-  return stationNames.map((stationName, index) => {
-    const targetDistance = (totalLength * index) / (stationNames.length - 1);
-    let traversed = 0;
-    let segmentIndex = 0;
-
-    while (
-      segmentIndex < segmentLengths.length - 1 &&
-      traversed + segmentLengths[segmentIndex] < targetDistance
-    ) {
-      traversed += segmentLengths[segmentIndex];
-      segmentIndex += 1;
-    }
-
-    const currentSegmentLength = segmentLengths[segmentIndex];
-    const ratio =
-      currentSegmentLength > 0
-        ? (targetDistance - traversed) / currentSegmentLength
-        : 0;
-
-    const [startLng, startLat] = coordinates[segmentIndex];
-    const [endLng, endLat] = coordinates[segmentIndex + 1];
-    const lng = startLng + (endLng - startLng) * ratio;
-    const lat = startLat + (endLat - startLat) * ratio;
-
-    return {
-      type: "Feature" as const,
-      properties: {
-        name: stationName,
-        label: stationName,
-        line,
-        color,
-        routeable: isRouteableMrtStation(stationName),
-      },
-      geometry: {
-        type: "Point" as const,
-        coordinates: [lng, lat] as [number, number],
-      },
-    };
-  });
-}
-
-function buildRouteGeoJson(
-  mrtLines: MRTGeoJson,
-  routeSegments: MrtRouteSegment[],
-): MRTRouteGeoJson {
-  const features: MRTRouteGeoJson["features"] = [];
-  const lineFeaturesByName = new globalThis.Map(
-    mrtLines.features.map((feature) => [feature.properties.name, feature]),
-  );
-
-  for (const segment of routeSegments) {
-    if (segment.stops <= 0) continue;
-    const lineFeature = lineFeaturesByName.get(segment.line);
-    if (!lineFeature) continue;
-
-    const stationNames = MRT_LINE_STATIONS[segment.line] ?? [];
-    if (stationNames.length === 0) continue;
-
-    const stationFeatures = interpolateStations(
-      lineFeature.geometry.coordinates,
-      stationNames,
-      segment.line,
-      lineFeature.properties.color,
-    );
-    if (stationFeatures.length !== stationNames.length) continue;
-
-    const fromIndex = stationNames.indexOf(segment.from);
-    const toIndex = stationNames.indexOf(segment.to);
-    if (fromIndex < 0 || toIndex < 0 || fromIndex === toIndex) continue;
-
-    const startIndex = Math.min(fromIndex, toIndex);
-    const endIndex = Math.max(fromIndex, toIndex);
-    const sliced = stationFeatures
-      .slice(startIndex, endIndex + 1)
-      .map((feature) => feature.geometry.coordinates);
-    const coordinates = fromIndex <= toIndex ? sliced : [...sliced].reverse();
-    if (coordinates.length < 2) continue;
-
-    features.push({
-      type: "Feature",
-      properties: {
-        line: segment.line,
-        color: lineFeature.properties.color,
-      },
-      geometry: {
-        type: "LineString",
-        coordinates: coordinates as [number, number][],
-      },
-    });
-  }
-
-  return {
-    type: "FeatureCollection",
-    features,
-  };
 }
 
 function buildPlaneIcon(size = 64): ImageData {
@@ -866,6 +262,10 @@ function createFlightMap() {
   return new globalThis.Map<string, FlightState>();
 }
 
+function createCameraMap() {
+  return new globalThis.Map<string, TrafficCamera>();
+}
+
 function useMapController({
   busStops,
   cameras,
@@ -880,10 +280,11 @@ function useMapController({
 }: MapProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
-  const cameraMarkersRef = useRef<maplibregl.Marker[]>([]);
   const busStopsRef = useLazyRef(createBusStopMap);
+  const camerasRef = useLazyRef(createCameraMap);
   const flightsRef = useLazyRef(createFlightMap);
   const onStopClickRef = useRef(onStopClick);
+  const onCameraClickRef = useRef(onCameraClick);
   const onFlightClickRef = useRef(onFlightClick);
   const onMrtStationClickRef = useRef(onMrtStationClick);
   const mrtLinesRef = useRef<MRTGeoJson | null>(null);
@@ -895,6 +296,10 @@ function useMapController({
   useEffect(() => {
     onStopClickRef.current = onStopClick;
   }, [onStopClick]);
+
+  useEffect(() => {
+    onCameraClickRef.current = onCameraClick;
+  }, [onCameraClick]);
 
   useEffect(() => {
     onFlightClickRef.current = onFlightClick;
@@ -922,6 +327,9 @@ function useMapController({
     };
 
     setLayerVisibility("bus-stops-layer", sensorVisibility.busStops);
+    setLayerVisibility("cameras-clusters-layer", sensorVisibility.cameras);
+    setLayerVisibility("cameras-count-layer", sensorVisibility.cameras);
+    setLayerVisibility("cameras-point-layer", sensorVisibility.cameras);
     setLayerVisibility("flights-layer", sensorVisibility.flights);
     setLayerVisibility("flights-label-layer", sensorVisibility.flights);
     setLayerVisibility("mrt-lines-casing-layer", sensorVisibility.mrt);
@@ -942,6 +350,7 @@ function useMapController({
     const routeGeoJson = buildRouteGeoJson(
       mrtLinesRef.current,
       mrtRouteSegmentsRef.current,
+      MRT_LINE_STATIONS,
     );
     const routeSource = map.getSource("mrt-route") as
       maplibregl.GeoJSONSource | undefined;
@@ -1017,6 +426,49 @@ function useMapController({
     };
     const handleInteractiveLayerLeave = () => {
       map.getCanvas().style.cursor = "";
+    };
+    const handleCameraPointClick = (event: maplibregl.MapLayerMouseEvent) => {
+      const feature = event.features?.[0];
+      const cameraId = feature?.properties?.CameraID;
+      if (typeof cameraId !== "string") return;
+      const camera = camerasRef.current.get(cameraId);
+      if (camera) onCameraClickRef.current(camera);
+    };
+    const handleCameraClusterClick = (event: maplibregl.MapLayerMouseEvent) => {
+      const feature = event.features?.[0];
+      const clusterId = feature?.properties?.cluster_id;
+      const geometry = feature?.geometry as
+        | { type: string; coordinates?: unknown }
+        | undefined;
+      const coords = geometry?.coordinates;
+      if (typeof clusterId !== "number" || !Array.isArray(coords)) return;
+      const source = map.getSource("cameras") as
+        | maplibregl.GeoJSONSource
+        | undefined;
+      try {
+        const result = (
+          source as unknown as {
+            getClusterExpansionZoom: (
+              id: number,
+            ) => Promise<number> | number;
+          }
+        )?.getClusterExpansionZoom(clusterId);
+        const applyZoom = (zoom: number) => {
+          if (!Number.isFinite(zoom)) return;
+          map.easeTo({
+            center: [coords[0] as number, coords[1] as number],
+            zoom: Math.min(zoom, 16),
+            duration: 400,
+          });
+        };
+        if (result instanceof Promise) {
+          result.then(applyZoom).catch(() => undefined);
+        } else if (typeof result === "number") {
+          applyZoom(result);
+        }
+      } catch {
+        // Cluster zoom is best-effort; ignore failures.
+      }
     };
     const handleMrtStationClick = (event: maplibregl.MapLayerMouseEvent) => {
       const feature = event.features?.[0];
@@ -1301,6 +753,139 @@ function useMapController({
         ),
       );
 
+      // Traffic cameras as a clustered GeoJSON source — scales to hundreds of
+      // nodes without one DOM Marker per camera.
+      map.addSource("cameras", {
+        type: "geojson",
+        data: {
+          type: "FeatureCollection",
+          features: Array.from(camerasRef.current.values()).flatMap(
+            (camera) =>
+              Number.isFinite(camera.Latitude) &&
+              Number.isFinite(camera.Longitude)
+                ? [
+                    {
+                      type: "Feature" as const,
+                      properties: {
+                        CameraID: camera.CameraID,
+                        location: camera.location,
+                      },
+                      geometry: {
+                        type: "Point" as const,
+                        coordinates: [camera.Longitude, camera.Latitude],
+                      },
+                    },
+                  ]
+                : [],
+          ),
+        },
+        cluster: true,
+        clusterMaxZoom: 13,
+        clusterRadius: 40,
+      });
+
+      map.addLayer({
+        id: "cameras-clusters-layer",
+        type: "circle",
+        source: "cameras",
+        filter: ["has", "point_count"],
+        layout: {
+          visibility: sensorVisibilityRef.current.cameras
+            ? "visible"
+            : "none",
+        },
+        paint: {
+          "circle-color": MAP_COLORS.muted,
+          "circle-radius": [
+            "step",
+            ["get", "point_count"],
+            12,
+            10,
+            16,
+            30,
+            20,
+          ],
+          "circle-opacity": 0.9,
+          "circle-stroke-width": 1.5,
+          "circle-stroke-color": MAP_COLORS.paper,
+        },
+      });
+
+      map.addLayer({
+        id: "cameras-count-layer",
+        type: "symbol",
+        source: "cameras",
+        filter: ["has", "point_count"],
+        layout: {
+          visibility: sensorVisibilityRef.current.cameras
+            ? "visible"
+            : "none",
+          "text-field": ["get", "point_count_abbreviated"],
+          "text-size": 10,
+        },
+        paint: {
+          "text-color": MAP_COLORS.paper,
+        },
+      });
+
+      map.addLayer({
+        id: "cameras-point-layer",
+        type: "circle",
+        source: "cameras",
+        filter: ["!", ["has", "point_count"]],
+        layout: {
+          visibility: sensorVisibilityRef.current.cameras
+            ? "visible"
+            : "none",
+        },
+        paint: {
+          "circle-radius": 5,
+          "circle-color": MAP_COLORS.ink,
+          "circle-opacity": 0.95,
+          "circle-stroke-width": 1.5,
+          "circle-stroke-color": MAP_COLORS.paper,
+        },
+      });
+
+      layerListenerCleanups.push(
+        registerLayerMouseListener(
+          map,
+          "click",
+          "cameras-point-layer",
+          handleCameraPointClick,
+        ),
+        registerLayerMouseListener(
+          map,
+          "click",
+          "cameras-clusters-layer",
+          handleCameraClusterClick,
+        ),
+        registerLayerMouseListener(
+          map,
+          "mouseenter",
+          "cameras-point-layer",
+          handleInteractiveLayerEnter,
+        ),
+        registerLayerMouseListener(
+          map,
+          "mouseleave",
+          "cameras-point-layer",
+          handleInteractiveLayerLeave,
+        ),
+        registerLayerMouseListener(
+          map,
+          "mouseenter",
+          "cameras-clusters-layer",
+          handleInteractiveLayerEnter,
+        ),
+        registerLayerMouseListener(
+          map,
+          "mouseleave",
+          "cameras-clusters-layer",
+          handleInteractiveLayerLeave,
+        ),
+      );
+
       try {
         const geoJson = MRT_LINES;
         mrtLinesRef.current = geoJson;
@@ -1375,6 +960,7 @@ function useMapController({
         const initialRouteGeoJson = buildRouteGeoJson(
           geoJson,
           mrtRouteSegmentsRef.current,
+          MRT_LINE_STATIONS,
         );
 
         map.addSource("mrt-route", {
@@ -1529,12 +1115,10 @@ function useMapController({
       for (const removeLayerListener of layerListenerCleanups) {
         removeLayerListener();
       }
-      cameraMarkersRef.current.forEach((marker) => marker.remove());
-      cameraMarkersRef.current = [];
       map.remove();
       mapRef.current = null;
     };
-  }, [busStopsRef, flightsRef]);
+  }, [busStopsRef, camerasRef, flightsRef]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -1610,60 +1194,35 @@ function useMapController({
     const map = mapRef.current;
     if (!map) return;
 
-    cameraMarkersRef.current.forEach((marker) => marker.remove());
-    cameraMarkersRef.current = [];
-
-    if (!sensorVisibility.cameras) {
-      return;
-    }
-
-    const container = map.getContainer();
-    const camerasById = new globalThis.Map(
+    camerasRef.current = new globalThis.Map(
       cameras.map((camera) => [camera.CameraID, camera]),
     );
-    const handleCameraMarkerClick = (event: MouseEvent) => {
-      if (!(event.target instanceof Element)) return;
-      const markerButton = event.target.closest<HTMLButtonElement>(
-        "button[data-camera-id]",
-      );
-      if (!markerButton || !container.contains(markerButton)) return;
-      const cameraId = markerButton.dataset.cameraId;
-      if (!cameraId) return;
-      const camera = camerasById.get(cameraId);
-      if (camera) onCameraClick(camera);
-    };
 
-    container.addEventListener("click", handleCameraMarkerClick);
+    const camerasSource = map.getSource("cameras") as
+      maplibregl.GeoJSONSource | undefined;
+    if (!camerasSource) return;
 
-    cameras.forEach((camera) => {
-      if (
-        !Number.isFinite(camera.Latitude) ||
-        !Number.isFinite(camera.Longitude)
-      ) {
-        return;
-      }
-
-      const el = document.createElement("button");
-      el.type = "button";
-      el.className =
-        "h-5 w-5 rounded-full border-2 border-paper bg-ink";
-      el.title = camera.location;
-      el.setAttribute("aria-label", `View traffic camera ${camera.location}`);
-      el.dataset.cameraId = camera.CameraID;
-
-      const marker = new maplibregl.Marker({ element: el })
-        .setLngLat([camera.Longitude, camera.Latitude])
-        .addTo(map);
-
-      cameraMarkersRef.current.push(marker);
+    camerasSource.setData({
+      type: "FeatureCollection",
+      features: (sensorVisibility.cameras ? cameras : []).flatMap((camera) =>
+        Number.isFinite(camera.Latitude) && Number.isFinite(camera.Longitude)
+          ? [
+              {
+                type: "Feature" as const,
+                properties: {
+                  CameraID: camera.CameraID,
+                  location: camera.location,
+                },
+                geometry: {
+                  type: "Point" as const,
+                  coordinates: [camera.Longitude, camera.Latitude],
+                },
+              },
+            ]
+          : [],
+      ),
     });
-
-    return () => {
-      container.removeEventListener("click", handleCameraMarkerClick);
-      cameraMarkersRef.current.forEach((marker) => marker.remove());
-      cameraMarkersRef.current = [];
-    };
-  }, [cameras, onCameraClick, sensorVisibility.cameras]);
+  }, [cameras, camerasRef, sensorVisibility.cameras]);
 
   return containerRef;
 }

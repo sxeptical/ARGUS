@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { BusRouteOverlay } from "@/app/components/Map";
+import type { BusRouteOverlay } from "@/lib/map-geometry";
 import { apiFetch } from "@/lib/api-fetch";
 import type { BusRouteResponse, BusStop } from "@/types";
 
