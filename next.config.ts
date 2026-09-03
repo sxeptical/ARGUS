@@ -48,6 +48,14 @@ const securityHeaders = [
 
 const nextConfig: NextConfig = {
   poweredByHeader: false,
+  // Next.js 16 blocks dev-only resources for cross-origin hosts by default.
+  // Allow the loopback hosts used for local tooling and the managed preview
+  // tunnel (any subdomain) so the dashboard hydrates there in development.
+  allowedDevOrigins: [
+    "127.0.0.1",
+    "localhost",
+    "*.preview.usehoplite.com",
+  ],
   experimental: {
     // TypeScript setup: the project installs real typescript@6 as the
     // canonical compiler API (required by typescript-eslint and Next's
