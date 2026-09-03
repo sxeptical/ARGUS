@@ -27,7 +27,6 @@
     "@tailwindcss/postcss": "^4.3.3",
     "@types/node": "^26",
     "@types/react": "^19.2.18",
-    "@types/react-dom": "^19.2.4",
     "@typescript/native": "npm:typescript@^7.0.2",
     "bun-types": "^1.4.0",
     "eslint": "^9.39.5",
