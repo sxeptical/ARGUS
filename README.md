@@ -76,8 +76,6 @@ bun run dev
 
 Open `http://localhost:3000`.
 
-If you do not have an `.env.example` yet, create `.env.local` manually using the API key section below.
-
 ---
 
 ## API Keys
@@ -118,13 +116,15 @@ Weather and news currently use public endpoints and do not require keys.
 ```text
 app/
   api/                 Next.js route handlers for live data
-  components/          Dashboard panels and MapLibre map
-  hooks/               Dashboard data, route, history, and MRT state
-  page.tsx             Main command-center layout
+  components/          Dashboard panels, MapLibre map, and dashboard/ subpanels
+  hooks/               Dashboard data, state, route, history, and MRT state
+  page.tsx             Thin command-center composition (logic in hooks/)
 lib/
   api-clients/         Typed HTTP clients split by source/domain
   cache.ts             In-memory TTL cache
-  mrt-routing.ts       MRT route planning
+  map-geometry.ts      Pure GeoJSON builders for bus/MRT overlays
+  mrt-network.ts       Single source of truth for MRT stations
+  mrt-routing.ts       MRT route planning (Dijkstra + binary heap)
   rate-limit.ts        Lightweight API route rate limiting
 public/
   mrt-lines.json       MRT line geometry

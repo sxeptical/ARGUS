@@ -44,20 +44,23 @@ const getPsiStatus = (psi: number | null): WeatherData["psiStatus"] => {
 const average = (values: number[]): number | null => {
   const finiteValues = values.filter((value) => Number.isFinite(value));
   if (finiteValues.length === 0) return null;
-  return Math.round(
-    finiteValues.reduce((acc, item) => acc + item, 0) / finiteValues.length,
-  );
+  const mean =
+    finiteValues.reduce((acc, item) => acc + item, 0) / finiteValues.length;
+  // One decimal preserves sensor precision without noisy long floats.
+  return Math.round(mean * 10) / 10;
 };
 
 type RegionalReading = Partial<
   Record<"national" | "north" | "east" | "west" | "central" | "south", number>
 >;
 
-const nationalOrMaxRegional = (
+const nationalOrMeanRegional = (
   readings: RegionalReading | undefined,
 ): number | null => {
   if (!readings) return null;
   if (Number.isFinite(readings.national)) return readings.national as number;
+  // Prefer the mean across regions over the max: max overstates island-wide
+  // PSI when a single region spikes.
   const regionalValues = [
     readings.north,
     readings.east,
@@ -66,7 +69,10 @@ const nationalOrMaxRegional = (
     readings.south,
   ].filter((value): value is number => Number.isFinite(value));
   if (regionalValues.length === 0) return null;
-  return Math.max(...regionalValues);
+  const mean =
+    regionalValues.reduce((sum, value) => sum + value, 0) /
+    regionalValues.length;
+  return Math.round(mean * 10) / 10;
 };
 
 const latestIsoTimestamp = (values: Array<string | undefined>): string => {
@@ -158,7 +164,7 @@ export const getWeather = (): Effect.Effect<
           forecastText = `Island-wide: ${majority}`;
         }
 
-        const psiValue = nationalOrMaxRegional(
+        const psiValue = nationalOrMeanRegional(
           psi?.items?.[0]?.readings?.psi_twenty_four_hourly,
         );
 

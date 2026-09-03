@@ -5,12 +5,17 @@ import { CacheLive } from "@/lib/cache";
 import { ExternalApiError } from "@/lib/errors";
 import { getWeather } from "./weather";
 
-const runWithFetch = (fetchImpl: typeof fetch) =>
+const runWithFetch = (
+  fetchImpl: (input: string | URL | Request) => Promise<Response>,
+) =>
   Effect.runPromiseExit(
     getWeather().pipe(
       Effect.provide(CacheLive),
       Effect.provide(FetchHttpClient.layer),
-      Effect.provideService(FetchHttpClient.Fetch, fetchImpl),
+      Effect.provideService(
+        FetchHttpClient.Fetch,
+        fetchImpl as unknown as typeof fetch,
+      ),
     ),
   );
 

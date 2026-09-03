@@ -119,12 +119,15 @@ describe("httpGetJson", () => {
 
   const runWithFetch = <A, E>(
     program: Effect.Effect<A, E, import("@effect/platform/HttpClient").HttpClient>,
-    fetchImpl: typeof fetch,
+    fetchImpl: (input: string | URL | Request) => Promise<Response>,
   ) =>
     Effect.runPromiseExit(
       program.pipe(
         Effect.provide(FetchHttpClient.layer),
-        Effect.provideService(FetchHttpClient.Fetch, fetchImpl),
+        Effect.provideService(
+          FetchHttpClient.Fetch,
+          fetchImpl as unknown as typeof fetch,
+        ),
       ),
     );
 

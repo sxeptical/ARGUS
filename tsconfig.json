@@ -22,8 +22,9 @@
       }
     ],
     // TypeScript 7 defaults `types` to [] (no automatic @types inclusion);
-    // keep Node globals available for the API routes and lib code.
-    "types": ["node"],
+    // keep Node globals available for the API routes and lib code, plus
+    // Bun test globals for `*.test.ts`.
+    "types": ["node", "bun-types"],
     "paths": {
       "@/*": ["./*"]
     }
@@ -36,5 +37,5 @@
     ".next/dev/types/**/*.ts",
     "**/*.mts"
   ],
-  "exclude": ["node_modules", "scripts", "**/*.test.ts"]
+  "exclude": ["node_modules", "scripts"]
 }

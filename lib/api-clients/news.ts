@@ -35,30 +35,72 @@ const rssFeeds: ReadonlyArray<{ readonly source: string; readonly url: string }>
 
 // ---------- RSS parsing ----------
 
-const decodeHtmlEntities = (text: string): string =>
-  text
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"')
-    .replace(/&apos;/g, "'")
-    .replace(/&#39;/g, "'")
-    .replace(/&#x27;/gi, "'")
-    .replace(
-      /&#(\d+);/g,
-      (_, code) => String.fromCharCode(parseInt(code, 10)),
-    )
-    .replace(
-      /&#x([0-9a-f]+);/gi,
-      (_, code) => String.fromCharCode(parseInt(code, 16)),
-    );
+const HTML_ENTITY_MAP: Record<string, string> = {
+  amp: "&",
+  lt: "<",
+  gt: ">",
+  quot: '"',
+  apos: "'",
+  nbsp: " ",
+  rsquo: "’",
+  lsquo: "‘",
+  rdquo: "”",
+  ldquo: "“",
+  ndash: "–",
+  mdash: "—",
+  hellip: "…",
+};
 
-const extractRssTag = (xml: string, tag: string): string => {
-  const match = xml.match(new RegExp(`<${tag}>([\\s\\S]*?)<\\/${tag}>`, "i"));
-  if (!match?.[1]) return "";
-  return decodeHtmlEntities(
-    match[1].replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1"),
-  ).trim();
+export const decodeHtmlEntities = (text: string): string =>
+  text
+    .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1")
+    .replace(/&(#\d+|#x[0-9a-f]+|[a-z]+);/gi, (match, entity: string) => {
+      if (entity.startsWith("#")) {
+        const code =
+          entity[1].toLowerCase() === "x"
+            ? parseInt(entity.slice(2), 16)
+            : parseInt(entity.slice(1), 10);
+        if (!Number.isFinite(code)) return match;
+        try {
+          return String.fromCodePoint(code);
+        } catch {
+          return match;
+        }
+      }
+      const mapped = HTML_ENTITY_MAP[entity.toLowerCase()];
+      return mapped ?? match;
+    });
+
+const stripHtmlTags = (text: string): string =>
+  text.replace(/<[^>]*>/g, "").trim();
+
+export const extractRssTag = (xml: string, tag: string): string => {
+  // Tolerate attributes and namespaces: <title>, <title attr>, <dc:title>.
+  const pattern = new RegExp(
+    `<(?:\\w+:)?${tag}(?:\\s[^>]*)?>([\\s\\S]*?)<\/(?:\\w+:)?${tag}>`,
+    "i",
+  );
+  const match = xml.match(pattern);
+  if (!match?.[1]) {
+    // Atom-style self-closed link: <link href="https://…" />
+    if (tag.toLowerCase() === "link") {
+      const href = xml.match(/<link[^>]*href=["']([^"']+)["']/i);
+      if (href?.[1]) return decodeHtmlEntities(href[1]).trim();
+    }
+    return "";
+  }
+  return stripHtmlTags(decodeHtmlEntities(match[1])).trim();
+};
+
+export const extractRssCategories = (xml: string): string[] => {
+  const out: string[] = [];
+  const re = /<(?:\w+:)?category(?:\s[^>]*)?>([\s\S]*?)<\/(?:\w+:)?category>/gi;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(xml)) !== null) {
+    const value = stripHtmlTags(decodeHtmlEntities(m[1])).trim();
+    if (value) out.push(value);
+  }
+  return out;
 };
 
 const toIsoDate = (value: string): string => {
@@ -68,13 +110,28 @@ const toIsoDate = (value: string): string => {
   ).toISOString();
 };
 
-const parseRssItems = (xml: string, source: string): NewsItem[] => {
-  const itemMatches = xml.match(/<item>([\s\S]*?)<\/item>/g) ?? [];
+export type ParsedRssItem = NewsItem & { categories: string[] };
+
+export const parseRssItems = (
+  xml: string,
+  source: string,
+): ParsedRssItem[] => {
+  // Support both RSS <item> and Atom <entry>.
+  const itemMatches =
+    xml.match(/<(?:item|entry)(?:\s[^>]*)?>([\s\S]*?)<\/(?:item|entry)>/gi) ??
+    [];
   return itemMatches
     .map((rawItem) => {
       const title = extractRssTag(rawItem, "title");
-      const link = extractRssTag(rawItem, "link");
-      const publishedAt = extractRssTag(rawItem, "pubDate");
+      const link =
+        extractRssTag(rawItem, "link") || extractRssTag(rawItem, "guid");
+      const publishedAt =
+        extractRssTag(rawItem, "pubDate") ||
+        extractRssTag(rawItem, "pubdate") ||
+        extractRssTag(rawItem, "updated") ||
+        extractRssTag(rawItem, "published") ||
+        extractRssTag(rawItem, "date");
+      const categories = extractRssCategories(rawItem);
 
       if (!title || !link) return null;
       if (!SAFE_URL_RE.test(link)) return null;
@@ -84,9 +141,19 @@ const parseRssItems = (xml: string, source: string): NewsItem[] => {
         source,
         url: link,
         publishedAt: toIsoDate(publishedAt),
-      } satisfies NewsItem;
+        categories,
+      } satisfies ParsedRssItem;
     })
-    .filter((item): item is NewsItem => item !== null);
+    .filter((item): item is ParsedRssItem => item !== null);
+};
+
+/** CNA publishes a global feed — keep items with any Singapore signal. */
+export const isSingaporeRelevant = (item: ParsedRssItem): boolean => {
+  if (item.source !== "CNA") return true;
+  const urlHit = item.url.toLowerCase().includes("singapore");
+  if (urlHit) return true;
+  if (item.title.toLowerCase().includes("singapore")) return true;
+  return item.categories.some((c) => c.toLowerCase().includes("singapore"));
 };
 
 // ---------- Bounded, abortable feed fetch ----------
@@ -172,7 +239,7 @@ const fetchRssText = (url: string): Effect.Effect<string, UpstreamError> =>
 
 const fetchRssFeed = (
   feed: { readonly source: string; readonly url: string },
-): Effect.Effect<NewsItem[], UpstreamError> =>
+): Effect.Effect<ParsedRssItem[], UpstreamError> =>
   Effect.gen(function* () {
     const xml = yield* fetchRssText(feed.url);
     return parseRssItems(xml, feed.source);
@@ -205,16 +272,18 @@ export const getNews = (): Effect.Effect<NewsItem[], UpstreamError, Cache> =>
           );
         }
 
-        let merged: NewsItem[] = succeeded.flat();
-
-        // Filter CNA items to Singapore-relevant stories (link path or
-        // category contains "singapore") so we don't present a global feed
+        // Filter CNA items to Singapore-relevant stories (URL, category, or
+        // title contains "singapore") so we don't present a global feed
         // as if it were local news.
-        merged = merged.filter(
-          (item) =>
-            item.source !== "CNA" ||
-            item.url.toLowerCase().includes("/singapore"),
+        const relevant = (succeeded.flat() as ParsedRssItem[]).filter(
+          isSingaporeRelevant,
         );
+        let merged: NewsItem[] = relevant.map((item) => ({
+          title: item.title,
+          source: item.source,
+          url: item.url,
+          publishedAt: item.publishedAt,
+        }));
 
         // Deduplicate by URL across feeds, newest first, capped.
         const seen = new Set<string>();

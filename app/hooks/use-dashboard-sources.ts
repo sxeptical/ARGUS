@@ -74,6 +74,13 @@ function useSource<T>(source: SourceDefinition | null) {
     refreshInterval: source?.refreshMs ?? 0,
     refreshWhenHidden: false,
     revalidateOnFocus: true,
+    // Boot must settle even when a route hangs: apiFetch times out at 15s,
+    // and SWR retries with backoff instead of leaving sources in `loading`.
+    dedupingInterval: 5_000,
+    errorRetryCount: 3,
+    errorRetryInterval: 5_000,
+    loadingTimeout: 20_000,
+    onLoadingSlow: () => {},
   });
 }
 
