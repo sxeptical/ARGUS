@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 // maplibre-gl v6 is ESM-only: default imports no longer work, so use a
 // namespace import (keeps all maplibregl.* value and type usages intact).
 import * as maplibregl from "maplibre-gl";
@@ -292,6 +292,7 @@ function useMapController({
   const busRouteOverlayRef = useRef<BusRouteOverlay | null>(busRouteOverlay);
   const sensorVisibilityRef = useRef(sensorVisibility);
   const lastFittedBusRouteKeyRef = useRef<string | null>(null);
+  const [mapInitError, setMapInitError] = useState<string | null>(null);
 
   useEffect(() => {
     onStopClickRef.current = onStopClick;
@@ -397,14 +398,35 @@ function useMapController({
       return;
     }
 
-    const map = new maplibregl.Map({
-      container: containerRef.current,
-      style: "https://tiles.openfreemap.org/styles/dark",
-      center: [103.8198, 1.3521],
-      zoom: 10.8,
-    });
+    // MapLibre throws (e.g. GPUInitializationError when WebGL2 is missing)
+    // from its constructor. That must not take down the whole dashboard:
+    // the data panels below the map stay fully functional without it.
+    let map: maplibregl.Map;
+    try {
+      map = new maplibregl.Map({
+        container: containerRef.current,
+        style: "https://tiles.openfreemap.org/styles/dark",
+        center: [103.8198, 1.3521],
+        zoom: 10.8,
+      });
 
-    map.addControl(new maplibregl.NavigationControl(), "top-right");
+      map.addControl(new maplibregl.NavigationControl(), "top-right");
+    } catch (error) {
+      console.error(
+        "Map unavailable; dashboard continues without the map layer",
+        error,
+      );
+      // The map constructor is an external system: report its failure through
+      // a callback so the state update is not a synchronous effect write.
+      queueMicrotask(() =>
+        setMapInitError(
+          error instanceof Error && error.message
+            ? error.message
+            : "Map could not be initialized",
+        ),
+      );
+      return;
+    }
 
     const layerListenerCleanups: Array<() => void> = [];
     const handleBusStopClick = (event: maplibregl.MapLayerMouseEvent) => {
@@ -1224,10 +1246,27 @@ function useMapController({
     });
   }, [cameras, camerasRef, sensorVisibility.cameras]);
 
-  return containerRef;
+  return { containerRef, mapInitError };
 }
 
 export default function Map(props: MapProps) {
-  const containerRef = useMapController(props);
+  const { containerRef, mapInitError } = useMapController(props);
+
+  if (mapInitError) {
+    return (
+      <div className="grid h-full w-full place-items-center border border-line bg-surface p-4">
+        <div className="max-w-sm text-center">
+          <div className="text-[10px] uppercase tracking-[0.12em] text-warning">
+            Map unavailable
+          </div>
+          <div className="mt-1.5 text-xs leading-relaxed text-muted">
+            The interactive map could not start on this device (MapLibre needs
+            WebGL2). Live data panels below remain active.
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return <div ref={containerRef} className="h-full w-full" />;
 }
