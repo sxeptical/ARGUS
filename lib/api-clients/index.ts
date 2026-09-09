@@ -1,7 +1,8 @@
 /**
  * Barrel for the external API clients, split by domain:
  *  - `http.ts`       typed HTTP + timeout + error normalization
- *  - `lta.ts`        bus stops, bus arrivals, traffic cameras, pagination
+ *  - `lta.ts`        bus stops, bus arrivals, traffic cameras, train service
+ *                     alerts, pagination
  *  - `bus-routes.ts` BusRoutes index, BusRouter geometry, route assembly
  *  - `weather.ts`    Data.gov.sg weather aggregation
  *  - `news.ts`       RSS feeds
@@ -12,6 +13,8 @@ export {
   getBusArrivals,
   getBusStops,
   getTrafficCameras,
+  getTrainServiceAlerts,
+  normalizeTrainServiceAlerts,
 } from "./lta";
 export { BUS_ROUTES_MAX_PAGES, getBusRoute } from "./bus-routes";
 export { getWeather } from "./weather";

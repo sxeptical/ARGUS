@@ -18,6 +18,7 @@ import { LayersSidebar } from "@/app/components/dashboard/LayersSidebar";
 import { LoadingScreen } from "@/app/components/dashboard/LoadingScreen";
 import { useDashboardState } from "@/app/hooks/use-dashboard-state";
 import { formatAltitudeFeet, formatSpeedKmh } from "@/lib/formatters";
+import type { TrainServiceAlert } from "@/types";
 
 // Cached formatter — previously a fresh `toLocaleTimeString` options object
 // per news row per render.
@@ -26,6 +27,40 @@ const sgTimeFormat = new Intl.DateTimeFormat("en-SG", {
   hour: "numeric",
   minute: "2-digit",
 });
+
+/**
+ * LTA `Start_time` values are bare Singapore-local timestamps (no timezone
+ * offset), so slicing is correct regardless of the viewer's timezone —
+ * re-parsing through `Date` would double-shift for overseas visitors.
+ */
+function alertTime(value: string | null): string | null {
+  return value && value.length >= 16 ? value.slice(11, 16) : null;
+}
+
+function DisruptionRow({ alert }: { alert: TrainServiceAlert }) {
+  const start = alertTime(alert.startTime);
+  return (
+    <div className="border border-danger/30 bg-danger/8 px-2.5 py-2">
+      <div className="flex items-center justify-between gap-2">
+        <span className="font-mono text-[11px] font-medium text-danger">
+          {alert.affectedLines.length > 0
+            ? alert.affectedLines.join(" · ")
+            : "MRT Network"}
+        </span>
+        {start ? (
+          <span className="font-mono text-[9px] uppercase tracking-[0.1em] text-muted">
+            from {start}
+          </span>
+        ) : null}
+      </div>
+      {alert.message ? (
+        <div className="mt-1 line-clamp-3 text-xs leading-relaxed text-ink">
+          {alert.message}
+        </div>
+      ) : null}
+    </div>
+  );
+}
 
 export default function Home() {
   const {
@@ -36,6 +71,8 @@ export default function Home() {
     busStops,
     cameras,
     clearBusRoute,
+    disruptedAlerts,
+    disruptedMrtLines,
     error,
     flights,
     handleSelectStop,
@@ -121,6 +158,7 @@ export default function Home() {
               onMrtStationClick={pickMrtStation}
               mrtRouteSegments={mrtRoutePlan?.segments ?? []}
               busRouteOverlay={busRouteOverlay}
+              disruptedMrtLines={disruptedMrtLines}
             />
             <div className="pointer-events-none absolute left-2 top-2 border border-line bg-overlay px-2.5 py-1.5 text-[10px] uppercase tracking-[0.12em] text-ink">
               Live map <span className="ml-2 text-muted">Singapore</span>
@@ -191,6 +229,31 @@ export default function Home() {
                 </a>
               ))}
             </div>
+          </IntelPanel>
+
+          <IntelPanel
+            title="Rail Status"
+            badge={
+              disruptedAlerts.length > 0
+                ? `${disruptedAlerts.length} disrupted`
+                : "All Clear"
+            }
+          >
+            {disruptedAlerts.length > 0 ? (
+              <div className="space-y-2">
+                {disruptedAlerts.map((alert, index) => (
+                  <DisruptionRow
+                    key={`${alert.startTime ?? "ongoing"}-${alert.affectedLines.join("-")}-${index}`}
+                    alert={alert}
+                  />
+                ))}
+              </div>
+            ) : (
+              <div className="text-xs leading-relaxed text-muted">
+                All MRT/LRT lines running normally per LTA Train Service
+                Alerts.
+              </div>
+            )}
           </IntelPanel>
 
           <IntelPanel

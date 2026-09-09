@@ -5,6 +5,7 @@ import {
   BUS_ROUTES_MAX_PAGES,
   collectLtaPages,
   httpGetJson,
+  normalizeTrainServiceAlerts,
 } from "./api-clients";
 import { ExternalApiError, SchemaParseError, TimeoutError } from "./errors";
 
@@ -202,5 +203,80 @@ describe("httpGetJson", () => {
     expect(exit._tag).toBe("Success");
     if (exit._tag !== "Success") return;
     expect(exit.value).toEqual({ ok: true });
+  });
+});
+
+describe("normalizeTrainServiceAlerts", () => {
+  test("maps LTA line codes to display names and marks disruptions", () => {
+    const alerts = normalizeTrainServiceAlerts({
+      value: [
+        {
+          Status: 2,
+          StatusDescription: "Disrupted",
+          Message: [{ Content: "No train service between Buona Vista" }],
+          AffectedSegments: [
+            { Line: "EWL", Direction: "Both", Stations: ["EW21", "EW22"] },
+          ],
+          Start_time: "2026-09-09T08:15:00",
+          End_time: null,
+        },
+      ],
+    });
+
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0].status).toBe("disrupted");
+    expect(alerts[0].affectedLines).toEqual(["East West Line"]);
+    expect(alerts[0].affectedStations).toEqual(["EW21", "EW22"]);
+    expect(alerts[0].startTime).toBe("2026-09-09T08:15:00");
+    expect(alerts[0].endTime).toBe(null);
+  });
+
+  test("accepts the single-object wrapper shape used on the all-clear", () => {
+    const alerts = normalizeTrainServiceAlerts({
+      value: { Status: 1, Message: [{ Content: "Normal service" }] },
+    });
+
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0].status).toBe("normal");
+    expect(alerts[0].affectedLines).toEqual([]);
+    expect(alerts[0].message).toBe("Normal service");
+  });
+
+  test("treats a string Status the same as a numeric one", () => {
+    const alerts = normalizeTrainServiceAlerts({
+      value: [{ Status: "2", AffectedSegments: [{ Line: "CCL" }] }],
+    });
+
+    expect(alerts[0].status).toBe("disrupted");
+    expect(alerts[0].affectedLines).toEqual(["Circle Line"]);
+  });
+
+  test("dedupes affected lines and passes unknown codes through", () => {
+    const alerts = normalizeTrainServiceAlerts({
+      value: [
+        {
+          Status: 2,
+          AffectedSegments: [
+            { Line: "NEL", Stations: ["NE1"] },
+            { Line: "NEL", Stations: ["NE7"] },
+            { Line: "PEL", Stations: ["PE1"] },
+          ],
+        },
+      ],
+    });
+
+    expect(alerts[0].affectedLines).toEqual([
+      "North East Line",
+      "PEL",
+    ]);
+    expect(alerts[0].affectedStations).toEqual(["NE1", "NE7", "PE1"]);
+  });
+
+  test("defaults to normal service when Status is missing", () => {
+    const alerts = normalizeTrainServiceAlerts({
+      value: [{ Message: [{ Content: "Train service is running normally." }] }],
+    });
+
+    expect(alerts[0].status).toBe("normal");
   });
 });

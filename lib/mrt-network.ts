@@ -292,3 +292,22 @@ export const MRT_OPERATIONAL_LINE_COUNT = Object.keys(
 export const MRT_DISPLAY_LINE_COUNT = Object.keys(
   MRT_DISPLAY_LINE_STATIONS,
 ).length;
+
+/**
+ * LTA DataMall train line codes (TrainServiceAlerts `AffectedSegments.Line`)
+ * mapped to the display names used across this app. Codes for lines outside
+ * the map network (the LRT loops: BPL, PEL, PWL, SEL, SWL) are intentionally
+ * unmapped so alerts keep their raw codes rather than being silently dropped.
+ */
+export const LTA_LINE_CODE_TO_DISPLAY_NAME: Record<string, string> = {
+  NSL: "North South Line",
+  EWL: "East West Line",
+  NEL: "North East Line",
+  CCL: "Circle Line",
+  CEL: "Circle Line Extension",
+  CGL: "Changi Airport Branch",
+  DTL: "Downtown Line",
+  TEL: "Thomson-East Coast Line",
+  JRL: "Jurong Region Line",
+  CRL: "Cross Island Line",
+};
