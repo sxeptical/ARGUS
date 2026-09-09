@@ -125,6 +125,49 @@ export const LtaTrafficImagesResponseSchema = Schema.Union(
   Schema.Struct({ value: Schema.Array(TrafficImageCamerasEntrySchema) }),
 );
 
+// ---------- LTA Train Service Alerts ----------
+
+const TrainAlertMessageSchema = Schema.Struct({
+  Content: Schema.optional(Schema.NullOr(Schema.String)),
+});
+
+/**
+ * One affected segment of a disrupted line. `Line` is an LTA code
+ * (e.g. "EWL", "CCL"); `Stations` are station codes (e.g. "EW23").
+ * `Direction` and `Stations` have been observed absent on some alerts.
+ */
+const TrainAlertSegmentSchema = Schema.Struct({
+  Line: Schema.optional(Schema.NullOr(Schema.String)),
+  Direction: Schema.optional(Schema.NullOr(Schema.String)),
+  Stations: Schema.optional(Schema.NullOr(Schema.Array(Schema.String))),
+});
+
+export const LtaTrainServiceAlertSchema = Schema.Struct({
+  Status: Schema.optional(Schema.Union(Schema.Number, Schema.String)),
+  StatusDescription: Schema.optional(Schema.NullOr(Schema.String)),
+  Message: Schema.optional(Schema.NullOr(Schema.Array(TrainAlertMessageSchema))),
+  AffectedSegments: Schema.optional(
+    Schema.NullOr(Schema.Array(TrainAlertSegmentSchema)),
+  ),
+  Start_time: Schema.optional(Schema.NullOr(Schema.String)),
+  End_time: Schema.optional(Schema.NullOr(Schema.String)),
+});
+
+export type LtaTrainServiceAlert = Schema.Schema.Type<
+  typeof LtaTrainServiceAlertSchema
+>;
+
+/**
+ * LTA returns one of two shapes for the TrainServiceAlerts endpoint
+ * depending on the upstream wrapper version: `value` as an array of
+ * alerts, or `value` as a single alert object (seen on the all-clear
+ * response). Both are accepted; the client normalizes to an array.
+ */
+export const LtaTrainServiceAlertsResponseSchema = Schema.Union(
+  Schema.Struct({ value: Schema.Array(LtaTrainServiceAlertSchema) }),
+  Schema.Struct({ value: LtaTrainServiceAlertSchema }),
+);
+
 const ForecastEntrySchema = Schema.Struct({
   area: Schema.String,
   forecast: Schema.String,
@@ -304,6 +347,9 @@ export type LtaBusRoutesResponse = Schema.Schema.Type<
 >;
 export type LtaTrafficImagesResponse = Schema.Schema.Type<
   typeof LtaTrafficImagesResponseSchema
+>;
+export type LtaTrainServiceAlertsResponse = Schema.Schema.Type<
+  typeof LtaTrainServiceAlertsResponseSchema
 >;
 export type DataGovForecastResponse = Schema.Schema.Type<
   typeof DataGovForecastResponseSchema

@@ -8,6 +8,7 @@ import type {
   FlightState,
   NewsItem,
   TrafficCamera,
+  TrainServiceAlert,
   WeatherData,
 } from "@/types";
 
@@ -58,6 +59,14 @@ const FLIGHTS: SourceDefinition = {
   label: "Airspace Feed",
   url: "/api/flights",
   refreshMs: 15 * 1000,
+};
+const TRAIN_ALERTS: SourceDefinition = {
+  key: "train alerts",
+  label: "Train Service Alerts",
+  url: "/api/train-alerts",
+  // Server caches for 60s; poll at the same cadence. Disruption state
+  // changes slowly, so this is deliberately not a high-frequency feed.
+  refreshMs: 60 * 1000,
 };
 
 const DEFAULT_WEATHER: WeatherData = {
@@ -118,12 +127,14 @@ export function useDashboardSources() {
   const weather = useSource<WeatherData>(WEATHER);
   const news = useSource<NewsItem[]>(NEWS);
   const flights = useSource<FlightState[]>(FLIGHTS_ENABLED ? FLIGHTS : null);
+  const trainAlerts = useSource<TrainServiceAlert[]>(TRAIN_ALERTS);
 
   const enabled = [
     { definition: BUS_STOPS, result: busStops },
     { definition: CAMERAS, result: cameras },
     { definition: WEATHER, result: weather },
     { definition: NEWS, result: news },
+    { definition: TRAIN_ALERTS, result: trainAlerts },
     ...(FLIGHTS_ENABLED
       ? [{ definition: FLIGHTS, result: flights }]
       : []),
@@ -152,6 +163,7 @@ export function useDashboardSources() {
     weather: weather.data ?? DEFAULT_WEATHER,
     news: news.data ?? [],
     flights: flights.data ?? [],
+    trainAlerts: trainAlerts.data ?? [],
     sources,
     activeSources,
     onlineSourceCount: activeSources.filter(

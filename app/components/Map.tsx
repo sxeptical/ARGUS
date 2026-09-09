@@ -38,6 +38,8 @@ type MapProps = {
   busStops: BusStop[];
   cameras: TrafficCamera[];
   flights: FlightState[];
+  /** Display names of MRT lines currently flagged as disrupted by LTA. */
+  disruptedMrtLines?: ReadonlyArray<string>;
   sensorVisibility: {
     busStops: boolean;
     cameras: boolean;
@@ -124,6 +126,7 @@ const MRT_LINE_STATIONS: Record<string, string[]> = MRT_DISPLAY_LINE_STATIONS;
 
 const MRT_LINES = mrtLinesData as MRTGeoJson;
 const EMPTY_MRT_ROUTE_SEGMENTS: MrtRouteSegment[] = [];
+const EMPTY_DISRUPTED_MRT_LINES: ReadonlyArray<string> = [];
 
 function fitMapToBusRoute(
   map: maplibregl.Map,
@@ -270,6 +273,7 @@ function useMapController({
   busStops,
   cameras,
   flights,
+  disruptedMrtLines = EMPTY_DISRUPTED_MRT_LINES,
   sensorVisibility,
   onStopClick,
   onCameraClick,
@@ -1211,6 +1215,28 @@ function useMapController({
       ),
     });
   }, [flights, flightsRef, sensorVisibility.flights]);
+
+  // Recolor operational MRT lines flagged as disrupted by the LTA
+  // TrainServiceAlerts feed. `mrt-lines` feature properties carry the
+  // display line name, so a `match` expression on `name` is enough — no
+  // source data update needed. Future (dashed) lines are never disrupted.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !map.getLayer("mrt-lines-layer")) return;
+
+    const lineColor: maplibregl.ExpressionSpecification =
+      disruptedMrtLines.length > 0
+        ? [
+            "match",
+            ["get", "name"],
+            [...disruptedMrtLines],
+            MAP_COLORS.danger,
+            ["get", "color"],
+          ]
+        : ["get", "color"];
+
+    map.setPaintProperty("mrt-lines-layer", "line-color", lineColor);
+  }, [disruptedMrtLines]);
 
   useEffect(() => {
     const map = mapRef.current;

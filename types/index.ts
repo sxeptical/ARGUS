@@ -38,6 +38,22 @@ export interface NewsItem {
 
 export type TrafficCamera = RawTrafficImage & { readonly location: string };
 
+/**
+ * Normalized LTA Train Service Alerts row. `affectedLines` maps LTA line
+ * codes to the display names used across the app ("EWL" → "East West
+ * Line"); codes without a known display mapping pass through unchanged.
+ * `startTime`/`endTime` are LTA-supplied strings already in Singapore
+ * local time.
+ */
+export interface TrainServiceAlert {
+  status: "normal" | "disrupted";
+  message: string;
+  affectedLines: string[];
+  affectedStations: string[];
+  startTime: string | null;
+  endTime: string | null;
+}
+
 export type FlightDirection = "inbound" | "outbound" | "transit";
 
 export interface FlightState {

@@ -1,5 +1,6 @@
 /**
- * LTA DataMall clients: bus stops, bus arrivals, and traffic cameras.
+ * LTA DataMall clients: bus stops, bus arrivals, traffic cameras, and
+ * train service alerts.
  */
 import { HttpClient } from "@effect/platform";
 import { Effect, Schema } from "effect";
@@ -9,10 +10,16 @@ import {
   LtaBusArrivalsResponseSchema,
   LtaBusStopsResponseSchema,
   LtaTrafficImagesResponseSchema,
+  LtaTrainServiceAlertsResponseSchema,
 } from "@/types/schemas";
-import type { RawTrafficImage } from "@/types/schemas";
-import type { BusArrival, BusStop, TrafficCamera } from "@/types";
+import type {
+  LtaTrainServiceAlert,
+  LtaTrainServiceAlertsResponse,
+  RawTrafficImage,
+} from "@/types/schemas";
+import type { BusArrival, BusStop, TrafficCamera, TrainServiceAlert } from "@/types";
 import { DEFAULT_TIMEOUT_MS, httpGetJson, withTimeout } from "./http";
+import { LTA_LINE_CODE_TO_DISPLAY_NAME } from "@/lib/mrt-network";
 
 const LTA_BASE_URL = "https://datamall2.mytransport.sg/ltaodataservice";
 const BUS_STOPS_TIMEOUT_MS = 35_000; // 35s aggregate timeout for multi-page fetch
@@ -227,6 +234,85 @@ export const getTrafficCameras = (): Effect.Effect<
           });
         }
         return cameras;
+      }),
+    );
+  });
+
+const TRAIN_ALERTS_CACHE_TTL_MS = 60 * 1000;
+
+/** Status 1 = normal service, 2 = disrupted (LTA DataMall). */
+const DISRUPTED_STATUS = 2;
+
+const normalizeAlertMessage = (alert: LtaTrainServiceAlert): string => {
+  const contents = (alert.Message ?? [])
+    .map((entry) => entry.Content?.trim() ?? "")
+    .filter(Boolean);
+  return contents.join(" ");
+};
+
+const normalizeLineCode = (code: string): string =>
+  LTA_LINE_CODE_TO_DISPLAY_NAME[code] ?? code;
+
+/**
+ * Normalize an LTA TrainServiceAlerts payload (either wrapper shape) into
+ * the client-facing `TrainServiceAlert[]`. Pure and side-effect free so it
+ * is directly unit-testable.
+ */
+export const normalizeTrainServiceAlerts = (
+  payload: LtaTrainServiceAlertsResponse,
+): TrainServiceAlert[] => {
+  const rows: readonly LtaTrainServiceAlert[] = Array.isArray(payload.value)
+    ? payload.value
+    : [payload.value];
+
+  return rows.map((row) => {
+    const segments = row.AffectedSegments ?? [];
+    const statusValue =
+      typeof row.Status === "string" ? Number(row.Status) : row.Status;
+    const lineNames = [
+      ...new Set(
+        segments
+          .flatMap((segment) =>
+            segment.Line?.trim() ? [segment.Line.trim()] : [],
+          )
+          .map(normalizeLineCode),
+      ),
+    ].sort((a, b) => a.localeCompare(b, "en-SG"));
+    const stations = [
+      ...new Set(
+        segments.flatMap((segment) =>
+          (segment.Stations ?? []).filter((code) => code.trim() !== ""),
+        ),
+      ),
+    ];
+
+    return {
+      status: statusValue === DISRUPTED_STATUS ? "disrupted" : "normal",
+      message: normalizeAlertMessage(row),
+      affectedLines: lineNames,
+      affectedStations: stations,
+      startTime: row.Start_time ?? null,
+      endTime: row.End_time ?? null,
+    };
+  });
+};
+
+export const getTrainServiceAlerts = (): Effect.Effect<
+  TrainServiceAlert[],
+  UpstreamError,
+  Cache | HttpClient.HttpClient
+> =>
+  Effect.gen(function* () {
+    const cache = yield* Cache;
+    return yield* cache.get(
+      "train-service-alerts",
+      TRAIN_ALERTS_CACHE_TTL_MS,
+      Effect.gen(function* () {
+        const payload = yield* ltaGet(
+          "/TrainServiceAlerts",
+          LtaTrainServiceAlertsResponseSchema,
+        );
+        return normalizeTrainServiceAlerts(payload);
       }),
     );
   });

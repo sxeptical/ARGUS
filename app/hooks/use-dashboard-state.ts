@@ -6,7 +6,11 @@ import { useDashboardSources } from "@/app/hooks/use-dashboard-sources";
 import { useMrtPlanner } from "@/app/hooks/use-mrt-planner";
 import { useWeatherHistory } from "@/app/hooks/use-weather-history";
 import { MRT_DISPLAY_LINE_COUNT } from "@/lib/mrt-network";
-import type { FlightState, TrafficCamera } from "@/types";
+import type {
+  FlightState,
+  TrafficCamera,
+  TrainServiceAlert,
+} from "@/types";
 
 export type SensorKey = "flights" | "cameras" | "busStops" | "mrt";
 
@@ -67,6 +71,19 @@ export function useDashboardState() {
   const flightSummary = useMemo(
     () => summarizeFlights(data.flights),
     [data.flights],
+  );
+  const disruptedAlerts = useMemo(
+    () => data.trainAlerts.filter((alert) => alert.status === "disrupted"),
+    [data.trainAlerts],
+  );
+  const disruptedMrtLines = useMemo(
+    () =>
+      [
+        ...new Set(
+          disruptedAlerts.flatMap((alert) => alert.affectedLines),
+        ),
+      ].sort((a, b) => a.localeCompare(b, "en-SG")),
+    [disruptedAlerts],
   );
 
   const sensorRows: SensorRow[] = [
@@ -174,6 +191,9 @@ export function useDashboardState() {
     selectedCamera,
     selectedFlight,
     selectedStop: busRoute.selectedStop,
+    disruptedAlerts,
+    disruptedMrtLines,
+    trainAlerts: data.trainAlerts,
     sensorRows,
     sensorStatsRows,
     sensorVisibility,
