@@ -87,6 +87,7 @@ export default function Home() {
     selectBusRouteDirection,
     selectedCamera,
     selectedFlight,
+    selectedPark,
     selectedStop,
     sensorRows,
     sensorStatsRows,
@@ -96,6 +97,7 @@ export default function Home() {
     setMrtStartStation,
     setSelectedCamera,
     setSelectedFlight,
+    setSelectedPark,
     setSensorVisibility,
     showBusRoute,
     signalBars,
@@ -155,6 +157,7 @@ export default function Home() {
               onStopClick={handleSelectStop}
               onCameraClick={setSelectedCamera}
               onFlightClick={setSelectedFlight}
+              onParkClick={setSelectedPark}
               onMrtStationClick={pickMrtStation}
               mrtRouteSegments={mrtRoutePlan?.segments ?? []}
               busRouteOverlay={busRouteOverlay}
@@ -164,12 +167,13 @@ export default function Home() {
               Live map <span className="ml-2 text-muted">Singapore</span>
             </div>
             <div className="pointer-events-none absolute bottom-2 left-2 right-2 flex flex-wrap gap-x-3 gap-y-1 border border-line bg-overlay px-2.5 py-1.5 text-[9px] uppercase tracking-[0.1em] text-muted sm:right-auto">
-              <LegendDot tone="bg-signal-inbound" label="Inbound" />
-              <LegendDot tone="bg-signal-outbound" label="Outbound" />
-              <LegendDot tone="bg-signal-transit" label="Transit" />
-              <LegendDot tone="bg-signal-bus" label="Bus" />
-              <LegendDot tone="bg-signal-camera" label="Cameras" />
-              <LegendDot tone="bg-signal-mrt" label="MRT" />
+              {sensorVisibility.flights ? <LegendDot tone="bg-signal-inbound" label="Inbound" /> : null}
+              {sensorVisibility.flights ? <LegendDot tone="bg-signal-outbound" label="Outbound" /> : null}
+              {sensorVisibility.flights ? <LegendDot tone="bg-signal-transit" label="Transit" /> : null}
+              {sensorVisibility.busStops ? <LegendDot tone="bg-signal-bus" label="Bus" /> : null}
+              {sensorVisibility.cameras ? <LegendDot tone="bg-signal-camera" label="Cameras" /> : null}
+              {sensorVisibility.mrt ? <LegendDot tone="bg-signal-mrt" label="MRT" /> : null}
+              {sensorVisibility.parks ? <LegendDot tone="bg-signal-park" label="Parks" /> : null}
             </div>
           </section>
 
@@ -274,7 +278,7 @@ export default function Home() {
 
           <IntelPanel
             title="Target Focus"
-            badge={selectedFlight ? "Flight Locked" : "Standby"}
+             badge={selectedFlight ? "Flight Locked" : selectedPark ? "Recreation Locked" : "Standby"}
           >
             {selectedFlight ? (
               <div className="space-y-2 text-xs">
@@ -306,6 +310,13 @@ export default function Home() {
                       : "N/A"
                   }
                 />
+              </div>
+            ) : selectedPark ? (
+              <div className="space-y-2 text-xs">
+                <div className="border border-line bg-paper p-2.5"><div className="font-mono text-sm font-medium text-ink">{selectedPark.name}</div><div className="data-label">{selectedPark.kind === "park" ? "PARK" : selectedPark.kind === "pcn" ? "PARK CONNECTOR" : "TRAIL"}</div></div>
+                {selectedPark.park ? <KeyValue label="Park" value={selectedPark.park} /> : null}
+                <KeyValue label="Access" value={selectedPark.cycle ? "CYCLING PERMITTED" : "WALKING TRAIL"} />
+                {selectedPark.type ? <KeyValue label="Type" value={selectedPark.type} /> : null}
               </div>
             ) : (
               <div className="text-xs leading-relaxed text-muted">

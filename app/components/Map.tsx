@@ -25,11 +25,13 @@ import {
   type MRTStationGeoJson,
 } from "@/lib/map-geometry";
 import mrtLinesData from "@/public/mrt-lines.json";
+import { PARKS_GEOJSON } from "@/lib/parks-data";
 import type {
   BusStop,
   FlightState,
   MRTGeoJson,
   TrafficCamera,
+  ParkFeatureKind,
 } from "@/types";
 
 export type { BusRouteOverlay };
@@ -45,11 +47,13 @@ type MapProps = {
     cameras: boolean;
     flights: boolean;
     mrt: boolean;
+    parks: boolean;
   };
   onStopClick: (stop: BusStop) => void;
   onCameraClick: (camera: TrafficCamera) => void;
   onFlightClick: (flight: FlightState) => void;
   onMrtStationClick?: (stationName: string) => void;
+  onParkClick: (feature: { kind: ParkFeatureKind; name: string; park?: string; type?: string; cycle?: boolean }) => void;
   mrtRouteSegments?: MrtRouteSegment[];
   busRouteOverlay?: BusRouteOverlay | null;
 };
@@ -64,6 +68,7 @@ const MAP_COLORS = {
   danger: "#ef7373",
   info: "#73b9d9",
   bus: "#54ffae",
+  park: "#73d99a",
 } as const;
 
 /**
@@ -279,6 +284,7 @@ function useMapController({
   onCameraClick,
   onFlightClick,
   onMrtStationClick,
+  onParkClick,
   mrtRouteSegments = EMPTY_MRT_ROUTE_SEGMENTS,
   busRouteOverlay = null,
 }: MapProps) {
@@ -291,6 +297,7 @@ function useMapController({
   const onCameraClickRef = useRef(onCameraClick);
   const onFlightClickRef = useRef(onFlightClick);
   const onMrtStationClickRef = useRef(onMrtStationClick);
+  const onParkClickRef = useRef(onParkClick);
   const mrtLinesRef = useRef<MRTGeoJson | null>(null);
   const mrtRouteSegmentsRef = useRef<MrtRouteSegment[]>(mrtRouteSegments);
   const busRouteOverlayRef = useRef<BusRouteOverlay | null>(busRouteOverlay);
@@ -313,6 +320,7 @@ function useMapController({
   useEffect(() => {
     onMrtStationClickRef.current = onMrtStationClick;
   }, [onMrtStationClick]);
+  useEffect(() => { onParkClickRef.current = onParkClick; }, [onParkClick]);
 
   useEffect(() => {
     sensorVisibilityRef.current = sensorVisibility;
@@ -345,6 +353,10 @@ function useMapController({
     setLayerVisibility("mrt-route-layer", sensorVisibility.mrt);
     setLayerVisibility("mrt-stations-layer", sensorVisibility.mrt);
     setLayerVisibility("mrt-stations-label-layer", sensorVisibility.mrt);
+    setLayerVisibility("parks-fill-layer", sensorVisibility.parks);
+    setLayerVisibility("parks-label-layer", sensorVisibility.parks);
+    setLayerVisibility("pcn-lines-layer", sensorVisibility.parks);
+    setLayerVisibility("trails-lines-layer", sensorVisibility.parks);
   }, [sensorVisibility]);
 
   useEffect(() => {
@@ -518,6 +530,18 @@ function useMapController({
         return value === true || value === "true";
       });
       map.getCanvas().style.cursor = routeable ? "pointer" : "";
+    };
+    const handleParkClick = (event: maplibregl.MapLayerMouseEvent) => {
+      const properties = event.features?.[0]?.properties;
+      if (!properties || !["park", "pcn", "trail"].includes(properties.kind)) return;
+      if (typeof properties.name !== "string" || !properties.name) return;
+      onParkClickRef.current({
+        kind: properties.kind as ParkFeatureKind,
+        name: properties.name,
+        ...(typeof properties.park === "string" ? { park: properties.park } : {}),
+        ...(typeof properties.type === "string" ? { type: properties.type } : {}),
+        ...(properties.cycle === true || properties.cycle === "true" ? { cycle: true } : {}),
+      });
     };
 
     const handleMapLoad = () => {
@@ -1134,6 +1158,15 @@ function useMapController({
               handleInteractiveLayerLeave,
             ),
           );
+        }
+
+        map.addSource("parks-data", { type: "geojson", data: PARKS_GEOJSON });
+        map.addLayer({ id: "parks-fill-layer", type: "fill", source: "parks-data", filter: ["==", ["get", "kind"], "park"], layout: { visibility: sensorVisibilityRef.current.parks ? "visible" : "none" }, paint: { "fill-color": MAP_COLORS.park, "fill-opacity": 0.07 } });
+        map.addLayer({ id: "parks-label-layer", type: "symbol", source: "parks-data", minzoom: 11.5, filter: ["==", ["get", "kind"], "park"], layout: { visibility: sensorVisibilityRef.current.parks ? "visible" : "none", "text-field": ["get", "name"], "text-size": 10 }, paint: { "text-color": MAP_COLORS.park, "text-halo-color": MAP_COLORS.paper, "text-halo-width": 1 } });
+        map.addLayer({ id: "pcn-lines-layer", type: "line", source: "parks-data", filter: ["==", ["get", "kind"], "pcn"], layout: { visibility: sensorVisibilityRef.current.parks ? "visible" : "none", "line-cap": "round", "line-join": "round" }, paint: { "line-color": MAP_COLORS.park, "line-width": 1.6 } });
+        map.addLayer({ id: "trails-lines-layer", type: "line", source: "parks-data", minzoom: 12.5, filter: ["==", ["get", "kind"], "trail"], layout: { visibility: sensorVisibilityRef.current.parks ? "visible" : "none", "line-cap": "round", "line-join": "round" }, paint: { "line-color": MAP_COLORS.park, "line-width": 1, "line-dasharray": [2, 2] } });
+        for (const layerId of ["parks-fill-layer", "pcn-lines-layer", "trails-lines-layer"]) {
+          layerListenerCleanups.push(registerLayerMouseListener(map, "click", layerId, handleParkClick), registerLayerMouseListener(map, "mouseenter", layerId, handleInteractiveLayerEnter), registerLayerMouseListener(map, "mouseleave", layerId, handleInteractiveLayerLeave));
         }
       } catch (error) {
         console.warn("MRT layer failed to initialize", error);
