@@ -415,6 +415,14 @@ function useMapController({
       });
 
       map.addControl(new maplibregl.NavigationControl(), "top-right");
+      map.addControl(
+        new maplibregl.GeolocateControl({
+          positionOptions: { enableHighAccuracy: true },
+          trackUserLocation: true,
+          showUserHeading: true,
+        } as unknown as maplibregl.GeolocateControlOptions),
+        "top-right",
+      );
     } catch (error) {
       console.error(
         "Map unavailable; dashboard continues without the map layer",

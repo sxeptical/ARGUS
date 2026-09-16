@@ -1,6 +1,7 @@
 /**
  * Data.gov.sg weather client: 2-hour forecast, 24h PSI, air temperature, and
- * relative humidity, aggregated into a single `WeatherData`.
+ * relative humidity, UV, and four-day outlook, aggregated into a single
+ * `WeatherData`.
  *
  * The four endpoints are independent: when some fail, the rest still produce
  * a usable (partially nulled) reading. The whole source fails only when
@@ -14,13 +15,16 @@ import { ExternalApiError, type UpstreamError } from "@/lib/errors";
 import {
   DataGovForecastResponseSchema,
   DataGovHumidityResponseSchema,
+  DataGovFourDayResponseSchema,
   DataGovPsiResponseSchema,
   DataGovTemperatureResponseSchema,
+  DataGovUvResponseSchema,
 } from "@/types/schemas";
 import type { WeatherData } from "@/types";
 import { DEFAULT_TIMEOUT_MS, httpGetJson } from "./http";
 
 const DATA_GOV_BASE_URL = "https://api.data.gov.sg/v1/environment";
+const DATA_GOV_V2_BASE_URL = "https://api-open.data.gov.sg/v2/real-time/api";
 
 const dataGovGet = <A, I>(
   endpoint: string,
@@ -34,11 +38,57 @@ const dataGovGet = <A, I>(
     DEFAULT_TIMEOUT_MS,
   );
 
+const dataGovV2Get = <A, I>(
+  endpoint: string,
+  schema: Schema.Schema<A, I, never>,
+): Effect.Effect<A, UpstreamError, HttpClient.HttpClient> =>
+  httpGetJson(
+    "data.gov.sg",
+    `${DATA_GOV_V2_BASE_URL}${endpoint}`,
+    { Accept: "application/json" },
+    schema,
+    DEFAULT_TIMEOUT_MS,
+  );
+
 const getPsiStatus = (psi: number | null): WeatherData["psiStatus"] => {
   if (psi === null) return "Unknown";
   if (psi <= 50) return "Good";
   if (psi <= 100) return "Moderate";
   return "Unhealthy";
+};
+
+export const getUvStatus = (uv: number | null): WeatherData["uvStatus"] => {
+  if (uv === null || !Number.isFinite(uv)) return "Unknown";
+  if (uv <= 2) return "Low";
+  if (uv <= 5) return "Moderate";
+  if (uv <= 7) return "High";
+  if (uv <= 10) return "Very High";
+  return "Extreme";
+};
+
+const latestRecord = <T extends { timestamp: string }>(
+  records: ReadonlyArray<T>,
+): T | null => {
+  if (records.length === 0) return null;
+  return [...records].sort(
+    (a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp),
+  )[0];
+};
+
+export const extractLatestUv = (
+  response: {
+    data: {
+      records: ReadonlyArray<{
+        timestamp: string;
+        index: ReadonlyArray<{ hour: string; value: number }>;
+      }>;
+    };
+  },
+): number | null => {
+  const record = latestRecord(response.data.records);
+  const values = record?.index.filter((entry) => Number.isFinite(entry.value)) ?? [];
+  values.sort((a, b) => Date.parse(b.hour) - Date.parse(a.hour));
+  return values[0]?.value ?? null;
 };
 
 const average = (values: number[]): number | null => {
@@ -120,6 +170,13 @@ export const getWeather = (): Effect.Effect<
                 DataGovHumidityResponseSchema,
               ),
             ),
+            Effect.either(dataGovV2Get("/uv", DataGovUvResponseSchema)),
+            Effect.either(
+              dataGovV2Get(
+                "/four-day-outlook",
+                DataGovFourDayResponseSchema,
+              ),
+            ),
           ] as const,
           { concurrency: "unbounded" },
         );
@@ -134,11 +191,13 @@ export const getWeather = (): Effect.Effect<
           );
         }
 
-        const [forecastR, psiR, temperatureR, humidityR] = results;
+        const [forecastR, psiR, temperatureR, humidityR, uvR, fourDayR] = results;
         const forecast = right(forecastR);
         const psi = right(psiR);
         const temperature = right(temperatureR);
         const humidity = right(humidityR);
+        const uvResponse = right(uvR);
+        const fourDayResponse = right(fourDayR);
 
         // Use a majority-aggregate across all areas instead of picking a
         // single area (which could be "Ang Mo Kio") and labelling it as
@@ -167,6 +226,20 @@ export const getWeather = (): Effect.Effect<
         const psiValue = nationalOrMeanRegional(
           psi?.items?.[0]?.readings?.psi_twenty_four_hourly,
         );
+        const uvValue = uvResponse ? extractLatestUv(uvResponse) : null;
+        const fourDayRecord = fourDayResponse
+          ? latestRecord(fourDayResponse.data.records)
+          : null;
+        const fourDay = (fourDayRecord?.forecasts ?? [])
+          .filter((entry) => Number.isFinite(Date.parse(entry.timestamp)))
+          .sort((a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp))
+          .slice(0, 4)
+          .map((entry) => ({
+            day: entry.day,
+            text: entry.forecast.text,
+            tempLow: entry.temperature.low,
+            tempHigh: entry.temperature.high,
+          }));
 
         const temperatureReadings =
           temperature?.items?.[0]?.readings?.map((entry) => entry.value) ?? [];
@@ -178,6 +251,9 @@ export const getWeather = (): Effect.Effect<
           humidity: average(humidityReadings),
           psi: psiValue,
           psiStatus: getPsiStatus(psiValue),
+          uv: uvValue,
+          uvStatus: getUvStatus(uvValue),
+          fourDay,
           forecast: forecastText,
           lastUpdated: latestIsoTimestamp([
             forecast?.items?.[0]?.update_timestamp,
@@ -188,6 +264,9 @@ export const getWeather = (): Effect.Effect<
             temperature?.items?.[0]?.timestamp,
             humidity?.items?.[0]?.update_timestamp,
             humidity?.items?.[0]?.timestamp,
+            uvResponse?.data.records[0]?.updatedTimestamp,
+            uvResponse?.data.records[0]?.timestamp,
+            fourDayResponse?.data.records[0]?.timestamp,
           ]),
         } satisfies WeatherData;
       }),
