@@ -6,13 +6,14 @@ import { useDashboardSources } from "@/app/hooks/use-dashboard-sources";
 import { useMrtPlanner } from "@/app/hooks/use-mrt-planner";
 import { useWeatherHistory } from "@/app/hooks/use-weather-history";
 import { MRT_DISPLAY_LINE_COUNT } from "@/lib/mrt-network";
+import { PARK_COUNT, PARKS_GEOJSON } from "@/lib/parks-data";
+import type { ParkFeatureKind } from "@/types";
 import type {
   FlightState,
   TrafficCamera,
-  TrainServiceAlert,
 } from "@/types";
 
-export type SensorKey = "flights" | "cameras" | "busStops" | "mrt";
+export type SensorKey = "flights" | "cameras" | "busStops" | "mrt" | "parks";
 
 export type SensorRow = {
   readonly key: SensorKey;
@@ -41,6 +42,7 @@ export function useDashboardState() {
   const weatherHistory = useWeatherHistory(data.weather);
   const [selectedCameraId, setSelectedCameraId] = useState<string | null>(null);
   const [selectedFlightId, setSelectedFlightId] = useState<string | null>(null);
+  const [selectedParkId, setSelectedParkId] = useState<string | null>(null);
   const [sensorVisibility, setSensorVisibility] = useState<
     Record<SensorKey, boolean>
   >({
@@ -48,6 +50,7 @@ export function useDashboardState() {
     cameras: true,
     busStops: true,
     mrt: true,
+    parks: false,
   });
 
   const selectedCamera = useMemo(
@@ -65,9 +68,11 @@ export function useDashboardState() {
     [],
   );
   const selectFlight = useCallback(
-    (flight: FlightState) => setSelectedFlightId(flight.id),
+    (flight: FlightState) => { setSelectedParkId(null); setSelectedFlightId(flight.id); },
     [],
   );
+  const selectedPark = useMemo(() => PARKS_GEOJSON.features.find((feature) => `${feature.properties.kind}:${feature.properties.name}` === selectedParkId)?.properties ?? null, [selectedParkId]);
+  const selectPark = useCallback((feature: { kind: ParkFeatureKind; name: string; park?: string; type?: string; cycle?: boolean }) => { setSelectedFlightId(null); setSelectedParkId(`${feature.kind}:${feature.name}`); }, []);
   const flightSummary = useMemo(
     () => summarizeFlights(data.flights),
     [data.flights],
@@ -115,6 +120,7 @@ export function useDashboardState() {
       value: MRT_DISPLAY_LINE_COUNT,
       tone: "text-signal-mrt",
     },
+    { key: "parks", label: "Recreation", note: "parks + trails", value: PARK_COUNT, tone: "text-signal-park" },
   ];
   const sensorStatsRows: SensorStatsRow[] = [
     {
@@ -190,6 +196,7 @@ export function useDashboardState() {
     selectBusRouteDirection: busRoute.selectDirection,
     selectedCamera,
     selectedFlight,
+    selectedPark,
     selectedStop: busRoute.selectedStop,
     disruptedAlerts,
     disruptedMrtLines,
@@ -202,6 +209,7 @@ export function useDashboardState() {
     setMrtStartStation: mrt.setStart,
     setSelectedCamera: selectCamera,
     setSelectedFlight: selectFlight,
+    setSelectedPark: selectPark,
     setSensorVisibility,
     showBusRoute: busRoute.show,
     signalBars,

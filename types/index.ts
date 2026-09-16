@@ -96,3 +96,22 @@ export interface MRTGeoJson {
     };
   }>;
 }
+
+export type ParkFeatureKind = "park" | "pcn" | "trail";
+export interface ParksGeoJson {
+  type: "FeatureCollection";
+  features: Array<{
+    type: "Feature";
+    geometry: {
+      type: "Polygon" | "MultiPolygon" | "LineString" | "MultiLineString";
+      coordinates: unknown;
+    };
+    properties: {
+      kind: ParkFeatureKind;
+      name: string;
+      park?: string;
+      type?: string;
+      cycle?: boolean;
+    };
+  }>;
+}

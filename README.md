@@ -27,6 +27,7 @@ It is designed as a single-page operations surface: map first, signal panels aro
 - Toggleable sensor layers for flights, road cameras, bus stops, and MRT.
 - Flight markers rendered as heading-aware airplane icons.
 - MRT line overlays with station points and labels.
+- Recreation layer with NParks parks, Park Connector Network, and walking trails.
 - Clickable bus stops for arrival timings.
 - Clickable road cameras for traffic image previews.
 
@@ -109,6 +110,9 @@ Weather and news currently use public endpoints and do not require keys.
 | OpenSky Network | Flight fallback when Aviationstack is unavailable |
 | The Straits Times RSS | Singapore headlines |
 | CNA RSS | Singapore headlines |
+| NParks Parks and Nature Reserves (data.gov.sg) | Park boundary polygons (Singapore Open Data Licence) |
+| NParks Park Connector Loop (data.gov.sg) | Park Connector Network lines (Singapore Open Data Licence) |
+| NParks Tracks (data.gov.sg) | Walking and hiking trails (Singapore Open Data Licence) |
 
 ---
 
