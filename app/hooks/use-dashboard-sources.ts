@@ -8,6 +8,7 @@ import type {
   FlightState,
   NewsItem,
   TrafficCamera,
+  TrafficIncident,
   TrainServiceAlert,
   WeatherData,
 } from "@/types";
@@ -40,6 +41,12 @@ const CAMERAS: SourceDefinition = {
   key: "cameras",
   label: "Traffic Cameras",
   url: "/api/cameras",
+  refreshMs: 60 * 1000,
+};
+const INCIDENTS: SourceDefinition = {
+  key: "incidents",
+  label: "Road Incidents",
+  url: "/api/incidents",
   refreshMs: 60 * 1000,
 };
 const WEATHER: SourceDefinition = {
@@ -127,6 +134,7 @@ export function useDashboardSources() {
   // duplicating the feature flag or changing hook order.
   const busStops = useSource<BusStop[]>(BUS_STOPS);
   const cameras = useSource<TrafficCamera[]>(CAMERAS);
+  const incidents = useSource<TrafficIncident[]>(INCIDENTS);
   const weather = useSource<WeatherData>(WEATHER);
   const news = useSource<NewsItem[]>(NEWS);
   const flights = useSource<FlightState[]>(FLIGHTS_ENABLED ? FLIGHTS : null);
@@ -135,6 +143,7 @@ export function useDashboardSources() {
   const enabled = [
     { definition: BUS_STOPS, result: busStops },
     { definition: CAMERAS, result: cameras },
+    { definition: INCIDENTS, result: incidents },
     { definition: WEATHER, result: weather },
     { definition: NEWS, result: news },
     { definition: TRAIN_ALERTS, result: trainAlerts },
@@ -163,6 +172,7 @@ export function useDashboardSources() {
   return {
     busStops: busStops.data ?? [],
     cameras: cameras.data ?? [],
+    incidents: incidents.data ?? [],
     weather: weather.data ?? DEFAULT_WEATHER,
     news: news.data ?? [],
     flights: flights.data ?? [],

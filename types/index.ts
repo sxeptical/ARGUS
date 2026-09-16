@@ -46,6 +46,14 @@ export interface NewsItem {
 
 export type TrafficCamera = RawTrafficImage & { readonly location: string };
 
+export interface TrafficIncident {
+  id: string;
+  type: string;
+  lat: number;
+  lng: number;
+  message: string;
+}
+
 /**
  * Normalized LTA Train Service Alerts row. `affectedLines` maps LTA line
  * codes to the display names used across the app ("EWL" → "East West

@@ -75,6 +75,7 @@ export default function Home() {
     disruptedMrtLines,
     error,
     flights,
+    incidents,
     handleSelectStop,
     mrtEndStation,
     mrtMapPickTarget,
@@ -88,6 +89,7 @@ export default function Home() {
     selectedCamera,
     selectedFlight,
     selectedPark,
+    selectedIncident,
     selectedStop,
     sensorRows,
     sensorStatsRows,
@@ -98,6 +100,7 @@ export default function Home() {
     setSelectedCamera,
     setSelectedFlight,
     setSelectedPark,
+    setSelectedIncident,
     setSensorVisibility,
     showBusRoute,
     signalBars,
@@ -153,11 +156,13 @@ export default function Home() {
               busStops={busStops}
               cameras={cameras}
               flights={flights}
+              incidents={incidents}
               sensorVisibility={sensorVisibility}
               onStopClick={handleSelectStop}
               onCameraClick={setSelectedCamera}
               onFlightClick={setSelectedFlight}
               onParkClick={setSelectedPark}
+              onIncidentClick={setSelectedIncident}
               onMrtStationClick={pickMrtStation}
               mrtRouteSegments={mrtRoutePlan?.segments ?? []}
               busRouteOverlay={busRouteOverlay}
@@ -174,6 +179,7 @@ export default function Home() {
               {sensorVisibility.cameras ? <LegendDot tone="bg-signal-camera" label="Cameras" /> : null}
               {sensorVisibility.mrt ? <LegendDot tone="bg-signal-mrt" label="MRT" /> : null}
               {sensorVisibility.parks ? <LegendDot tone="bg-signal-park" label="Parks" /> : null}
+              {sensorVisibility.incidents ? <LegendDot tone="bg-signal-incident" label="Incidents" /> : null}
             </div>
           </section>
 
@@ -278,7 +284,7 @@ export default function Home() {
 
           <IntelPanel
             title="Target Focus"
-             badge={selectedFlight ? "Flight Locked" : selectedPark ? "Recreation Locked" : "Standby"}
+             badge={selectedFlight ? "Flight Locked" : selectedIncident ? "Incident Locked" : selectedPark ? "Recreation Locked" : "Standby"}
           >
             {selectedFlight ? (
               <div className="space-y-2 text-xs">
@@ -310,6 +316,12 @@ export default function Home() {
                       : "N/A"
                   }
                 />
+              </div>
+            ) : selectedIncident ? (
+              <div className="space-y-2 text-xs">
+                <div className="border border-line bg-paper p-2.5"><div className="font-mono text-sm font-medium uppercase text-ink">{selectedIncident.type}</div><div className="data-label">ROAD INCIDENT</div></div>
+                <div className="leading-relaxed text-ink">{selectedIncident.message}</div>
+                <KeyValue label="Coordinates" value={`${selectedIncident.lat.toFixed(5)}, ${selectedIncident.lng.toFixed(5)}`} />
               </div>
             ) : selectedPark ? (
               <div className="space-y-2 text-xs">

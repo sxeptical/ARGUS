@@ -31,6 +31,7 @@ import type {
   FlightState,
   MRTGeoJson,
   TrafficCamera,
+  TrafficIncident,
   ParkFeatureKind,
 } from "@/types";
 
@@ -40,6 +41,7 @@ type MapProps = {
   busStops: BusStop[];
   cameras: TrafficCamera[];
   flights: FlightState[];
+  incidents: TrafficIncident[];
   /** Display names of MRT lines currently flagged as disrupted by LTA. */
   disruptedMrtLines?: ReadonlyArray<string>;
   sensorVisibility: {
@@ -48,12 +50,14 @@ type MapProps = {
     flights: boolean;
     mrt: boolean;
     parks: boolean;
+    incidents: boolean;
   };
   onStopClick: (stop: BusStop) => void;
   onCameraClick: (camera: TrafficCamera) => void;
   onFlightClick: (flight: FlightState) => void;
   onMrtStationClick?: (stationName: string) => void;
   onParkClick: (feature: { kind: ParkFeatureKind; name: string; park?: string; type?: string; cycle?: boolean }) => void;
+  onIncidentClick: (incident: TrafficIncident) => void;
   mrtRouteSegments?: MrtRouteSegment[];
   busRouteOverlay?: BusRouteOverlay | null;
 };
@@ -66,6 +70,7 @@ const MAP_COLORS = {
   muted: "#8f8f8f",
   success: "#67d391",
   danger: "#ef7373",
+  warning: "#e3b341",
   info: "#73b9d9",
   bus: "#54ffae",
   park: "#73d99a",
@@ -273,11 +278,15 @@ function createFlightMap() {
 function createCameraMap() {
   return new globalThis.Map<string, TrafficCamera>();
 }
+function createIncidentMap() {
+  return new globalThis.Map<string, TrafficIncident>();
+}
 
 function useMapController({
   busStops,
   cameras,
   flights,
+  incidents,
   disruptedMrtLines = EMPTY_DISRUPTED_MRT_LINES,
   sensorVisibility,
   onStopClick,
@@ -285,6 +294,7 @@ function useMapController({
   onFlightClick,
   onMrtStationClick,
   onParkClick,
+  onIncidentClick,
   mrtRouteSegments = EMPTY_MRT_ROUTE_SEGMENTS,
   busRouteOverlay = null,
 }: MapProps) {
@@ -293,11 +303,13 @@ function useMapController({
   const busStopsRef = useLazyRef(createBusStopMap);
   const camerasRef = useLazyRef(createCameraMap);
   const flightsRef = useLazyRef(createFlightMap);
+  const incidentsRef = useLazyRef(createIncidentMap);
   const onStopClickRef = useRef(onStopClick);
   const onCameraClickRef = useRef(onCameraClick);
   const onFlightClickRef = useRef(onFlightClick);
   const onMrtStationClickRef = useRef(onMrtStationClick);
   const onParkClickRef = useRef(onParkClick);
+  const onIncidentClickRef = useRef(onIncidentClick);
   const mrtLinesRef = useRef<MRTGeoJson | null>(null);
   const mrtRouteSegmentsRef = useRef<MrtRouteSegment[]>(mrtRouteSegments);
   const busRouteOverlayRef = useRef<BusRouteOverlay | null>(busRouteOverlay);
@@ -321,6 +333,7 @@ function useMapController({
     onMrtStationClickRef.current = onMrtStationClick;
   }, [onMrtStationClick]);
   useEffect(() => { onParkClickRef.current = onParkClick; }, [onParkClick]);
+  useEffect(() => { onIncidentClickRef.current = onIncidentClick; }, [onIncidentClick]);
 
   useEffect(() => {
     sensorVisibilityRef.current = sensorVisibility;
@@ -357,6 +370,7 @@ function useMapController({
     setLayerVisibility("parks-label-layer", sensorVisibility.parks);
     setLayerVisibility("pcn-lines-layer", sensorVisibility.parks);
     setLayerVisibility("trails-lines-layer", sensorVisibility.parks);
+    setLayerVisibility("incidents-point-layer", sensorVisibility.incidents);
   }, [sensorVisibility]);
 
   useEffect(() => {
@@ -466,6 +480,13 @@ function useMapController({
       if (typeof id !== "string") return;
       const flight = flightsRef.current.get(id);
       if (flight) onFlightClickRef.current(flight);
+    };
+    const handleIncidentClick = (event: maplibregl.MapLayerMouseEvent) => {
+      const id = event.features?.[0]?.properties?.id;
+      if (typeof id === "string") {
+        const incident = incidentsRef.current.get(id);
+        if (incident) onIncidentClickRef.current(incident);
+      }
     };
     const handleInteractiveLayerEnter = () => {
       map.getCanvas().style.cursor = "pointer";
@@ -1168,6 +1189,14 @@ function useMapController({
         for (const layerId of ["parks-fill-layer", "pcn-lines-layer", "trails-lines-layer"]) {
           layerListenerCleanups.push(registerLayerMouseListener(map, "click", layerId, handleParkClick), registerLayerMouseListener(map, "mouseenter", layerId, handleInteractiveLayerEnter), registerLayerMouseListener(map, "mouseleave", layerId, handleInteractiveLayerLeave));
         }
+        map.addSource("incidents-data", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
+        map.addLayer({ id: "incidents-point-layer", type: "circle", source: "incidents-data", layout: { visibility: sensorVisibilityRef.current.incidents ? "visible" : "none" }, paint: {
+          "circle-color": ["match", ["get", "type"], "Accident", MAP_COLORS.danger, "Vehicle Breakdown", MAP_COLORS.warning, "Heavy Traffic", MAP_COLORS.warning, MAP_COLORS.muted],
+          "circle-radius": 4,
+          "circle-stroke-color": MAP_COLORS.paper,
+          "circle-stroke-width": 1,
+        } });
+        layerListenerCleanups.push(registerLayerMouseListener(map, "click", "incidents-point-layer", handleIncidentClick), registerLayerMouseListener(map, "mouseenter", "incidents-point-layer", handleInteractiveLayerEnter), registerLayerMouseListener(map, "mouseleave", "incidents-point-layer", handleInteractiveLayerLeave));
       } catch (error) {
         console.warn("MRT layer failed to initialize", error);
       }
@@ -1185,7 +1214,7 @@ function useMapController({
       map.remove();
       mapRef.current = null;
     };
-  }, [busStopsRef, camerasRef, flightsRef]);
+  }, [busStopsRef, camerasRef, flightsRef, incidentsRef]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -1312,6 +1341,21 @@ function useMapController({
       ),
     });
   }, [cameras, camerasRef, sensorVisibility.cameras]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    incidentsRef.current = new globalThis.Map(incidents.map((incident) => [incident.id, incident]));
+    const source = map.getSource("incidents-data") as maplibregl.GeoJSONSource | undefined;
+    source?.setData({
+      type: "FeatureCollection",
+      features: (sensorVisibility.incidents ? incidents : []).map((incident) => ({
+        type: "Feature" as const,
+        properties: { id: incident.id, type: incident.type },
+        geometry: { type: "Point" as const, coordinates: [incident.lng, incident.lat] },
+      })),
+    });
+  }, [incidents, incidentsRef, sensorVisibility.incidents]);
 
   return { containerRef, mapInitError };
 }

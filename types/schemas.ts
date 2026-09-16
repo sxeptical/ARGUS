@@ -125,6 +125,18 @@ export const LtaTrafficImagesResponseSchema = Schema.Union(
   Schema.Struct({ value: Schema.Array(TrafficImageCamerasEntrySchema) }),
 );
 
+export const RawTrafficIncidentSchema = Schema.Struct({
+  Type: Schema.String,
+  Latitude: Schema.Number,
+  Longitude: Schema.Number,
+  Message: Schema.String,
+});
+export type RawTrafficIncident = Schema.Schema.Type<typeof RawTrafficIncidentSchema>;
+export const LtaTrafficIncidentsResponseSchema = Schema.Struct({
+  value: Schema.Array(RawTrafficIncidentSchema),
+});
+export type LtaTrafficIncidentsResponse = Schema.Schema.Type<typeof LtaTrafficIncidentsResponseSchema>;
+
 // ---------- LTA Train Service Alerts ----------
 
 const TrainAlertMessageSchema = Schema.Struct({

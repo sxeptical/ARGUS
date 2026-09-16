@@ -1,9 +1,11 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { FetchHttpClient } from "@effect/platform";
 import { Effect } from "effect";
+import { Schema } from "effect";
 import { CacheLive } from "@/lib/cache";
 import { ExternalApiError } from "@/lib/errors";
-import { collectLtaPages, getTrafficCameras } from "./lta";
+import { LtaTrafficIncidentsResponseSchema } from "@/types/schemas";
+import { collectLtaPages, getTrafficCameras, getTrafficIncidents, normalizeTrafficIncidents } from "./lta";
 
 const rows = (count: number) =>
   Array.from({ length: count }, (_, i) => ({ id: i }));
@@ -174,5 +176,29 @@ describe("getTrafficCameras", () => {
 
     expect(exit._tag).toBe("Success");
     if (exit._tag === "Success") expect(exit.value).toEqual([]);
+  });
+});
+
+describe("getTrafficIncidents", () => {
+  test("decodes, normalizes, hashes, and filters incident rows", async () => {
+    const payload = {
+        value: [
+        { Type: "Accident", Latitude: 1.3, Longitude: 103.8, Message: "Crash on CTE" },
+      ],
+    };
+    expect(Schema.decodeUnknownSync(LtaTrafficIncidentsResponseSchema)(payload).value).toHaveLength(1);
+    expect(normalizeTrafficIncidents([...payload.value, { Type: "Obstacle", Latitude: Number.NaN, Longitude: 103.81, Message: "Bad row" }])).toHaveLength(1);
+    const exit = await Effect.runPromiseExit(
+      getTrafficIncidents().pipe(
+        Effect.provide(CacheLive),
+        Effect.provide(FetchHttpClient.layer),
+        Effect.provideService(FetchHttpClient.Fetch, (async () => Response.json(payload)) as unknown as typeof fetch),
+      ),
+    );
+    expect(exit._tag).toBe("Success");
+    if (exit._tag !== "Success") return;
+    expect(exit.value).toHaveLength(1);
+    expect(exit.value[0]).toMatchObject({ type: "Accident", lat: 1.3, lng: 103.8, message: "Crash on CTE" });
+    expect(exit.value[0].id).toMatch(/^[a-f0-9]{16}$/);
   });
 });
