@@ -13,6 +13,8 @@ export {
   getBusArrivals,
   getBusStops,
   getTrafficCameras,
+  getTrafficIncidents,
+  normalizeTrafficIncidents,
   getTrainServiceAlerts,
   normalizeTrainServiceAlerts,
 } from "./lta";

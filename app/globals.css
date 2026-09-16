@@ -50,6 +50,7 @@
   --signal-camera: var(--color-muted);
   --signal-mrt: var(--color-warning);
   --signal-park: oklch(0.76 0.14 155);
+  --signal-incident: oklch(0.72 0.16 45);
 
   --space-1: 0.25rem;
   --space-2: 0.5rem;
@@ -92,6 +93,7 @@
   --color-signal-camera: var(--signal-camera);
   --color-signal-mrt: var(--signal-mrt);
   --color-signal-park: var(--signal-park);
+  --color-signal-incident: var(--signal-incident);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-jetbrains-mono);
   --font-display: var(--font-geist-sans);

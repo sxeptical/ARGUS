@@ -3,6 +3,7 @@
  * train service alerts.
  */
 import { HttpClient } from "@effect/platform";
+import { createHash } from "node:crypto";
 import { Effect, Schema } from "effect";
 import { Cache } from "@/lib/cache";
 import { ExternalApiError, type UpstreamError } from "@/lib/errors";
@@ -10,14 +11,16 @@ import {
   LtaBusArrivalsResponseSchema,
   LtaBusStopsResponseSchema,
   LtaTrafficImagesResponseSchema,
+  LtaTrafficIncidentsResponseSchema,
   LtaTrainServiceAlertsResponseSchema,
 } from "@/types/schemas";
 import type {
   LtaTrainServiceAlert,
   LtaTrainServiceAlertsResponse,
   RawTrafficImage,
+  RawTrafficIncident,
 } from "@/types/schemas";
-import type { BusArrival, BusStop, TrafficCamera, TrainServiceAlert } from "@/types";
+import type { BusArrival, BusStop, TrafficCamera, TrafficIncident, TrainServiceAlert } from "@/types";
 import { DEFAULT_TIMEOUT_MS, httpGetJson, withTimeout } from "./http";
 import { LTA_LINE_CODE_TO_DISPLAY_NAME } from "@/lib/mrt-network";
 
@@ -237,6 +240,22 @@ export const getTrafficCameras = (): Effect.Effect<
       }),
     );
   });
+
+export const getTrafficIncidents = (): Effect.Effect<TrafficIncident[], UpstreamError, Cache | HttpClient.HttpClient> =>
+  Effect.gen(function* () {
+    const cache = yield* Cache;
+    return yield* cache.get("incidents", 60_000, Effect.gen(function* () {
+      const payload = yield* ltaGet("/TrafficIncidents", LtaTrafficIncidentsResponseSchema);
+      return normalizeTrafficIncidents(payload.value);
+    }));
+  });
+
+export const normalizeTrafficIncidents = (rows: ReadonlyArray<RawTrafficIncident>): TrafficIncident[] =>
+  rows.flatMap((incident) => {
+        if (!Number.isFinite(incident.Latitude) || !Number.isFinite(incident.Longitude)) return [];
+        const id = createHash("sha256").update(`${incident.Message}|${incident.Latitude}|${incident.Longitude}`).digest("hex").slice(0, 16);
+        return [{ id, type: incident.Type, lat: incident.Latitude, lng: incident.Longitude, message: incident.Message }];
+      });
 
 const TRAIN_ALERTS_CACHE_TTL_MS = 60 * 1000;
 

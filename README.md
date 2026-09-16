@@ -43,6 +43,7 @@ It is designed as a single-page operations surface: map first, signal panels aro
 
 - LTA bus stops and live bus arrivals.
 - LTA road traffic camera images.
+- LTA road incidents with type-colored map markers.
 - LTA train service alerts, with disrupted MRT lines highlighted on the map.
 - Data.gov.sg weather, PSI, and air temperature.
 - Aviationstack flights for Singapore airports, with OpenSky fallback.
@@ -86,7 +87,7 @@ ARGUS can run with partial data, but the best experience needs these keys:
 
 | Key | Required For | Notes |
 | --- | --- | --- |
-| `LTA_API_KEY` | Bus stops, bus arrivals, traffic cameras | Get this from Singapore LTA DataMall. |
+| `LTA_API_KEY` | Bus stops, bus arrivals, traffic cameras, road incidents | Get this from Singapore LTA DataMall. |
 | `AVIATIONSTACK_API_KEY` | Primary flight feed | Used for live flights around Changi/Seletar. |
 
 Example:
