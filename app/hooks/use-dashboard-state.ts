@@ -50,7 +50,7 @@ export function useDashboardState() {
   >({
     flights: true,
     cameras: true,
-    busStops: true,
+    busStops: false,
     mrt: true,
     parks: false,
     incidents: false,
