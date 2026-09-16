@@ -74,6 +74,9 @@ const DEFAULT_WEATHER: WeatherData = {
   humidity: null,
   psi: null,
   psiStatus: "Unknown",
+  uv: null,
+  uvStatus: "Unknown",
+  fourDay: [],
   forecast: "Loading...",
   lastUpdated: new Date().toISOString(),
 };

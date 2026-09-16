@@ -24,6 +24,16 @@ export default function WeatherPanel({ weather, history }: WeatherPanelProps) {
 
   const psiValue =
     weather.psi === null ? "—" : `${weather.psi} (${weather.psiStatus})`;
+  const uvClass =
+    weather.uvStatus === "Low"
+      ? "text-success"
+      : weather.uvStatus === "Moderate"
+        ? "text-warning"
+        : weather.uvStatus === "High" || weather.uvStatus === "Very High"
+          ? "text-danger"
+          : "text-muted";
+  const uvValue =
+    weather.uv === null ? "—" : `${weather.uv} (${weather.uvStatus})`;
 
   return (
     <TerminalPanel title="WEATHER" contentClassName="min-h-40">
@@ -48,6 +58,21 @@ export default function WeatherPanel({ weather, history }: WeatherPanelProps) {
             status={weather.psiStatus}
             history={history}
           />
+        </ExpandableRow>
+
+        <ExpandableRow label="UV Index" value={uvValue} valueClass={uvClass}>
+          <UvDetail uv={weather.uv} status={weather.uvStatus} />
+        </ExpandableRow>
+
+        <ExpandableRow
+          label="4-Day Outlook"
+          value={
+            weather.fourDay[0]
+              ? `${weather.fourDay[0].day} · ${weather.fourDay[0].text}`
+              : "—"
+          }
+        >
+          <FourDayDetail outlook={weather.fourDay} />
         </ExpandableRow>
 
         <div className="space-y-1 pt-1">
@@ -203,6 +228,48 @@ function PsiDetail({
   );
 }
 
+function UvDetail({
+  uv,
+  status,
+}: {
+  uv: number | null;
+  status: WeatherData["uvStatus"];
+}) {
+  return (
+    <div className="space-y-2 text-[11px] text-muted">
+      <div>{uv === null ? "UV data is currently unavailable." : "UV updates hourly."}</div>
+      <div className="grid grid-cols-5 gap-1 text-[10px]">
+        <MetricBadge label="Low" range="0–2" active={status === "Low"} color="good" />
+        <MetricBadge label="Moderate" range="3–5" active={status === "Moderate"} color="moderate" />
+        <MetricBadge label="High" range="6–7" active={status === "High"} color="high" />
+        <MetricBadge label="Very High" range="8–10" active={status === "Very High"} color="unhealthy" />
+        <MetricBadge label="Extreme" range="11+" active={status === "Extreme"} color="danger" />
+      </div>
+    </div>
+  );
+}
+
+function FourDayDetail({
+  outlook,
+}: {
+  outlook: WeatherData["fourDay"];
+}) {
+  if (outlook.length === 0) {
+    return <div className="text-[11px] text-muted">4-day outlook unavailable.</div>;
+  }
+  return (
+    <div className="space-y-1 text-[11px]">
+      {outlook.map((entry) => (
+        <div key={`${entry.day}-${entry.text}`} className="flex gap-2">
+          <span className="w-16 shrink-0 text-muted">{entry.day}</span>
+          <span className="min-w-0 flex-1">{entry.text}</span>
+          <span className="whitespace-nowrap text-muted">{entry.tempLow}°–{entry.tempHigh}°C</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function MetricHistorySummary({
   history,
   metric,
@@ -298,7 +365,9 @@ function MiniTrend({ values, barClass }: { values: number[]; barClass: string })
 const ACTIVE_METRIC_BADGE_CLASSES = {
   good: "border-success/50 bg-success/8 text-success",
   moderate: "border-warning/50 bg-warning/8 text-warning",
+  high: "border-warning/50 bg-warning/8 text-warning",
   unhealthy: "border-danger/50 bg-danger/8 text-danger",
+  danger: "border-danger/50 bg-danger/8 text-danger",
 } as const;
 
 function MetricBadge({

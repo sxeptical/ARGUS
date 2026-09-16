@@ -228,6 +228,63 @@ export const DataGovTemperatureResponseSchema = Schema.Struct({
  */
 export const DataGovHumidityResponseSchema = DataGovTemperatureResponseSchema;
 
+// ---------- Data.gov.sg v2 ----------
+
+const DataGovUvIndexSchema = Schema.Struct({
+  hour: Schema.String,
+  value: Schema.Number,
+});
+
+export const DataGovUvResponseSchema = Schema.Struct({
+  code: Schema.Number,
+  data: Schema.Struct({
+    records: Schema.Array(
+      Schema.Struct({
+        date: Schema.String,
+        updatedTimestamp: Schema.String,
+        timestamp: Schema.String,
+        index: Schema.Array(DataGovUvIndexSchema),
+      }),
+    ),
+  }),
+});
+
+const DataGovFourDayForecastSchema = Schema.Struct({
+  day: Schema.String,
+  timestamp: Schema.String,
+  forecast: Schema.Struct({
+    text: Schema.String,
+    summary: Schema.optional(Schema.String),
+    code: Schema.String,
+  }),
+  temperature: Schema.Struct({ low: Schema.Number, high: Schema.Number }),
+  relativeHumidity: Schema.optional(
+    Schema.Struct({
+      high: Schema.Number,
+      low: Schema.Number,
+      unit: Schema.optional(Schema.String),
+    }),
+  ),
+  wind: Schema.optional(
+    Schema.Struct({
+      direction: Schema.String,
+      speed: Schema.Struct({ low: Schema.Number, high: Schema.Number }),
+    }),
+  ),
+});
+
+export const DataGovFourDayResponseSchema = Schema.Struct({
+  code: Schema.Number,
+  data: Schema.Struct({
+    records: Schema.Array(
+      Schema.Struct({
+        timestamp: Schema.String,
+        forecasts: Schema.Array(DataGovFourDayForecastSchema),
+      }),
+    ),
+  }),
+});
+
 // ---------- Aviationstack ----------
 
 const AviationStackLiveSchema = Schema.Struct({
@@ -359,6 +416,12 @@ export type DataGovPsiResponse = Schema.Schema.Type<
 >;
 export type DataGovTemperatureResponse = Schema.Schema.Type<
   typeof DataGovTemperatureResponseSchema
+>;
+export type DataGovUvResponse = Schema.Schema.Type<
+  typeof DataGovUvResponseSchema
+>;
+export type DataGovFourDayResponse = Schema.Schema.Type<
+  typeof DataGovFourDayResponseSchema
 >;
 export type AviationStackResponse = Schema.Schema.Type<
   typeof AviationStackResponseSchema

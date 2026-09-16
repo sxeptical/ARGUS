@@ -18,6 +18,14 @@ export interface WeatherData {
   humidity: number | null;
   psi: number | null;
   psiStatus: "Good" | "Moderate" | "Unhealthy" | "Unknown";
+  uv: number | null;
+  uvStatus: "Low" | "Moderate" | "High" | "Very High" | "Extreme" | "Unknown";
+  fourDay: Array<{
+    day: string;
+    text: string;
+    tempLow: number;
+    tempHigh: number;
+  }>;
   forecast: string;
   lastUpdated: string;
 }
