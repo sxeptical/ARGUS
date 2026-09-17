@@ -1,5 +1,5 @@
 import TerminalPanel from "@/app/components/TerminalPanel";
-import { formatSgTime } from "@/lib/formatters";
+import { formatSgDateTime, formatSgTime } from "@/lib/formatters";
 import type { WeatherData, WeatherHistoryPoint } from "@/types";
 import { useState, type ReactNode } from "react";
 
@@ -81,7 +81,7 @@ export default function WeatherPanel({ weather, history }: WeatherPanelProps) {
         </div>
 
         <div className="text-[11px] text-muted" suppressHydrationWarning>
-          Updated {formatSgTime(weather.lastUpdated)}
+          Updated {formatSgDateTime(weather.lastUpdated)}
         </div>
       </div>
     </TerminalPanel>

@@ -247,7 +247,7 @@ export default function Home() {
               </div>
             ) : (
               <div className="text-xs leading-relaxed text-muted">
-                Select a flight icon on the map to inspect its live vector.
+                Select a flight or park on the map to inspect it here.
               </div>
             )}
           </IntelPanel>

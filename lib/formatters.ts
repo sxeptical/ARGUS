@@ -9,6 +9,19 @@ export function formatSgTime(iso: string): string {
   });
 }
 
+// Date + time for published/updated stamps: bare times collide across days
+// (e.g. news items from yesterday read the same as today's).
+export function formatSgDateTime(iso: string): string {
+  return new Date(iso).toLocaleString("en-SG", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    timeZone: "Asia/Singapore",
+  });
+}
+
 export function formatSpeedKmh(speed: number | null): string {
   if (!Number.isFinite(speed)) return "N/A";
   return `${Math.round((speed as number) * 3.6)} km/h`;
