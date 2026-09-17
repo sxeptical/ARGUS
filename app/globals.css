@@ -151,6 +151,25 @@ select:focus-visible {
   overflow: hidden;
 }
 
+.argus-incident-popup .maplibregl-popup-content {
+  padding: 0.4rem 0.5rem;
+  border: 1px solid var(--color-line);
+  border-radius: 0;
+  background: var(--color-paper);
+  color: var(--color-ink);
+  box-shadow: none;
+  font-family: var(--font-jetbrains-mono), monospace;
+  font-size: 11px;
+}
+
+.argus-incident-popup .maplibregl-popup-tip {
+  border-top-color: var(--color-line);
+  border-bottom-color: var(--color-line);
+}
+
+.argus-incident-popup-type { font-size: 10px; }
+.argus-incident-popup-message { color: var(--color-muted); font-size: 9px; }
+
 .terminal-header {
   min-height: 2.5rem;
   background: var(--color-surface);

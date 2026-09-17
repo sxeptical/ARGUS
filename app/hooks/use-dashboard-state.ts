@@ -11,7 +11,6 @@ import type { ParkFeatureKind } from "@/types";
 import type {
   FlightState,
   TrafficCamera,
-  TrafficIncident,
 } from "@/types";
 
 export type SensorKey = "flights" | "cameras" | "busStops" | "mrt" | "parks" | "incidents";
@@ -44,7 +43,6 @@ export function useDashboardState() {
   const [selectedCameraId, setSelectedCameraId] = useState<string | null>(null);
   const [selectedFlightId, setSelectedFlightId] = useState<string | null>(null);
   const [selectedParkId, setSelectedParkId] = useState<string | null>(null);
-  const [selectedIncidentId, setSelectedIncidentId] = useState<string | null>(null);
   const [sensorVisibility, setSensorVisibility] = useState<
     Record<SensorKey, boolean>
   >({
@@ -71,13 +69,11 @@ export function useDashboardState() {
     [],
   );
   const selectFlight = useCallback(
-    (flight: FlightState) => { setSelectedParkId(null); setSelectedIncidentId(null); setSelectedFlightId(flight.id); },
+    (flight: FlightState) => { setSelectedParkId(null); setSelectedFlightId(flight.id); },
     [],
   );
   const selectedPark = useMemo(() => PARKS_GEOJSON.features.find((feature) => `${feature.properties.kind}:${feature.properties.name}` === selectedParkId)?.properties ?? null, [selectedParkId]);
-  const selectedIncident = useMemo(() => data.incidents.find((incident) => incident.id === selectedIncidentId) ?? null, [data.incidents, selectedIncidentId]);
-  const selectPark = useCallback((feature: { kind: ParkFeatureKind; name: string; park?: string; type?: string; cycle?: boolean }) => { setSelectedFlightId(null); setSelectedIncidentId(null); setSelectedParkId(`${feature.kind}:${feature.name}`); }, []);
-  const selectIncident = useCallback((incident: TrafficIncident) => { setSelectedFlightId(null); setSelectedParkId(null); setSelectedIncidentId(incident.id); }, []);
+  const selectPark = useCallback((feature: { kind: ParkFeatureKind; name: string; park?: string; type?: string; cycle?: boolean }) => { setSelectedFlightId(null); setSelectedParkId(`${feature.kind}:${feature.name}`); }, []);
   const flightSummary = useMemo(
     () => summarizeFlights(data.flights),
     [data.flights],
@@ -204,7 +200,6 @@ export function useDashboardState() {
     selectedCamera,
     selectedFlight,
     selectedPark,
-    selectedIncident,
     selectedStop: busRoute.selectedStop,
     disruptedAlerts,
     disruptedMrtLines,
@@ -218,7 +213,6 @@ export function useDashboardState() {
     setSelectedCamera: selectCamera,
     setSelectedFlight: selectFlight,
     setSelectedPark: selectPark,
-    setSelectedIncident: selectIncident,
     setSensorVisibility,
     showBusRoute: busRoute.show,
     signalBars,

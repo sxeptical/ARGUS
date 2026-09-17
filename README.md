@@ -45,6 +45,7 @@ It is designed as a single-page operations surface: map first, signal panels aro
 - LTA road traffic camera images.
 - LTA road incidents with type-colored map markers.
 - LTA train service alerts, with disrupted MRT lines highlighted on the map.
+- Intelligence panel live signals digest combining disrupted rail, road incidents, and unhealthy PSI alerts.
 - Data.gov.sg weather, PSI, and air temperature.
 - Aviationstack flights for Singapore airports, with OpenSky fallback.
 - Singapore news feed merge from public RSS sources.

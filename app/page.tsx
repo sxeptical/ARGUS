@@ -1,6 +1,5 @@
 "use client";
 
-import { useMemo } from "react";
 import BusPanel from "@/app/components/BusPanel";
 import CameraPanel from "@/app/components/CameraPanel";
 import Map from "@/app/components/Map";
@@ -18,49 +17,7 @@ import { LayersSidebar } from "@/app/components/dashboard/LayersSidebar";
 import { LoadingScreen } from "@/app/components/dashboard/LoadingScreen";
 import { useDashboardState } from "@/app/hooks/use-dashboard-state";
 import { formatAltitudeFeet, formatSpeedKmh } from "@/lib/formatters";
-import type { TrainServiceAlert } from "@/types";
-
-// Cached formatter — previously a fresh `toLocaleTimeString` options object
-// per news row per render.
-const sgTimeFormat = new Intl.DateTimeFormat("en-SG", {
-  timeZone: "Asia/Singapore",
-  hour: "numeric",
-  minute: "2-digit",
-});
-
-/**
- * LTA `Start_time` values are bare Singapore-local timestamps (no timezone
- * offset), so slicing is correct regardless of the viewer's timezone —
- * re-parsing through `Date` would double-shift for overseas visitors.
- */
-function alertTime(value: string | null): string | null {
-  return value && value.length >= 16 ? value.slice(11, 16) : null;
-}
-
-function DisruptionRow({ alert }: { alert: TrainServiceAlert }) {
-  const start = alertTime(alert.startTime);
-  return (
-    <div className="border border-danger/30 bg-danger/8 px-2.5 py-2">
-      <div className="flex items-center justify-between gap-2">
-        <span className="font-mono text-[11px] font-medium text-danger">
-          {alert.affectedLines.length > 0
-            ? alert.affectedLines.join(" · ")
-            : "MRT Network"}
-        </span>
-        {start ? (
-          <span className="font-mono text-[9px] uppercase tracking-[0.1em] text-muted">
-            from {start}
-          </span>
-        ) : null}
-      </div>
-      {alert.message ? (
-        <div className="mt-1 line-clamp-3 text-xs leading-relaxed text-ink">
-          {alert.message}
-        </div>
-      ) : null}
-    </div>
-  );
-}
+import { buildSignalDigest } from "@/lib/signals";
 
 export default function Home() {
   const {
@@ -71,7 +28,6 @@ export default function Home() {
     busStops,
     cameras,
     clearBusRoute,
-    disruptedAlerts,
     disruptedMrtLines,
     error,
     flights,
@@ -89,7 +45,6 @@ export default function Home() {
     selectedCamera,
     selectedFlight,
     selectedPark,
-    selectedIncident,
     selectedStop,
     sensorRows,
     sensorStatsRows,
@@ -100,18 +55,20 @@ export default function Home() {
     setSelectedCamera,
     setSelectedFlight,
     setSelectedPark,
-    setSelectedIncident,
     setSensorVisibility,
     showBusRoute,
     signalBars,
     sources,
     systemStatus,
+    trainAlerts,
     visibleSensorCount,
     weather,
     weatherHistory,
   } = useDashboardState();
 
-  const topNews = useMemo(() => news.slice(0, 6), [news]);
+  const signalDigest = buildSignalDigest({ trainAlerts, incidents, weather });
+  const signalToneClass = (tone: "danger" | "warning" | "info" | "muted") =>
+    tone === "danger" ? "text-danger" : tone === "warning" ? "text-warning" : tone === "info" ? "text-info" : "text-muted";
 
   if (!bootComplete) {
     return <LoadingScreen sources={sources} />;
@@ -162,7 +119,6 @@ export default function Home() {
               onCameraClick={setSelectedCamera}
               onFlightClick={setSelectedFlight}
               onParkClick={setSelectedPark}
-              onIncidentClick={setSelectedIncident}
               onMrtStationClick={pickMrtStation}
               mrtRouteSegments={mrtRoutePlan?.segments ?? []}
               busRouteOverlay={busRouteOverlay}
@@ -217,53 +173,18 @@ export default function Home() {
         </section>
 
         <aside className="order-3 flex min-w-0 flex-col gap-2 sm:gap-3 xl:min-h-0 xl:overflow-y-auto xl:pr-1">
-          <IntelPanel title="Intelligence" badge={`${news.length} signals`}>
-            <div className="space-y-1.5">
-              {topNews.map((item) => (
-                <a
-                  key={`${item.url}-${item.publishedAt}`}
-                  href={item.url}
-                  target="_blank"
-                  rel="noreferrer noopener"
-                  className="interactive-row block px-2.5 py-2"
-                >
-                  <div className="mb-1 flex items-center justify-between gap-2 text-[9px] uppercase tracking-[0.1em] text-muted">
-                    <span className="truncate">{item.source}</span>
-                    <span suppressHydrationWarning>
-                      {sgTimeFormat.format(new Date(item.publishedAt))}
-                    </span>
+          <IntelPanel title="Intelligence" badge={`${signalDigest.length} signals`}>
+            {signalDigest.length > 0 ? (
+              <div className="space-y-1">
+                {signalDigest.filter((signal, index) => signal.category !== "road" || signalDigest.slice(0, index).filter((item) => item.category === "road").length < 8).map((signal, index) => (
+                  <div key={`${signal.category}-${index}`} className="flex min-w-0 items-center gap-2 font-mono text-[10px]">
+                    <span className={`shrink-0 text-[9px] uppercase tracking-[0.1em] ${signalToneClass(signal.tone)}`}>{signal.category}</span>
+                    <span className="truncate text-muted" title={signal.text}>{signal.text}</span>
                   </div>
-                  <div className="line-clamp-3 text-xs leading-relaxed text-ink">
-                    {item.title}
-                  </div>
-                </a>
-              ))}
-            </div>
-          </IntelPanel>
-
-          <IntelPanel
-            title="Rail Status"
-            badge={
-              disruptedAlerts.length > 0
-                ? `${disruptedAlerts.length} disrupted`
-                : "All Clear"
-            }
-          >
-            {disruptedAlerts.length > 0 ? (
-              <div className="space-y-2">
-                {disruptedAlerts.map((alert, index) => (
-                  <DisruptionRow
-                    key={`${alert.startTime ?? "ongoing"}-${alert.affectedLines.join("-")}-${index}`}
-                    alert={alert}
-                  />
                 ))}
+                {incidents.length > 8 ? <div className="font-mono text-[9px] uppercase tracking-[0.1em] text-muted">+{incidents.length - 8} MORE ROAD INCIDENTS</div> : null}
               </div>
-            ) : (
-              <div className="text-xs leading-relaxed text-muted">
-                All MRT/LRT lines running normally per LTA Train Service
-                Alerts.
-              </div>
-            )}
+            ) : <div className="text-xs leading-relaxed text-muted">NO ACTIVE SIGNALS<br />Rail, road and weather feeds nominal.</div>}
           </IntelPanel>
 
           <IntelPanel
@@ -284,7 +205,7 @@ export default function Home() {
 
           <IntelPanel
             title="Target Focus"
-             badge={selectedFlight ? "Flight Locked" : selectedIncident ? "Incident Locked" : selectedPark ? "Recreation Locked" : "Standby"}
+              badge={selectedFlight ? "Flight Locked" : selectedPark ? "Recreation Locked" : "Standby"}
           >
             {selectedFlight ? (
               <div className="space-y-2 text-xs">
@@ -316,12 +237,6 @@ export default function Home() {
                       : "N/A"
                   }
                 />
-              </div>
-            ) : selectedIncident ? (
-              <div className="space-y-2 text-xs">
-                <div className="border border-line bg-paper p-2.5"><div className="font-mono text-sm font-medium uppercase text-ink">{selectedIncident.type}</div><div className="data-label">ROAD INCIDENT</div></div>
-                <div className="leading-relaxed text-ink">{selectedIncident.message}</div>
-                <KeyValue label="Coordinates" value={`${selectedIncident.lat.toFixed(5)}, ${selectedIncident.lng.toFixed(5)}`} />
               </div>
             ) : selectedPark ? (
               <div className="space-y-2 text-xs">
