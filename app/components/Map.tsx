@@ -57,7 +57,6 @@ type MapProps = {
   onFlightClick: (flight: FlightState) => void;
   onMrtStationClick?: (stationName: string) => void;
   onParkClick: (feature: { kind: ParkFeatureKind; name: string; park?: string; type?: string; cycle?: boolean }) => void;
-  onIncidentClick: (incident: TrafficIncident) => void;
   mrtRouteSegments?: MrtRouteSegment[];
   busRouteOverlay?: BusRouteOverlay | null;
 };
@@ -294,7 +293,6 @@ function useMapController({
   onFlightClick,
   onMrtStationClick,
   onParkClick,
-  onIncidentClick,
   mrtRouteSegments = EMPTY_MRT_ROUTE_SEGMENTS,
   busRouteOverlay = null,
 }: MapProps) {
@@ -309,7 +307,7 @@ function useMapController({
   const onFlightClickRef = useRef(onFlightClick);
   const onMrtStationClickRef = useRef(onMrtStationClick);
   const onParkClickRef = useRef(onParkClick);
-  const onIncidentClickRef = useRef(onIncidentClick);
+  const incidentPopupRef = useRef<maplibregl.Popup | null>(null);
   const mrtLinesRef = useRef<MRTGeoJson | null>(null);
   const mrtRouteSegmentsRef = useRef<MrtRouteSegment[]>(mrtRouteSegments);
   const busRouteOverlayRef = useRef<BusRouteOverlay | null>(busRouteOverlay);
@@ -333,7 +331,6 @@ function useMapController({
     onMrtStationClickRef.current = onMrtStationClick;
   }, [onMrtStationClick]);
   useEffect(() => { onParkClickRef.current = onParkClick; }, [onParkClick]);
-  useEffect(() => { onIncidentClickRef.current = onIncidentClick; }, [onIncidentClick]);
 
   useEffect(() => {
     sensorVisibilityRef.current = sensorVisibility;
@@ -481,12 +478,29 @@ function useMapController({
       const flight = flightsRef.current.get(id);
       if (flight) onFlightClickRef.current(flight);
     };
-    const handleIncidentClick = (event: maplibregl.MapLayerMouseEvent) => {
+    const handleIncidentEnter = (event: maplibregl.MapLayerMouseEvent) => {
       const id = event.features?.[0]?.properties?.id;
-      if (typeof id === "string") {
-        const incident = incidentsRef.current.get(id);
-        if (incident) onIncidentClickRef.current(incident);
-      }
+      if (typeof id !== "string") return;
+      const incident = incidentsRef.current.get(id);
+      if (!incident) return;
+      const content = document.createElement("div");
+      content.className = "argus-incident-popup-body";
+      const type = document.createElement("div");
+      type.className = `argus-incident-popup-type ${incident.type === "Accident" ? "text-danger" : incident.type === "Vehicle Breakdown" || incident.type === "Heavy Traffic" ? "text-warning" : "text-muted"}`;
+      type.textContent = incident.type.toUpperCase();
+      const message = document.createElement("div");
+      message.className = "argus-incident-popup-message";
+      message.textContent = incident.message;
+      content.append(type, message);
+      incidentPopupRef.current?.remove();
+      incidentPopupRef.current = new maplibregl.Popup({ closeButton: false, closeOnClick: false, className: "argus-incident-popup" })
+        .setLngLat(event.lngLat)
+        .setDOMContent(content)
+        .addTo(map);
+    };
+    const handleIncidentLeave = () => {
+      incidentPopupRef.current?.remove();
+      incidentPopupRef.current = null;
     };
     const handleInteractiveLayerEnter = () => {
       map.getCanvas().style.cursor = "pointer";
@@ -1196,7 +1210,7 @@ function useMapController({
           "circle-stroke-color": MAP_COLORS.paper,
           "circle-stroke-width": 1,
         } });
-        layerListenerCleanups.push(registerLayerMouseListener(map, "click", "incidents-point-layer", handleIncidentClick), registerLayerMouseListener(map, "mouseenter", "incidents-point-layer", handleInteractiveLayerEnter), registerLayerMouseListener(map, "mouseleave", "incidents-point-layer", handleInteractiveLayerLeave));
+        layerListenerCleanups.push(registerLayerMouseListener(map, "mouseenter", "incidents-point-layer", handleIncidentEnter), registerLayerMouseListener(map, "mouseleave", "incidents-point-layer", handleIncidentLeave), registerLayerMouseListener(map, "mouseenter", "incidents-point-layer", handleInteractiveLayerEnter), registerLayerMouseListener(map, "mouseleave", "incidents-point-layer", handleInteractiveLayerLeave));
       } catch (error) {
         console.warn("MRT layer failed to initialize", error);
       }
@@ -1211,6 +1225,8 @@ function useMapController({
       for (const removeLayerListener of layerListenerCleanups) {
         removeLayerListener();
       }
+      incidentPopupRef.current?.remove();
+      incidentPopupRef.current = null;
       map.remove();
       mapRef.current = null;
     };
