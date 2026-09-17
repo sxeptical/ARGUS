@@ -1,5 +1,5 @@
 import TerminalPanel from "@/app/components/TerminalPanel";
-import { formatSgTime } from "@/lib/formatters";
+import { formatSgDateTime } from "@/lib/formatters";
 import type { NewsItem } from "@/types";
 
 type NewsPanelProps = {
@@ -23,7 +23,7 @@ export default function NewsPanel({ news }: NewsPanelProps) {
               <div className="mt-1 flex items-center justify-between text-[11px] text-muted">
                 <span>{item.source}</span>
                 <span suppressHydrationWarning>
-                  {formatSgTime(item.publishedAt)}
+                  {formatSgDateTime(item.publishedAt)}
                 </span>
               </div>
             </>

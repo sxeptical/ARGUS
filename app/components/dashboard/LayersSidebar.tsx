@@ -9,6 +9,7 @@ import type {
   SensorRow,
   SensorStatsRow,
 } from "@/app/hooks/use-dashboard-state";
+import { FLIGHTS_ENABLED } from "@/lib/features";
 import type {
   FlightState,
   WeatherData,
@@ -123,11 +124,13 @@ export function LayersSidebar({
       </IntelPanel>
 
       <WeatherPanel weather={weather} history={weatherHistory} />
-      <FlightPanel
-        flights={flights}
-        selectedFlight={selectedFlight}
-        onSelectFlight={setSelectedFlight}
-      />
+      {FLIGHTS_ENABLED ? (
+        <FlightPanel
+          flights={flights}
+          selectedFlight={selectedFlight}
+          onSelectFlight={setSelectedFlight}
+        />
+      ) : null}
     </aside>
   );
 }
