@@ -169,19 +169,20 @@ export default function BusPanel({
   const error = arrivalsError?.message ?? null;
   const loading = Boolean(activeStopCode && isLoading);
 
+  const searchQuery = search.trim();
   const filteredStops = useMemo(() => {
-    if (!search.trim()) return [];
-    const query = search.toLowerCase();
+    if (!searchQuery) return [];
+    const query = searchQuery.toLowerCase();
 
     return busStops
       .filter(
         (stop) =>
-          stop.BusStopCode.includes(search) ||
+          stop.BusStopCode.includes(searchQuery) ||
           stop.Description.toLowerCase().includes(query) ||
           stop.RoadName.toLowerCase().includes(query),
       )
       .slice(0, 8);
-  }, [busStops, search]);
+  }, [busStops, searchQuery]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -244,6 +245,10 @@ export default function BusPanel({
                 <span>{stop.Description}</span>
               </button>
             ))}
+          </div>
+        ) : searchQuery ? (
+          <div className="text-[11px] text-muted">
+            No stops match &ldquo;{searchQuery}&rdquo;. Try a stop code, road, or description.
           </div>
         ) : null}
 

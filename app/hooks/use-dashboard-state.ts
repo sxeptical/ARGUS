@@ -5,6 +5,7 @@ import { useBusRoute } from "@/app/hooks/use-bus-route";
 import { useDashboardSources } from "@/app/hooks/use-dashboard-sources";
 import { useMrtPlanner } from "@/app/hooks/use-mrt-planner";
 import { useWeatherHistory } from "@/app/hooks/use-weather-history";
+import { FLIGHTS_ENABLED } from "@/lib/features";
 import { MRT_DISPLAY_LINE_COUNT } from "@/lib/mrt-network";
 import { PARK_COUNT, PARKS_GEOJSON } from "@/lib/parks-data";
 import type { ParkFeatureKind } from "@/types";
@@ -150,31 +151,32 @@ export function useDashboardState() {
       tone: "text-ink",
     },
   ];
-  const visibleSensorCount = sensorRows.filter(
+  // Flights are disabled upstream: hide their toggle + stats so the panel
+  // doesn't show permanently-zero controls next to live layers.
+  const visibleSensorRows = FLIGHTS_ENABLED
+    ? sensorRows
+    : sensorRows.filter((row) => row.key !== "flights");
+  const visibleSensorStatsRows = FLIGHTS_ENABLED
+    ? sensorStatsRows
+    : sensorStatsRows.filter((row) => !row.label.includes("Flights"));
+  const visibleSensorCount = visibleSensorRows.filter(
     (row) => sensorVisibility[row.key],
   ).length;
-  const signalBars = data.sources.map((source) => ({
-    label:
-      source.message === "disabled"
-        ? `${source.label} (off)`
-        : source.label,
-    value:
-      source.message === "disabled"
-        ? 0
-        : source.status === "ok"
-          ? 100
-          : source.status === "loading"
-            ? 50
-            : 0,
-    tone:
-      source.message === "disabled"
-        ? "bg-faint"
-        : source.status === "ok"
+  // Intentionally-off feeds (flights) never enter the panel: sources only
+  // contains a "disabled" entry when FLIGHTS_ENABLED is false, and those
+  // feeds can't recover so they don't belong in Source Health.
+  const signalBars = data.sources
+    .filter((source) => source.message !== "disabled")
+    .map((source) => ({
+      label: source.label,
+      value: source.status === "ok" ? 100 : source.status === "loading" ? 50 : 0,
+      tone:
+        source.status === "ok"
           ? "bg-success"
           : source.status === "loading"
             ? "bg-warning"
             : "bg-danger",
-  }));
+    }));
 
   return {
     activeSources: data.activeSources,
@@ -204,8 +206,8 @@ export function useDashboardState() {
     disruptedAlerts,
     disruptedMrtLines,
     trainAlerts: data.trainAlerts,
-    sensorRows,
-    sensorStatsRows,
+    sensorRows: visibleSensorRows,
+    sensorStatsRows: visibleSensorStatsRows,
     sensorVisibility,
     setMrtEndStation: mrt.setEnd,
     setMrtMapPickTarget: mrt.setMapPickTarget,
