@@ -15,6 +15,7 @@ import {
 } from "@/app/components/dashboard/IntelPanel";
 import { LayersSidebar } from "@/app/components/dashboard/LayersSidebar";
 import { LoadingScreen } from "@/app/components/dashboard/LoadingScreen";
+import { MobileLayersDrawer } from "@/app/components/dashboard/MobileLayersDrawer";
 import { useDashboardState } from "@/app/hooks/use-dashboard-state";
 import { formatAltitudeFeet, formatSpeedKmh } from "@/lib/formatters";
 import { buildSignalDigest } from "@/lib/signals";
@@ -253,6 +254,13 @@ export default function Home() {
           </IntelPanel>
         </aside>
       </main>
+
+      <MobileLayersDrawer
+        sensorRows={sensorRows}
+        sensorVisibility={sensorVisibility}
+        setSensorVisibility={setSensorVisibility}
+        visibleSensorCount={visibleSensorCount}
+      />
     </div>
   );
 }
