@@ -123,3 +123,15 @@ export interface ParksGeoJson {
     };
   }>;
 }
+
+export type SearchResultType = "bus-stop" | "mrt" | "park";
+
+export interface MapSearchResult {
+  id: string;
+  type: SearchResultType;
+  name: string;
+  lat: number;
+  lng: number;
+  zoom: number;
+  keywords: string[];
+}

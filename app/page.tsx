@@ -1,8 +1,10 @@
 "use client";
 
+import { useState } from "react";
 import BusPanel from "@/app/components/BusPanel";
 import CameraPanel from "@/app/components/CameraPanel";
-import Map from "@/app/components/Map";
+import Map, { type MapSearchTarget } from "@/app/components/Map";
+import MapSearch from "@/app/components/MapSearch";
 import MrtRoutePanel from "@/app/components/MrtRoutePanel";
 import NewsPanel from "@/app/components/NewsPanel";
 import UpdateAvailableToast from "@/app/components/UpdateAvailableToast";
@@ -68,6 +70,7 @@ export default function Home() {
   } = useDashboardState();
 
   const signalDigest = buildSignalDigest({ trainAlerts, incidents, weather });
+  const [searchTarget, setSearchTarget] = useState<MapSearchTarget | null>(null);
   const signalToneClass = (tone: "danger" | "warning" | "info" | "muted") =>
     tone === "danger" ? "text-danger" : tone === "warning" ? "text-warning" : tone === "info" ? "text-info" : "text-muted";
 
@@ -124,6 +127,27 @@ export default function Home() {
               mrtRouteSegments={mrtRoutePlan?.segments ?? []}
               busRouteOverlay={busRouteOverlay}
               disruptedMrtLines={disruptedMrtLines}
+              searchTarget={searchTarget}
+            />
+            <MapSearch
+              results={busStops.map((stop) => ({
+                id: stop.BusStopCode,
+                type: "bus-stop" as const,
+                name: stop.Description,
+                lat: stop.Latitude,
+                lng: stop.Longitude,
+                zoom: 16,
+                keywords: [stop.BusStopCode, stop.RoadName],
+              }))}
+              onSelect={(result) => {
+                setSearchTarget({
+                  lat: result.lat,
+                  lng: result.lng,
+                  zoom: result.zoom,
+                });
+                const stop = busStops.find((item) => item.BusStopCode === result.id);
+                if (result.type === "bus-stop" && stop) handleSelectStop(stop);
+              }}
             />
             <div className="pointer-events-none absolute left-2 top-2 border border-line bg-overlay px-2.5 py-1.5 text-[10px] uppercase tracking-[0.12em] text-ink">
               Live map <span className="ml-2 text-muted">Singapore</span>
