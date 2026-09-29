@@ -37,6 +37,12 @@ import type {
 
 export type { BusRouteOverlay };
 
+export type MapSearchTarget = {
+  lat: number;
+  lng: number;
+  zoom: number;
+};
+
 type MapProps = {
   busStops: BusStop[];
   cameras: TrafficCamera[];
@@ -52,6 +58,7 @@ type MapProps = {
     parks: boolean;
     incidents: boolean;
   };
+  searchTarget?: MapSearchTarget | null;
   onStopClick: (stop: BusStop) => void;
   onCameraClick: (camera: TrafficCamera) => void;
   onFlightClick: (flight: FlightState) => void;
@@ -295,6 +302,7 @@ function useMapController({
   onParkClick,
   mrtRouteSegments = EMPTY_MRT_ROUTE_SEGMENTS,
   busRouteOverlay = null,
+  searchTarget = null,
 }: MapProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
@@ -369,6 +377,17 @@ function useMapController({
     setLayerVisibility("trails-lines-layer", sensorVisibility.parks);
     setLayerVisibility("incidents-point-layer", sensorVisibility.incidents);
   }, [sensorVisibility]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !searchTarget) return;
+    map.flyTo({
+      center: [searchTarget.lng, searchTarget.lat],
+      zoom: searchTarget.zoom,
+      duration: 1000,
+      essential: true,
+    });
+  }, [searchTarget]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -1397,3 +1416,4 @@ export default function Map(props: MapProps) {
 
   return <div ref={containerRef} className="h-full w-full" />;
 }
+
