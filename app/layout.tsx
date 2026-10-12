@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Analytics } from "@vercel/analytics/next";
 import { Geist, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
@@ -16,6 +16,12 @@ const geist = Geist({
 export const metadata: Metadata = {
   title: "ARGUS — Singapore Signal Monitor",
   description: "Live Singapore transport, weather, camera, and news signals.",
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
 };
 
 export default function RootLayout({

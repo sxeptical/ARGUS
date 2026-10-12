@@ -71,7 +71,7 @@ export default function UpdateAvailableToast() {
   if (!availableVersion) return null;
 
   return (
-    <div className="fixed inset-x-3 bottom-3 z-50 border border-line-strong bg-surface-raised p-3 text-ink sm:right-4 sm:left-auto sm:bottom-4 sm:w-[360px]">
+    <div className="fixed inset-x-3 bottom-[calc(env(safe-area-inset-bottom)+0.75rem)] z-50 border border-line-strong bg-surface-raised p-3 text-ink sm:right-4 sm:left-auto sm:bottom-4 sm:w-[360px]">
       <div className="mb-2 flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-ink">

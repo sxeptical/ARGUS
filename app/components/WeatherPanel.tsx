@@ -238,7 +238,7 @@ function UvDetail({
   return (
     <div className="space-y-2 text-[11px] text-muted">
       <div>{uv === null ? "UV data is currently unavailable." : "UV updates hourly."}</div>
-      <div className="grid grid-cols-5 gap-1 text-[10px]">
+      <div className="grid grid-cols-[repeat(auto-fit,minmax(3.75rem,1fr))] gap-1 text-[10px]">
         <MetricBadge label="Low" range="0–2" active={status === "Low"} color="good" />
         <MetricBadge label="Moderate" range="3–5" active={status === "Moderate"} color="moderate" />
         <MetricBadge label="High" range="6–7" active={status === "High"} color="high" />
@@ -383,7 +383,7 @@ function MetricBadge({
 }) {
   return (
     <div
-      className={`border px-1.5 py-1 text-center ${
+      className={`min-w-0 border px-1.5 py-1 text-center [overflow-wrap:anywhere] ${
         active
           ? ACTIVE_METRIC_BADGE_CLASSES[color]
           : "border-line text-muted"

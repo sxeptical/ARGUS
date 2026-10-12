@@ -61,7 +61,7 @@ export function MobileLayersDrawer({
         aria-label="Open map layers menu"
         aria-expanded={open}
         aria-controls="mobile-layers-drawer"
-        className="fixed left-[env(safe-area-inset-left)] top-1/2 z-40 flex h-12 w-8 -translate-y-1/2 items-center justify-center rounded-r-sm border border-l-0 border-line bg-surface-raised text-muted transition-colors duration-150 hover:border-line-strong hover:text-ink active:bg-surface-hover xl:hidden"
+        className="absolute left-14 top-11 z-10 flex h-11 w-11 items-center justify-center border border-line bg-overlay sm:left-12 sm:h-9 sm:w-9 text-muted transition-colors duration-150 hover:border-line-strong hover:text-ink active:bg-surface-hover xl:hidden"
       >
         <svg
           viewBox="0 0 16 16"
@@ -105,7 +105,7 @@ export function MobileLayersDrawer({
             type="button"
             onClick={close}
             aria-label="Close map layers menu"
-            className="grid h-8 w-8 shrink-0 place-items-center rounded-sm border border-line bg-paper text-muted transition-colors duration-150 hover:border-line-strong hover:text-ink"
+            className="grid h-11 w-11 shrink-0 place-items-center rounded-sm border border-line bg-paper text-muted transition-colors duration-150 hover:border-line-strong hover:text-ink"
           >
             <svg
               viewBox="0 0 16 16"

@@ -20,6 +20,7 @@ export function HeaderClock() {
           timeZone: "Asia/Singapore",
         })}
         value={now.toLocaleTimeString("en-SG", { timeZone: "Asia/Singapore" })}
+        className="[&>span:first-child]:hidden sm:[&>span:first-child]:inline"
       />
     </span>
   );
@@ -57,21 +58,18 @@ export function DashboardHeader({
 }) {
   return (
     <header className="border border-line bg-surface px-3 py-2 sm:px-4 sm:py-3">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex min-w-0 items-center gap-3">
-          <div className="grid h-8 w-8 shrink-0 place-items-center border border-line-strong bg-ink text-xs font-bold text-paper">
-            A
-          </div>
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex shrink-0 items-center gap-3 sm:min-w-0 sm:shrink">
           <div className="min-w-0">
             <div className="text-sm font-semibold tracking-[0.16em] text-ink">
               ARGUS
             </div>
-            <div className="truncate text-[10px] uppercase tracking-[0.12em] text-muted">
+            <div className="hidden truncate text-[10px] uppercase tracking-[0.12em] text-muted sm:block">
               Singapore signal monitor
             </div>
           </div>
         </div>
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-[10px] uppercase tracking-[0.1em]">
+        <div className="flex flex-wrap items-center justify-end gap-x-3 gap-y-1 text-[10px] sm:gap-x-4 sm:gap-y-2 uppercase tracking-[0.1em]">
           <HeaderClock />
           <HeaderChip
             label="Sources"
@@ -89,7 +87,7 @@ export function DashboardHeader({
             href="https://github.com/sxeptical/ARGUS"
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex items-center gap-1.5 whitespace-nowrap text-muted transition-colors duration-150 hover:text-ink"
+            className="hidden items-center gap-1.5 whitespace-nowrap text-muted sm:inline-flex transition-colors duration-150 hover:text-ink"
           >
             <svg
               viewBox="0 0 16 16"

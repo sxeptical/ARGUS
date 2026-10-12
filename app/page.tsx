@@ -20,6 +20,8 @@ import { LoadingScreen } from "@/app/components/dashboard/LoadingScreen";
 import { MobileLayersDrawer } from "@/app/components/dashboard/MobileLayersDrawer";
 import { useDashboardState } from "@/app/hooks/use-dashboard-state";
 import { formatAltitudeFeet, formatSpeedKmh } from "@/lib/formatters";
+import { buildBusStopSearchResults, MRT_STATION_SEARCH_RESULTS } from "@/lib/map-search";
+import { isRouteableMrtStation } from "@/lib/mrt-routing";
 import { buildSignalDigest } from "@/lib/signals";
 
 export default function Home() {
@@ -79,7 +81,7 @@ export default function Home() {
   }
 
   return (
-    <div className="flex min-h-dvh flex-col gap-2 bg-paper p-2 sm:gap-3 sm:p-3 lg:h-dvh lg:overflow-hidden">
+    <div className="flex min-h-dvh flex-col gap-2 bg-paper p-2 pl-[max(0.5rem,env(safe-area-inset-left))] pr-[max(0.5rem,env(safe-area-inset-right))] pb-[max(0.5rem,env(safe-area-inset-bottom))] sm:gap-3 sm:p-3 lg:h-dvh lg:overflow-hidden">
       <UpdateAvailableToast />
       <DashboardHeader
         activeSourceCount={activeSources.length}
@@ -111,8 +113,8 @@ export default function Home() {
           weatherHistory={weatherHistory}
         />
 
-        <section className="order-1 grid min-w-0 gap-2 sm:gap-3 xl:order-2 xl:min-h-0 xl:grid-rows-[minmax(0,1fr)_minmax(236px,38%)]">
-          <section className="relative h-[52dvh] min-h-72 overflow-hidden border border-line bg-surface xl:h-auto xl:min-h-0">
+        <section className="contents xl:order-2 xl:grid xl:min-w-0 xl:gap-3 xl:min-h-0 xl:grid-rows-[minmax(0,1fr)_minmax(236px,38%)]">
+          <section className="relative order-1 h-[45dvh] xl:order-none min-h-72 overflow-hidden border border-line bg-surface xl:h-auto xl:min-h-0">
             <Map
               busStops={busStops}
               cameras={cameras}
@@ -130,29 +132,34 @@ export default function Home() {
               searchTarget={searchTarget}
             />
             <MapSearch
-              results={busStops.map((stop) => ({
-                id: stop.BusStopCode,
-                type: "bus-stop" as const,
-                name: stop.Description,
-                lat: stop.Latitude,
-                lng: stop.Longitude,
-                zoom: 16,
-                keywords: [stop.BusStopCode, stop.RoadName],
-              }))}
+              results={[
+                ...MRT_STATION_SEARCH_RESULTS,
+                ...buildBusStopSearchResults(busStops),
+              ]}
               onSelect={(result) => {
                 setSearchTarget({
                   lat: result.lat,
                   lng: result.lng,
                   zoom: result.zoom,
                 });
-                const stop = busStops.find((item) => item.BusStopCode === result.id);
-                if (result.type === "bus-stop" && stop) handleSelectStop(stop);
+                if (result.type === "bus-stop") {
+                  const stop = busStops.find((item) => item.BusStopCode === result.id);
+                  if (stop) handleSelectStop(stop);
+                } else if (result.type === "mrt" && isRouteableMrtStation(result.name)) {
+                  pickMrtStation(result.name);
+                }
               }}
+            />
+            <MobileLayersDrawer
+              sensorRows={sensorRows}
+              sensorVisibility={sensorVisibility}
+              setSensorVisibility={setSensorVisibility}
+              visibleSensorCount={visibleSensorCount}
             />
             <div className="pointer-events-none absolute left-2 top-2 border border-line bg-overlay px-2.5 py-1.5 text-[10px] uppercase tracking-[0.12em] text-ink">
               Live map <span className="ml-2 text-muted">Singapore</span>
             </div>
-            <div className="pointer-events-none absolute bottom-2 left-2 right-2 flex flex-wrap gap-x-3 gap-y-1 border border-line bg-overlay px-2.5 py-1.5 text-[9px] uppercase tracking-[0.1em] text-muted sm:right-auto">
+            <div className="absolute bottom-2 left-2 right-2 flex flex-nowrap gap-x-3 gap-y-1 overflow-x-auto whitespace-nowrap sm:pointer-events-none sm:flex-wrap sm:overflow-visible border border-line bg-overlay px-2.5 py-1.5 text-[10px] uppercase tracking-[0.1em] text-muted sm:right-auto sm:text-[9px]">
               {sensorVisibility.flights ? <LegendDot tone="bg-signal-inbound" label="Inbound" /> : null}
               {sensorVisibility.flights ? <LegendDot tone="bg-signal-outbound" label="Outbound" /> : null}
               {sensorVisibility.flights ? <LegendDot tone="bg-signal-transit" label="Transit" /> : null}
@@ -164,8 +171,8 @@ export default function Home() {
             </div>
           </section>
 
-          <section className="grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-2 sm:gap-3 2xl:grid-cols-4">
-            <div className="min-h-0 overflow-auto">
+          <section className="order-3 grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-2 sm:gap-3 xl:order-none 2xl:grid-cols-4">
+            <div className="max-h-[60dvh] min-h-0 overflow-auto xl:max-h-none">
               <MrtRoutePanel
                 route={mrtRoutePlan}
                 startStation={mrtStartStation}
@@ -177,7 +184,7 @@ export default function Home() {
                 onReset={resetMrtRoute}
               />
             </div>
-            <div className="min-h-0 overflow-auto">
+            <div className="max-h-[60dvh] min-h-0 overflow-auto xl:max-h-none">
               <BusPanel
                 busStops={busStops}
                 selectedStop={selectedStop}
@@ -188,22 +195,22 @@ export default function Home() {
                 onSelectRouteDirection={selectBusRouteDirection}
               />
             </div>
-            <div className="min-h-0 overflow-auto">
+            <div className="max-h-[60dvh] min-h-0 overflow-auto xl:max-h-none">
               <NewsPanel news={news} />
             </div>
-            <div className="min-h-0 overflow-auto sm:col-span-2 2xl:col-span-1">
+            <div className="max-h-[60dvh] min-h-0 overflow-auto sm:col-span-2 xl:max-h-none 2xl:col-span-1">
               <CameraPanel cameras={cameras} selectedCamera={selectedCamera} />
             </div>
           </section>
         </section>
 
-        <aside className="order-3 flex min-w-0 flex-col gap-2 sm:gap-3 xl:min-h-0 xl:overflow-y-auto xl:pr-1">
+        <aside className="order-2 flex min-w-0 flex-col gap-2 sm:gap-3 xl:order-3 xl:min-h-0 xl:overflow-y-auto xl:pr-1">
           <IntelPanel title="Intelligence" badge={`${signalDigest.length} signals`}>
             {signalDigest.length > 0 ? (
               <div className="space-y-1">
                 {signalDigest.filter((signal, index) => signal.category !== "road" || signalDigest.slice(0, index).filter((item) => item.category === "road").length < 8).map((signal, index) => (
-                  <div key={`${signal.category}-${index}`} className="flex min-w-0 items-center gap-2 font-mono text-[10px]">
-                    <span className={`shrink-0 text-[9px] uppercase tracking-[0.1em] ${signalToneClass(signal.tone)}`}>{signal.category}</span>
+                  <div key={`${signal.category}-${index}`} className="flex min-w-0 items-center gap-2 font-mono text-[11px] sm:text-[10px]">
+                    <span className={`shrink-0 text-[10px] uppercase tracking-[0.1em] sm:text-[9px] ${signalToneClass(signal.tone)}`}>{signal.category}</span>
                     <span className="truncate text-muted" title={signal.text}>{signal.text}</span>
                   </div>
                 ))}
@@ -228,6 +235,7 @@ export default function Home() {
             </div>
           </IntelPanel>
 
+          <div className="order-first xl:order-none">
           <IntelPanel
             title="Target Focus"
               badge={selectedFlight ? "Flight Locked" : selectedPark ? "Recreation Locked" : "Standby"}
@@ -276,15 +284,10 @@ export default function Home() {
               </div>
             )}
           </IntelPanel>
+          </div>
         </aside>
       </main>
 
-      <MobileLayersDrawer
-        sensorRows={sensorRows}
-        sensorVisibility={sensorVisibility}
-        setSensorVisibility={setSensorVisibility}
-        visibleSensorCount={visibleSensorCount}
-      />
     </div>
   );
 }
