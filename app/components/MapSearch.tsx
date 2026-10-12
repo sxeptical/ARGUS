@@ -67,9 +67,21 @@ export default function MapSearch({ results, onSelect }: MapSearchProps) {
 
 	return (
 		<div>
+			<button
+				type="button"
+				onClick={() => setIsOpen(true)}
+				aria-label="Search map locations"
+				title="Search (S)"
+				className="absolute left-2 top-11 z-10 grid h-11 w-11 place-items-center border border-line bg-overlay text-muted transition-colors duration-150 hover:border-line-strong hover:text-ink active:bg-surface-hover sm:h-9 sm:w-9"
+			>
+				<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="h-4 w-4" aria-hidden="true">
+					<circle cx="7" cy="7" r="4.5" />
+					<path d="M10.5 10.5 14 14" />
+				</svg>
+			</button>
 			{isOpen ? (
 				<div
-					className="fixed inset-0 z-50 flex items-center justify-center bg-black/65 p-4 backdrop-blur-[2px]"
+					className="fixed inset-0 z-50 flex items-start justify-center bg-black/65 p-3 pt-[calc(env(safe-area-inset-top)+0.75rem)] sm:items-center sm:p-4 backdrop-blur-[2px]"
 					onClick={() => {
 						setIsOpen(false);
 						setQuery("");
@@ -106,10 +118,11 @@ export default function MapSearch({ results, onSelect }: MapSearchProps) {
 								setIsOpen(false);
 								setQuery("");
 							}}
-							className="shrink-0 rounded border border-line px-2 py-1 font-mono text-[10px] uppercase tracking-[0.1em] text-muted hover:border-line-strong hover:text-ink"
+							className="shrink-0 rounded border border-line px-3 py-2 font-mono sm:px-2 sm:py-1 text-[10px] uppercase tracking-[0.1em] text-muted hover:border-line-strong hover:text-ink"
 							aria-label="Close map search"
 						>
-							Esc
+							<span className="sm:hidden">Close</span>
+							<span className="hidden sm:inline">Esc</span>
 						</button>
 					</div>
 						<div className="max-h-[min(60vh,24rem)] overflow-y-auto p-2">

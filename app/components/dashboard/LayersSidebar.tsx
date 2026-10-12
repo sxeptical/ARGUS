@@ -40,7 +40,7 @@ export function LayersSidebar({
   weatherHistory: WeatherHistoryPoint[];
 }) {
   return (
-    <aside className="order-2 flex min-w-0 flex-col gap-2 sm:gap-3 xl:order-1 xl:min-h-0 xl:overflow-y-auto xl:pr-1">
+    <aside className="order-4 flex min-w-0 flex-col gap-2 sm:gap-3 xl:order-1 xl:min-h-0 xl:overflow-y-auto xl:pr-1">
       <IntelPanel
         title="Layers"
         badge={`${visibleSensorCount}/${sensorRows.length}`}
@@ -49,7 +49,7 @@ export function LayersSidebar({
           {sensorRows.map((row) => (
             <div
               key={row.label}
-              className="data-row flex items-center justify-between gap-3 px-2.5 py-2"
+              className="data-row flex items-center max-xl:hidden justify-between gap-3 px-2.5 py-2"
             >
               <div className="min-w-0">
                 <div className="truncate text-xs text-ink">{row.label}</div>
