@@ -1,6 +1,6 @@
 /**
  * Data.gov.sg weather client: 2-hour forecast, 24h PSI, air temperature, and
- * relative humidity, UV, and four-day outlook, aggregated into a single
+ * relative humidity, UV, 1-hr PM2.5 (for 1-hr PSI), and four-day outlook, aggregated into a single
  * `WeatherData`.
  *
  * The four endpoints are independent: when some fail, the rest still produce
@@ -15,6 +15,7 @@ import { ExternalApiError, type UpstreamError } from "@/lib/errors";
 import {
   DataGovForecastResponseSchema,
   DataGovHumidityResponseSchema,
+  DataGovPm25ResponseSchema,
   DataGovFourDayResponseSchema,
   DataGovPsiResponseSchema,
   DataGovTemperatureResponseSchema,
@@ -56,6 +57,36 @@ const getPsiStatus = (psi: number | null): WeatherData["psiStatus"] => {
   if (psi <= 100) return "Moderate";
   return "Unhealthy";
 };
+
+type Breakpoint = readonly [concLow: number, concHigh: number, indexLow: number, indexHigh: number];
+
+const interpolateIndex = (
+  concentration: number | null,
+  breakpoints: ReadonlyArray<Breakpoint>,
+): number | null => {
+  if (concentration === null || !Number.isFinite(concentration)) return null;
+  const c = Math.max(0, concentration);
+  const band =
+    breakpoints.find(([, high]) => c <= high) ??
+    breakpoints[breakpoints.length - 1];
+  const [cLow, cHigh, iLow, iHigh] = band;
+  return Math.round(((iHigh - iLow) / (cHigh - cLow)) * (Math.min(c, cHigh) - cLow) + iLow);
+};
+
+// NEA PSI sub-index breakpoints for PM2.5 (µg/m³).
+const NEA_PM25_BREAKPOINTS: ReadonlyArray<Breakpoint> = [
+  [0, 12, 0, 50],
+  [12, 55, 50, 100],
+  [55, 150, 100, 200],
+  [150, 250, 200, 300],
+  [250, 350, 300, 400],
+  [350, 500, 400, 500],
+];
+
+
+/** 1-hr PSI: NEA's PSI sub-index formula applied to 1-hr PM2.5. */
+export const pm25ToPsi = (pm25: number | null): number | null =>
+  interpolateIndex(pm25, NEA_PM25_BREAKPOINTS);
 
 export const getUvStatus = (uv: number | null): WeatherData["uvStatus"] => {
   if (uv === null || !Number.isFinite(uv)) return "Unknown";
@@ -171,6 +202,7 @@ export const getWeather = (): Effect.Effect<
               ),
             ),
             Effect.either(dataGovV2Get("/uv", DataGovUvResponseSchema)),
+            Effect.either(dataGovV2Get("/pm25", DataGovPm25ResponseSchema)),
             Effect.either(
               dataGovV2Get(
                 "/four-day-outlook",
@@ -191,12 +223,13 @@ export const getWeather = (): Effect.Effect<
           );
         }
 
-        const [forecastR, psiR, temperatureR, humidityR, uvR, fourDayR] = results;
+        const [forecastR, psiR, temperatureR, humidityR, uvR, pm25R, fourDayR] = results;
         const forecast = right(forecastR);
         const psi = right(psiR);
         const temperature = right(temperatureR);
         const humidity = right(humidityR);
         const uvResponse = right(uvR);
+        const pm25Response = right(pm25R);
         const fourDayResponse = right(fourDayR);
 
         // Use a majority-aggregate across all areas instead of picking a
@@ -226,6 +259,11 @@ export const getWeather = (): Effect.Effect<
         const psiValue = nationalOrMeanRegional(
           psi?.items?.[0]?.readings?.psi_twenty_four_hourly,
         );
+        const psiOneHourValue = pm25ToPsi(
+          nationalOrMeanRegional(
+            pm25Response?.data.items[0]?.readings.pm25_one_hourly,
+          ),
+        );
         const uvValue = uvResponse ? extractLatestUv(uvResponse) : null;
         const fourDayRecord = fourDayResponse
           ? latestRecord(fourDayResponse.data.records)
@@ -251,6 +289,8 @@ export const getWeather = (): Effect.Effect<
           humidity: average(humidityReadings),
           psi: psiValue,
           psiStatus: getPsiStatus(psiValue),
+          psiOneHour: psiOneHourValue,
+          psiOneHourStatus: getPsiStatus(psiOneHourValue),
           uv: uvValue,
           uvStatus: getUvStatus(uvValue),
           fourDay,
@@ -265,6 +305,7 @@ export const getWeather = (): Effect.Effect<
             humidity?.items?.[0]?.update_timestamp,
             humidity?.items?.[0]?.timestamp,
             uvResponse?.data.records[0]?.updatedTimestamp,
+            pm25Response?.data.items[0]?.updatedTimestamp,
             uvResponse?.data.records[0]?.timestamp,
             fourDayResponse?.data.records[0]?.timestamp,
           ]),

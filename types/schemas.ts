@@ -196,17 +196,17 @@ export const DataGovForecastResponseSchema = Schema.Struct({
   items: Schema.optional(Schema.Array(ForecastItemSchema)),
 });
 
+const RegionalReadingSchema = Schema.Struct({
+  national: Schema.optional(Schema.Number),
+  north: Schema.optional(Schema.Number),
+  east: Schema.optional(Schema.Number),
+  west: Schema.optional(Schema.Number),
+  central: Schema.optional(Schema.Number),
+  south: Schema.optional(Schema.Number),
+});
+
 const PsiReadingSchema = Schema.Struct({
-  psi_twenty_four_hourly: Schema.optional(
-    Schema.Struct({
-      national: Schema.optional(Schema.Number),
-      north: Schema.optional(Schema.Number),
-      east: Schema.optional(Schema.Number),
-      west: Schema.optional(Schema.Number),
-      central: Schema.optional(Schema.Number),
-      south: Schema.optional(Schema.Number),
-    }),
-  ),
+  psi_twenty_four_hourly: Schema.optional(RegionalReadingSchema),
 });
 
 const PsiItemSchema = Schema.Struct({
@@ -241,6 +241,20 @@ export const DataGovTemperatureResponseSchema = Schema.Struct({
 export const DataGovHumidityResponseSchema = DataGovTemperatureResponseSchema;
 
 // ---------- Data.gov.sg v2 ----------
+
+export const DataGovPm25ResponseSchema = Schema.Struct({
+  data: Schema.Struct({
+    items: Schema.Array(
+      Schema.Struct({
+        timestamp: Schema.optional(Schema.String),
+        updatedTimestamp: Schema.optional(Schema.String),
+        readings: Schema.Struct({
+          pm25_one_hourly: Schema.optional(RegionalReadingSchema),
+        }),
+      }),
+    ),
+  }),
+});
 
 const DataGovUvIndexSchema = Schema.Struct({
   hour: Schema.String,

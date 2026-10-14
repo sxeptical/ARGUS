@@ -3,7 +3,12 @@ import { FetchHttpClient } from "@effect/platform";
 import { Effect } from "effect";
 import { CacheLive } from "@/lib/cache";
 import { ExternalApiError } from "@/lib/errors";
-import { extractLatestUv, getUvStatus, getWeather } from "./weather";
+import {
+  extractLatestUv,
+  getUvStatus,
+  getWeather,
+  pm25ToPsi,
+} from "./weather";
 
 const runWithFetch = (
   fetchImpl: (input: string | URL | Request) => Promise<Response>,
@@ -20,6 +25,13 @@ const runWithFetch = (
   );
 
 describe("getWeather", () => {
+  test("converts 1-hr PM2.5 to PSI", () => {
+    expect(pm25ToPsi(null)).toBeNull();
+    expect(pm25ToPsi(12)).toBe(50);
+    expect(pm25ToPsi(55)).toBe(100);
+    expect(pm25ToPsi(150)).toBe(200);
+  });
+
   test("classifies UV index bands", () => {
     expect(getUvStatus(null)).toBe("Unknown");
     expect(getUvStatus(2)).toBe("Low");
