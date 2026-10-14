@@ -76,13 +76,23 @@ const TRAIN_ALERTS: SourceDefinition = {
   refreshMs: 60 * 1000,
 };
 
+const EMPTY_REGIONAL_AQI = {
+  north: null,
+  south: null,
+  east: null,
+  west: null,
+  central: null,
+} as const;
+
 const DEFAULT_WEATHER: WeatherData = {
   temperature: null,
   humidity: null,
-  psi: null,
-  psiStatus: "Unknown",
-  psiOneHour: null,
-  psiOneHourStatus: "Unknown",
+  aqi: null,
+  aqiStatus: "Unknown",
+  aqiOneHour: null,
+  aqiOneHourStatus: "Unknown",
+  aqiRegions: EMPTY_REGIONAL_AQI,
+  aqiOneHourRegions: EMPTY_REGIONAL_AQI,
   uv: null,
   uvStatus: "Unknown",
   fourDay: [],

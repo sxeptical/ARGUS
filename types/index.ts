@@ -13,14 +13,31 @@ export type BusRouteStop = BusRouteStopContract;
 export type BusRouteDirection = BusRouteDirectionContract;
 export type BusRouteResponse = BusRouteResponseContract;
 
+export type AqiRegionKey = "north" | "south" | "east" | "west" | "central";
+
+export type RegionalAqiReadings = Record<AqiRegionKey, number | null>;
+
+export type AqiStatus =
+  | "Good"
+  | "Moderate"
+  | "Unhealthy for Sensitive Groups"
+  | "Unhealthy"
+  | "Very Unhealthy"
+  | "Hazardous"
+  | "Unknown";
+
 export interface WeatherData {
   temperature: number | null;
   humidity: number | null;
-  psi: number | null;
-  psiStatus: "Good" | "Moderate" | "Unhealthy" | "Unknown";
-  /** 1-hr PSI derived from the latest 1-hr PM2.5 concentration. */
-  psiOneHour: number | null;
-  psiOneHourStatus: "Good" | "Moderate" | "Unhealthy" | "Unknown";
+  /** Worst-region US AQI from 24-hr PM2.5. */
+  aqi: number | null;
+  aqiStatus: AqiStatus;
+  /** Worst-region US AQI from the latest 1-hr PM2.5. */
+  aqiOneHour: number | null;
+  aqiOneHourStatus: AqiStatus;
+  /** Regional US AQI readings for the 24-hr and 1-hr windows. */
+  aqiRegions: RegionalAqiReadings;
+  aqiOneHourRegions: RegionalAqiReadings;
   uv: number | null;
   uvStatus: "Low" | "Moderate" | "High" | "Very High" | "Extreme" | "Unknown";
   fourDay: Array<{
@@ -37,7 +54,7 @@ export interface WeatherHistoryPoint {
   timestamp: string;
   temperature: number | null;
   humidity: number | null;
-  psi: number | null;
+  aqi: number | null;
 }
 
 export interface NewsItem {

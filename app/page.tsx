@@ -23,6 +23,7 @@ import { formatAltitudeFeet, formatSpeedKmh } from "@/lib/formatters";
 import { buildBusStopSearchResults, MRT_STATION_SEARCH_RESULTS } from "@/lib/map-search";
 import { isRouteableMrtStation } from "@/lib/mrt-routing";
 import { buildSignalDigest } from "@/lib/signals";
+import type { RegionalAqiReadings } from "@/types";
 
 export default function Home() {
   const {
@@ -73,6 +74,8 @@ export default function Home() {
 
   const signalDigest = buildSignalDigest({ trainAlerts, incidents, weather });
   const [searchTarget, setSearchTarget] = useState<MapSearchTarget | null>(null);
+  const [aqiMapRegions, setAqiMapRegions] =
+    useState<RegionalAqiReadings | null>(null);
   const signalToneClass = (tone: "danger" | "warning" | "info" | "muted") =>
     tone === "danger" ? "text-danger" : tone === "warning" ? "text-warning" : tone === "info" ? "text-info" : "text-muted";
 
@@ -111,6 +114,7 @@ export default function Home() {
           visibleSensorCount={visibleSensorCount}
           weather={weather}
           weatherHistory={weatherHistory}
+          onAqiMapOverlayChange={setAqiMapRegions}
         />
 
         <section className="contents xl:order-2 xl:grid xl:min-w-0 xl:gap-3 xl:min-h-0 xl:grid-rows-[minmax(0,1fr)_minmax(236px,38%)]">
@@ -120,6 +124,7 @@ export default function Home() {
               cameras={cameras}
               flights={flights}
               incidents={incidents}
+              aqiRegions={aqiMapRegions}
               sensorVisibility={sensorVisibility}
               onStopClick={handleSelectStop}
               onCameraClick={setSelectedCamera}

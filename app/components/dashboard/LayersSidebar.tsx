@@ -12,6 +12,7 @@ import type {
 import { FLIGHTS_ENABLED } from "@/lib/features";
 import type {
   FlightState,
+  RegionalAqiReadings,
   WeatherData,
   WeatherHistoryPoint,
 } from "@/types";
@@ -27,6 +28,7 @@ export function LayersSidebar({
   visibleSensorCount,
   weather,
   weatherHistory,
+  onAqiMapOverlayChange,
 }: {
   flights: FlightState[];
   selectedFlight: FlightState | null;
@@ -38,6 +40,7 @@ export function LayersSidebar({
   visibleSensorCount: number;
   weather: WeatherData;
   weatherHistory: WeatherHistoryPoint[];
+  onAqiMapOverlayChange?: (regions: RegionalAqiReadings | null) => void;
 }) {
   return (
     <aside className="order-4 flex min-w-0 flex-col gap-2 sm:gap-3 xl:order-1 xl:min-h-0 xl:overflow-y-auto xl:pr-1">
@@ -123,7 +126,11 @@ export function LayersSidebar({
         </div>
       </IntelPanel>
 
-      <WeatherPanel weather={weather} history={weatherHistory} />
+      <WeatherPanel
+        weather={weather}
+        history={weatherHistory}
+        onAqiMapOverlayChange={onAqiMapOverlayChange}
+      />
       {FLIGHTS_ENABLED ? (
         <FlightPanel
           flights={flights}

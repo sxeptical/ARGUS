@@ -25,11 +25,14 @@ import {
   type MRTStationGeoJson,
 } from "@/lib/map-geometry";
 import mrtLinesData from "@/public/mrt-lines.json";
+import { aqiTone, getAqiStatus } from "@/lib/aqi";
 import { PARKS_GEOJSON } from "@/lib/parks-data";
 import type {
+  AqiRegionKey,
   BusStop,
   FlightState,
   MRTGeoJson,
+  RegionalAqiReadings,
   TrafficCamera,
   TrafficIncident,
   ParkFeatureKind,
@@ -48,6 +51,7 @@ type MapProps = {
   cameras: TrafficCamera[];
   flights: FlightState[];
   incidents: TrafficIncident[];
+  aqiRegions?: RegionalAqiReadings | null;
   /** Display names of MRT lines currently flagged as disrupted by LTA. */
   disruptedMrtLines?: ReadonlyArray<string>;
   sensorVisibility: {
@@ -143,6 +147,50 @@ const MRT_LINE_STATIONS: Record<string, string[]> = MRT_DISPLAY_LINE_STATIONS;
 const MRT_LINES = mrtLinesData as MRTGeoJson;
 const EMPTY_MRT_ROUTE_SEGMENTS: MrtRouteSegment[] = [];
 const EMPTY_DISRUPTED_MRT_LINES: ReadonlyArray<string> = [];
+
+const AQI_REGION_CENTERS: ReadonlyArray<{
+  key: AqiRegionKey;
+  label: string;
+  lng: number;
+  lat: number;
+}> = [
+  { key: "north", label: "NORTH", lng: 103.82, lat: 1.41803 },
+  { key: "south", label: "SOUTH", lng: 103.82, lat: 1.29587 },
+  { key: "east", label: "EAST", lng: 103.94, lat: 1.35735 },
+  { key: "west", label: "WEST", lng: 103.7, lat: 1.35735 },
+  { key: "central", label: "CENTRAL", lng: 103.82, lat: 1.35735 },
+];
+
+function buildAqiRegionsGeoJson(
+  regions: RegionalAqiReadings | null | undefined,
+) {
+  if (!regions) {
+    return { type: "FeatureCollection" as const, features: [] };
+  }
+  return {
+    type: "FeatureCollection" as const,
+    features: AQI_REGION_CENTERS.flatMap(({ key, label, lng, lat }) => {
+      const aqi = regions[key];
+      if (typeof aqi !== "number" || !Number.isFinite(aqi)) return [];
+      const tone = aqiTone(getAqiStatus(aqi));
+      return [
+        {
+          type: "Feature" as const,
+          properties: {
+            region: key,
+            aqi,
+            tone,
+            label: `${label}\n${aqi}`,
+          },
+          geometry: {
+            type: "Point" as const,
+            coordinates: [lng, lat],
+          },
+        },
+      ];
+    }),
+  };
+}
 
 function fitMapToBusRoute(
   map: maplibregl.Map,
@@ -293,6 +341,7 @@ function useMapController({
   cameras,
   flights,
   incidents,
+  aqiRegions = null,
   disruptedMrtLines = EMPTY_DISRUPTED_MRT_LINES,
   sensorVisibility,
   onStopClick,
@@ -319,6 +368,7 @@ function useMapController({
   const mrtLinesRef = useRef<MRTGeoJson | null>(null);
   const mrtRouteSegmentsRef = useRef<MrtRouteSegment[]>(mrtRouteSegments);
   const busRouteOverlayRef = useRef<BusRouteOverlay | null>(busRouteOverlay);
+  const aqiRegionsRef = useRef<RegionalAqiReadings | null>(aqiRegions);
   const sensorVisibilityRef = useRef(sensorVisibility);
   const lastFittedBusRouteKeyRef = useRef<string | null>(null);
   const [mapInitError, setMapInitError] = useState<string | null>(null);
@@ -1233,6 +1283,75 @@ function useMapController({
       } catch (error) {
         console.warn("MRT layer failed to initialize", error);
       }
+
+      // Separate block so an MRT/sensor layer failure cannot silently drop the
+      // AQI overlay (and vice versa).
+      try {
+        const aqiColorExpr: maplibregl.ExpressionSpecification = [
+          "match",
+          ["get", "tone"],
+          "success",
+          MAP_COLORS.success,
+          "warning",
+          MAP_COLORS.warning,
+          "danger",
+          MAP_COLORS.danger,
+          MAP_COLORS.muted,
+        ];
+        map.addSource("aqi-regions", {
+          type: "geojson",
+          data: buildAqiRegionsGeoJson(aqiRegionsRef.current),
+        });
+        map.addLayer({
+          id: "aqi-regions-glow-layer",
+          type: "circle",
+          source: "aqi-regions",
+          paint: {
+            "circle-radius": [
+              "interpolate",
+              ["linear"],
+              ["zoom"],
+              10,
+              46,
+              12,
+              88,
+            ],
+            "circle-color": aqiColorExpr,
+            "circle-blur": 0.85,
+            "circle-opacity": 0.26,
+          },
+        });
+        map.addLayer({
+          id: "aqi-regions-node-layer",
+          type: "circle",
+          source: "aqi-regions",
+          paint: {
+            "circle-radius": 18,
+            "circle-color": MAP_COLORS.paper,
+            "circle-opacity": 0.88,
+            "circle-stroke-width": 1.5,
+            "circle-stroke-color": aqiColorExpr,
+          },
+        });
+        map.addLayer({
+          id: "aqi-regions-label-layer",
+          type: "symbol",
+          source: "aqi-regions",
+          layout: {
+            "text-field": ["get", "label"],
+            "text-size": 10,
+            "text-allow-overlap": true,
+            "text-ignore-placement": true,
+          },
+          paint: {
+            "text-color": aqiColorExpr,
+            "text-halo-color": MAP_COLORS.paper,
+            "text-halo-width": 1,
+          },
+        });
+      } catch (error) {
+        console.warn("AQI overlay failed to initialize", error);
+      }
     };
 
     const removeMapLoadListener = registerMapLoadListener(map, handleMapLoad);
@@ -1391,6 +1510,16 @@ function useMapController({
       })),
     });
   }, [incidents, incidentsRef, sensorVisibility.incidents]);
+
+  useEffect(() => {
+    aqiRegionsRef.current = aqiRegions;
+    const map = mapRef.current;
+    if (!map) return;
+    const source = map.getSource("aqi-regions") as
+      | maplibregl.GeoJSONSource
+      | undefined;
+    source?.setData(buildAqiRegionsGeoJson(aqiRegions));
+  }, [aqiRegions]);
 
   return { containerRef, mapInitError };
 }
