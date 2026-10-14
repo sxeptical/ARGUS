@@ -81,6 +81,8 @@ const DEFAULT_WEATHER: WeatherData = {
   humidity: null,
   psi: null,
   psiStatus: "Unknown",
+  psiOneHour: null,
+  psiOneHourStatus: "Unknown",
   uv: null,
   uvStatus: "Unknown",
   fourDay: [],

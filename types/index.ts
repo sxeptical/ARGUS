@@ -18,6 +18,9 @@ export interface WeatherData {
   humidity: number | null;
   psi: number | null;
   psiStatus: "Good" | "Moderate" | "Unhealthy" | "Unknown";
+  /** 1-hr PSI derived from the latest 1-hr PM2.5 concentration. */
+  psiOneHour: number | null;
+  psiOneHourStatus: "Good" | "Moderate" | "Unhealthy" | "Unknown";
   uv: number | null;
   uvStatus: "Low" | "Moderate" | "High" | "Very High" | "Extreme" | "Unknown";
   fourDay: Array<{

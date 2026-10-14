@@ -12,18 +12,31 @@ type WeatherPanelProps = {
   history: WeatherHistoryPoint[];
 };
 
-export default function WeatherPanel({ weather, history }: WeatherPanelProps) {
-  const psiClass =
-    weather.psiStatus === "Good"
-      ? "text-success"
-      : weather.psiStatus === "Moderate"
-        ? "text-warning"
-        : weather.psiStatus === "Unhealthy"
-          ? "text-danger"
-          : "text-muted";
+function psiStatusClass(status: WeatherData["psiStatus"]): string {
+  return status === "Good"
+    ? "text-success"
+    : status === "Moderate"
+      ? "text-warning"
+      : status === "Unhealthy"
+        ? "text-danger"
+        : "text-muted";
+}
 
-  const psiValue =
-    weather.psi === null ? "—" : `${weather.psi} (${weather.psiStatus})`;
+function formatIndex(value: number | null, status: string): string {
+  return value === null ? "—" : `${value} (${status})`;
+}
+
+type PsiWindow = "24h" | "1h";
+
+export default function WeatherPanel({ weather, history }: WeatherPanelProps) {
+  const [psiWindow, setPsiWindow] = useState<PsiWindow>("24h");
+  const psiStatus =
+    psiWindow === "24h" ? weather.psiStatus : weather.psiOneHourStatus;
+  const psiClass = psiStatusClass(psiStatus);
+  const psiValue = formatIndex(
+    psiWindow === "24h" ? weather.psi : weather.psiOneHour,
+    psiStatus,
+  );
   const uvClass =
     weather.uvStatus === "Low"
       ? "text-success"
@@ -52,10 +65,18 @@ export default function WeatherPanel({ weather, history }: WeatherPanelProps) {
           <HumidityDetail current={weather.humidity} history={history} />
         </ExpandableRow>
 
-        <ExpandableRow label="PSI" value={psiValue} valueClass={psiClass}>
+        <ExpandableRow
+          label="PSI"
+          value={`${psiWindow === "24h" ? "24-hr" : "1-hr"} · ${psiValue}`}
+          valueClass={psiClass}
+        >
           <PsiDetail
+            window={psiWindow}
+            onWindowChange={setPsiWindow}
             psi={weather.psi}
+            psiOneHour={weather.psiOneHour}
             status={weather.psiStatus}
+            oneHourStatus={weather.psiOneHourStatus}
             history={history}
           />
         </ExpandableRow>
@@ -95,7 +116,7 @@ function ExpandableRow({
   children,
 }: {
   label: string;
-  value: string;
+  value: ReactNode;
   valueClass?: string;
   children: ReactNode;
 }) {
@@ -175,24 +196,59 @@ function HumidityDetail({
 }
 
 function PsiDetail({
+  window,
+  onWindowChange,
   psi,
+  psiOneHour,
   status,
+  oneHourStatus,
   history,
 }: {
+  window: PsiWindow;
+  onWindowChange: (window: PsiWindow) => void;
   psi: number | null;
+  psiOneHour: number | null;
   status: WeatherData["psiStatus"];
+  oneHourStatus: WeatherData["psiOneHourStatus"];
   history: WeatherHistoryPoint[];
 }) {
+  const isDaily = window === "24h";
+  const activeStatus = isDaily ? status : oneHourStatus;
+  const activeValue = isDaily ? psi : psiOneHour;
+
   return (
     <div className="space-y-2">
-      <div className="flex justify-between text-[10px] text-muted">
-        <span>24-hour national PSI</span>
-        <span>Now: {psi === null ? "—" : psi}</span>
+      <div role="tablist" className="grid grid-cols-2 gap-1 text-[10px]">
+        {(["24h", "1h"] as const).map((tab) => (
+          <button
+            key={tab}
+            type="button"
+            role="tab"
+            aria-selected={window === tab}
+            onClick={() => onWindowChange(tab)}
+            className={`border px-2 py-1 uppercase tracking-[0.1em] transition-colors duration-150 ${
+              window === tab
+                ? "border-info/50 bg-info/8 text-info"
+                : "border-line text-muted hover:bg-surface-hover"
+            }`}
+          >
+            {tab === "24h" ? "24-hour" : "1-hour"}
+          </button>
+        ))}
       </div>
 
-      {status === "Unknown" ? (
+      <div className="flex justify-between text-[10px] text-muted">
+        <span>
+          {isDaily ? "24-hour national PSI" : "1-hour PSI (from 1-hr PM2.5)"}
+        </span>
+        <span>Now: {activeValue === null ? "—" : activeValue}</span>
+      </div>
+
+      {activeStatus === "Unknown" ? (
         <div className="text-[11px] text-muted">
-          PSI data is currently unavailable.
+          {isDaily
+            ? "PSI data is currently unavailable."
+            : "1-hr PM2.5 data is currently unavailable."}
         </div>
       ) : null}
 
@@ -200,30 +256,38 @@ function PsiDetail({
         <MetricBadge
           label="Good"
           range="0–50"
-          active={status === "Good"}
+          active={activeStatus === "Good"}
           color="good"
         />
         <MetricBadge
           label="Moderate"
           range="51–100"
-          active={status === "Moderate"}
+          active={activeStatus === "Moderate"}
           color="moderate"
         />
         <MetricBadge
           label="Unhealthy"
           range="101+"
-          active={status === "Unhealthy"}
+          active={activeStatus === "Unhealthy"}
           color="unhealthy"
         />
       </div>
 
-      <MetricHistorySummary
-        history={history}
-        metric="psi"
-        unit=""
-        label="Local PSI trend"
-        barClass="bg-warning"
-      />
+      {isDaily ? (
+        <MetricHistorySummary
+          history={history}
+          metric="psi"
+          unit=""
+          label="Local PSI trend"
+          barClass="bg-warning"
+        />
+      ) : (
+        <div className="text-[11px] text-muted">
+          Derived from the latest island-wide 1-hr PM2.5 reading using
+          NEA&apos;s PSI sub-index formula. Reflects current conditions better
+          than the 24-hr PSI.
+        </div>
+      )}
     </div>
   );
 }
