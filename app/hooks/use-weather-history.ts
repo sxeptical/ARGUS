@@ -8,7 +8,9 @@ import {
 } from "@/lib/local-history";
 import type { WeatherData, WeatherHistoryPoint } from "@/types";
 
-const STORAGE_KEY = "argus.weather.history.v1";
+// v2: the air-quality reading switched from NEA PSI to US AQI; a new key keeps
+// old PSI samples out of the AQI trend.
+const STORAGE_KEY = "argus.weather.history.v2";
 const MAX_POINTS = 288; // 24 hours at a five-minute cadence
 
 function isWeatherHistoryPoint(value: unknown): value is WeatherHistoryPoint {
@@ -20,7 +22,7 @@ function isWeatherHistoryPoint(value: unknown): value is WeatherHistoryPoint {
   ) {
     return false;
   }
-  return [point.temperature, point.humidity, point.psi].every(
+  return [point.temperature, point.humidity, point.aqi].every(
     (reading) => reading === null || Number.isFinite(reading),
   );
 }
@@ -32,7 +34,7 @@ function recordWeather(
   if (
     weather.temperature === null &&
     weather.humidity === null &&
-    weather.psi === null
+    weather.aqi === null
   ) {
     return [...history];
   }
@@ -41,7 +43,7 @@ function recordWeather(
       timestamp: weather.lastUpdated,
       temperature: weather.temperature,
       humidity: weather.humidity,
-      psi: weather.psi,
+      aqi: weather.aqi,
     },
   ]).slice(-MAX_POINTS);
 }

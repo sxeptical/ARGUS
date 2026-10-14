@@ -1,7 +1,14 @@
 import TerminalPanel from "@/app/components/TerminalPanel";
+import { AQI_BANDS, aqiTone, getAqiStatus } from "@/lib/aqi";
 import { formatSgDateTime, formatSgTime } from "@/lib/formatters";
-import type { WeatherData, WeatherHistoryPoint } from "@/types";
-import { useState, type ReactNode } from "react";
+import type {
+  AqiRegionKey,
+  AqiStatus,
+  RegionalAqiReadings,
+  WeatherData,
+  WeatherHistoryPoint,
+} from "@/types";
+import { useEffect, useState, type ReactNode } from "react";
 
 function formatMetric(value: number | null, unit: string): string {
   return value === null ? "—" : `${value}${unit}`;
@@ -10,33 +17,74 @@ function formatMetric(value: number | null, unit: string): string {
 type WeatherPanelProps = {
   weather: WeatherData;
   history: WeatherHistoryPoint[];
+  onAqiMapOverlayChange?: (regions: RegionalAqiReadings | null) => void;
 };
 
-function psiStatusClass(status: WeatherData["psiStatus"]): string {
-  return status === "Good"
-    ? "text-success"
-    : status === "Moderate"
-      ? "text-warning"
-      : status === "Unhealthy"
-        ? "text-danger"
-        : "text-muted";
+const AQI_TONE_CLASSES = {
+  success: "text-success",
+  warning: "text-warning",
+  danger: "text-danger",
+  muted: "text-muted",
+} as const;
+
+function aqiStatusClass(status: AqiStatus): string {
+  return AQI_TONE_CLASSES[aqiTone(status)];
 }
+
+const AQI_BADGE_COLORS: Record<
+  Exclude<AqiStatus, "Unknown">,
+  keyof typeof ACTIVE_METRIC_BADGE_CLASSES
+> = {
+  Good: "good",
+  Moderate: "moderate",
+  "Unhealthy for Sensitive Groups": "high",
+  Unhealthy: "unhealthy",
+  "Very Unhealthy": "danger",
+  Hazardous: "danger",
+};
 
 function formatIndex(value: number | null, status: string): string {
   return value === null ? "—" : `${value} (${status})`;
 }
 
-type PsiWindow = "24h" | "1h";
+type AqiWindow = "24h" | "1h";
 
-export default function WeatherPanel({ weather, history }: WeatherPanelProps) {
-  const [psiWindow, setPsiWindow] = useState<PsiWindow>("24h");
-  const psiStatus =
-    psiWindow === "24h" ? weather.psiStatus : weather.psiOneHourStatus;
-  const psiClass = psiStatusClass(psiStatus);
-  const psiValue = formatIndex(
-    psiWindow === "24h" ? weather.psi : weather.psiOneHour,
-    psiStatus,
+const REGION_STRIP_ORDER: ReadonlyArray<{
+  key: AqiRegionKey;
+  short: string;
+  label: string;
+}> = [
+  { key: "north", short: "N", label: "North" },
+  { key: "west", short: "W", label: "West" },
+  { key: "central", short: "C", label: "Central" },
+  { key: "east", short: "E", label: "East" },
+  { key: "south", short: "S", label: "South" },
+];
+
+export default function WeatherPanel({
+  weather,
+  history,
+  onAqiMapOverlayChange,
+}: WeatherPanelProps) {
+  const [aqiWindow, setAqiWindow] = useState<AqiWindow>("1h");
+  const [aqiExpanded, setAqiExpanded] = useState(false);
+  const [aqiPinned, setAqiPinned] = useState(false);
+
+  const isDaily = aqiWindow === "24h";
+  const aqiStatus = isDaily ? weather.aqiStatus : weather.aqiOneHourStatus;
+  const aqiValue = formatIndex(
+    isDaily ? weather.aqi : weather.aqiOneHour,
+    aqiStatus,
   );
+  const activeRegions = isDaily
+    ? weather.aqiRegions
+    : weather.aqiOneHourRegions;
+  const showOnMap = aqiExpanded || aqiPinned;
+
+  useEffect(() => {
+    onAqiMapOverlayChange?.(showOnMap ? activeRegions : null);
+  }, [showOnMap, activeRegions, onAqiMapOverlayChange]);
+
   const uvClass =
     weather.uvStatus === "Low"
       ? "text-success"
@@ -66,17 +114,21 @@ export default function WeatherPanel({ weather, history }: WeatherPanelProps) {
         </ExpandableRow>
 
         <ExpandableRow
-          label="PSI"
-          value={`${psiWindow === "24h" ? "24-hr" : "1-hr"} · ${psiValue}`}
-          valueClass={psiClass}
+          label="Air Quality Index"
+          value={`${isDaily ? "24-hr" : "1-hr"} · ${aqiValue}`}
+          valueClass={aqiStatusClass(aqiStatus)}
+          onExpandedChange={setAqiExpanded}
         >
-          <PsiDetail
-            window={psiWindow}
-            onWindowChange={setPsiWindow}
-            psi={weather.psi}
-            psiOneHour={weather.psiOneHour}
-            status={weather.psiStatus}
-            oneHourStatus={weather.psiOneHourStatus}
+          <AqiDetail
+            aqiWindow={aqiWindow}
+            onWindowChange={setAqiWindow}
+            aqi={weather.aqi}
+            aqiOneHour={weather.aqiOneHour}
+            status={weather.aqiStatus}
+            oneHourStatus={weather.aqiOneHourStatus}
+            regions={activeRegions}
+            pinned={aqiPinned}
+            onTogglePin={() => setAqiPinned((prev) => !prev)}
             history={history}
           />
         </ExpandableRow>
@@ -113,11 +165,13 @@ function ExpandableRow({
   label,
   value,
   valueClass,
+  onExpandedChange,
   children,
 }: {
   label: string;
-  value: ReactNode;
+  value: string;
   valueClass?: string;
+  onExpandedChange?: (expanded: boolean) => void;
   children: ReactNode;
 }) {
   const [expanded, setExpanded] = useState(false);
@@ -127,7 +181,11 @@ function ExpandableRow({
       <button
         type="button"
         className="flex w-full items-center justify-between gap-3 px-2.5 py-2 text-left transition-colors duration-150 hover:bg-surface-hover"
-        onClick={() => setExpanded((previous) => !previous)}
+        onClick={() => {
+          const next = !expanded;
+          setExpanded(next);
+          onExpandedChange?.(next);
+        }}
         aria-expanded={expanded}
       >
         <span className="text-muted">{label}</span>
@@ -143,7 +201,7 @@ function ExpandableRow({
   );
 }
 
-type WeatherMetric = "temperature" | "humidity" | "psi";
+type WeatherMetric = "temperature" | "humidity" | "aqi";
 
 function TemperatureDetail({
   current,
@@ -195,39 +253,53 @@ function HumidityDetail({
   );
 }
 
-function PsiDetail({
-  window,
+function AqiDetail({
+  aqiWindow,
   onWindowChange,
-  psi,
-  psiOneHour,
+  aqi,
+  aqiOneHour,
   status,
   oneHourStatus,
+  regions,
+  pinned,
+  onTogglePin,
   history,
 }: {
-  window: PsiWindow;
-  onWindowChange: (window: PsiWindow) => void;
-  psi: number | null;
-  psiOneHour: number | null;
-  status: WeatherData["psiStatus"];
-  oneHourStatus: WeatherData["psiOneHourStatus"];
+  aqiWindow: AqiWindow;
+  onWindowChange: (window: AqiWindow) => void;
+  aqi: number | null;
+  aqiOneHour: number | null;
+  status: AqiStatus;
+  oneHourStatus: AqiStatus;
+  regions: RegionalAqiReadings;
+  pinned: boolean;
+  onTogglePin: () => void;
   history: WeatherHistoryPoint[];
 }) {
-  const isDaily = window === "24h";
+  const isDaily = aqiWindow === "24h";
   const activeStatus = isDaily ? status : oneHourStatus;
-  const activeValue = isDaily ? psi : psiOneHour;
+  const activeValue = isDaily ? aqi : aqiOneHour;
+  const activeTabId = `aqi-tab-${aqiWindow}`;
+  const activePanelId = `aqi-panel-${aqiWindow}`;
 
   return (
     <div className="space-y-2">
-      <div role="tablist" className="grid grid-cols-2 gap-1 text-[10px]">
+      <div
+        role="tablist"
+        aria-label="AQI averaging window"
+        className="grid grid-cols-2 gap-1 text-[10px]"
+      >
         {(["24h", "1h"] as const).map((tab) => (
           <button
             key={tab}
+            id={`aqi-tab-${tab}`}
             type="button"
             role="tab"
-            aria-selected={window === tab}
+            aria-selected={aqiWindow === tab}
+            aria-controls={`aqi-panel-${tab}`}
             onClick={() => onWindowChange(tab)}
             className={`border px-2 py-1 uppercase tracking-[0.1em] transition-colors duration-150 ${
-              window === tab
+              aqiWindow === tab
                 ? "border-info/50 bg-info/8 text-info"
                 : "border-line text-muted hover:bg-surface-hover"
             }`}
@@ -237,57 +309,98 @@ function PsiDetail({
         ))}
       </div>
 
-      <div className="flex justify-between text-[10px] text-muted">
-        <span>
-          {isDaily ? "24-hour national PSI" : "1-hour PSI (from 1-hr PM2.5)"}
-        </span>
-        <span>Now: {activeValue === null ? "—" : activeValue}</span>
-      </div>
-
-      {activeStatus === "Unknown" ? (
-        <div className="text-[11px] text-muted">
-          {isDaily
-            ? "PSI data is currently unavailable."
-            : "1-hr PM2.5 data is currently unavailable."}
+      <div
+        id={activePanelId}
+        role="tabpanel"
+        aria-labelledby={activeTabId}
+        className="space-y-2"
+      >
+        <div className="flex items-center justify-between gap-2 text-[10px] text-muted">
+          <span>
+            {isDaily ? "24-hr US AQI (worst)" : "1-hr US AQI (worst)"}
+          </span>
+          <div className="flex items-center gap-2">
+            <span>Max: {activeValue === null ? "—" : activeValue}</span>
+            <button
+              type="button"
+              onClick={onTogglePin}
+              aria-pressed={pinned}
+              className={`border px-1.5 py-0.5 uppercase tracking-[0.08em] transition-colors duration-150 ${
+                pinned
+                  ? "border-info/50 bg-info/8 text-info"
+                  : "border-line text-muted hover:bg-surface-hover hover:text-ink"
+              }`}
+              title={
+                pinned
+                  ? "Keep AQI overlay pinned on map when collapsed"
+                  : "Pin AQI overlay to map"
+              }
+            >
+              {pinned ? "Pinned" : "Pin map"}
+            </button>
+          </div>
         </div>
-      ) : null}
 
-      <div className="grid grid-cols-3 gap-1 text-[10px]">
-        <MetricBadge
-          label="Good"
-          range="0–50"
-          active={activeStatus === "Good"}
-          color="good"
-        />
-        <MetricBadge
-          label="Moderate"
-          range="51–100"
-          active={activeStatus === "Moderate"}
-          color="moderate"
-        />
-        <MetricBadge
-          label="Unhealthy"
-          range="101+"
-          active={activeStatus === "Unhealthy"}
-          color="unhealthy"
-        />
-      </div>
-
-      {isDaily ? (
-        <MetricHistorySummary
-          history={history}
-          metric="psi"
-          unit=""
-          label="Local PSI trend"
-          barClass="bg-warning"
-        />
-      ) : (
-        <div className="text-[11px] text-muted">
-          Derived from the latest island-wide 1-hr PM2.5 reading using
-          NEA&apos;s PSI sub-index formula. Reflects current conditions better
-          than the 24-hr PSI.
+        <div className="grid grid-cols-5 gap-1 text-[10px]">
+          {REGION_STRIP_ORDER.map(({ key, short, label }) => {
+            const val = regions[key];
+            const tone = aqiStatusClass(getAqiStatus(val));
+            const isWorst =
+              val !== null && activeValue !== null && val === activeValue;
+            return (
+              <div
+                key={key}
+                title={`${label}: ${val ?? "—"}`}
+                className={`border px-1 py-1 text-center font-mono ${
+                  isWorst
+                    ? "border-line-strong bg-surface-hover"
+                    : "border-line"
+                }`}
+              >
+                <div className="text-[9px] text-muted">{short}</div>
+                <div className={`font-semibold ${tone}`}>
+                  {val === null ? "—" : val}
+                </div>
+              </div>
+            );
+          })}
         </div>
-      )}
+
+        {activeStatus === "Unknown" ? (
+          <div className="text-[11px] text-muted">
+            {isDaily
+              ? "24-hr PM2.5 data is currently unavailable."
+              : "1-hr PM2.5 data is currently unavailable."}
+          </div>
+        ) : null}
+
+        <div className="grid grid-cols-[repeat(auto-fit,minmax(4.5rem,1fr))] gap-1 text-[10px]">
+          {AQI_BANDS.map((band) => (
+            <MetricBadge
+              key={band.status}
+              label={band.shortLabel}
+              range={band.range}
+              active={activeStatus === band.status}
+              color={AQI_BADGE_COLORS[band.status]}
+            />
+          ))}
+        </div>
+
+        {isDaily ? (
+          <MetricHistorySummary
+            history={history}
+            metric="aqi"
+            unit=""
+            label="Local AQI trend"
+            barClass="bg-warning"
+          />
+        ) : (
+          <div className="text-[11px] text-muted">
+            Derived from regional 1-hr PM2.5 readings using the US EPA AQI
+            formula. Expanding this row overlays all 5 regions on the map.
+          </div>
+        )}
+      </div>
     </div>
   );
 }

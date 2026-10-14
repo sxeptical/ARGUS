@@ -1,9 +1,10 @@
 /**
- * Data.gov.sg weather client: 2-hour forecast, 24h PSI, air temperature, and
- * relative humidity, UV, 1-hr PM2.5 (for 1-hr PSI), and four-day outlook, aggregated into a single
- * `WeatherData`.
+ * Data.gov.sg weather client: 2-hour forecast, 24-hr PM2.5 (from the PSI
+ * feed), air temperature, relative humidity, UV, 1-hr PM2.5, and four-day
+ * outlook, aggregated into a single `WeatherData`. Air quality is reported
+ * as US EPA AQI derived from PM2.5.
  *
- * The four endpoints are independent: when some fail, the rest still produce
+ * The seven endpoints are independent: when some fail, the rest still produce
  * a usable (partially nulled) reading. The whole source fails only when
  * every endpoint fails, so a single flaky sub-feed no longer blanks the
  * weather panel.
@@ -14,14 +15,15 @@ import { Cache } from "@/lib/cache";
 import { ExternalApiError, type UpstreamError } from "@/lib/errors";
 import {
   DataGovForecastResponseSchema,
+  DataGovFourDayResponseSchema,
   DataGovHumidityResponseSchema,
   DataGovPm25ResponseSchema,
-  DataGovFourDayResponseSchema,
   DataGovPsiResponseSchema,
   DataGovTemperatureResponseSchema,
   DataGovUvResponseSchema,
 } from "@/types/schemas";
-import type { WeatherData } from "@/types";
+import type { AqiRegionKey, RegionalAqiReadings, WeatherData } from "@/types";
+import { getAqiStatus, pm25ToAqi } from "@/lib/aqi";
 import { DEFAULT_TIMEOUT_MS, httpGetJson } from "./http";
 
 const DATA_GOV_BASE_URL = "https://api.data.gov.sg/v1/environment";
@@ -50,43 +52,6 @@ const dataGovV2Get = <A, I>(
     schema,
     DEFAULT_TIMEOUT_MS,
   );
-
-const getPsiStatus = (psi: number | null): WeatherData["psiStatus"] => {
-  if (psi === null) return "Unknown";
-  if (psi <= 50) return "Good";
-  if (psi <= 100) return "Moderate";
-  return "Unhealthy";
-};
-
-type Breakpoint = readonly [concLow: number, concHigh: number, indexLow: number, indexHigh: number];
-
-const interpolateIndex = (
-  concentration: number | null,
-  breakpoints: ReadonlyArray<Breakpoint>,
-): number | null => {
-  if (concentration === null || !Number.isFinite(concentration)) return null;
-  const c = Math.max(0, concentration);
-  const band =
-    breakpoints.find(([, high]) => c <= high) ??
-    breakpoints[breakpoints.length - 1];
-  const [cLow, cHigh, iLow, iHigh] = band;
-  return Math.round(((iHigh - iLow) / (cHigh - cLow)) * (Math.min(c, cHigh) - cLow) + iLow);
-};
-
-// NEA PSI sub-index breakpoints for PM2.5 (µg/m³).
-const NEA_PM25_BREAKPOINTS: ReadonlyArray<Breakpoint> = [
-  [0, 12, 0, 50],
-  [12, 55, 50, 100],
-  [55, 150, 100, 200],
-  [150, 250, 200, 300],
-  [250, 350, 300, 400],
-  [350, 500, 400, 500],
-];
-
-
-/** 1-hr PSI: NEA's PSI sub-index formula applied to 1-hr PM2.5. */
-export const pm25ToPsi = (pm25: number | null): number | null =>
-  interpolateIndex(pm25, NEA_PM25_BREAKPOINTS);
 
 export const getUvStatus = (uv: number | null): WeatherData["uvStatus"] => {
   if (uv === null || !Number.isFinite(uv)) return "Unknown";
@@ -135,25 +100,37 @@ type RegionalReading = Partial<
   Record<"national" | "north" | "east" | "west" | "central" | "south", number>
 >;
 
-const nationalOrMeanRegional = (
-  readings: RegionalReading | undefined,
+const AQI_REGION_KEYS: ReadonlyArray<AqiRegionKey> = [
+  "north",
+  "south",
+  "east",
+  "west",
+  "central",
+];
+
+// Regions without a PM2.5 reading stay null rather than falling back to PSI,
+// so every value in the result is on the US AQI scale.
+const buildRegionalAqi = (
+  pm25Readings: RegionalReading | undefined,
+): RegionalAqiReadings => {
+  const result = {} as RegionalAqiReadings;
+  for (const key of AQI_REGION_KEYS) {
+    result[key] = pm25ToAqi(pm25Readings?.[key] ?? null);
+  }
+  return result;
+};
+
+// The headline is the worst region (as US AQI apps report), falling back to a
+// national PM2.5 reading when no regional values exist.
+const worstRegionalOrNational = (
+  regions: RegionalAqiReadings,
+  pm25Readings: RegionalReading | undefined,
 ): number | null => {
-  if (!readings) return null;
-  if (Number.isFinite(readings.national)) return readings.national as number;
-  // Prefer the mean across regions over the max: max overstates island-wide
-  // PSI when a single region spikes.
-  const regionalValues = [
-    readings.north,
-    readings.east,
-    readings.west,
-    readings.central,
-    readings.south,
-  ].filter((value): value is number => Number.isFinite(value));
-  if (regionalValues.length === 0) return null;
-  const mean =
-    regionalValues.reduce((sum, value) => sum + value, 0) /
-    regionalValues.length;
-  return Math.round(mean * 10) / 10;
+  const finite = AQI_REGION_KEYS.map((key) => regions[key]).filter(
+    (value): value is number => value !== null,
+  );
+  if (finite.length > 0) return Math.max(...finite);
+  return pm25ToAqi(pm25Readings?.national ?? null);
 };
 
 const latestIsoTimestamp = (values: Array<string | undefined>): string => {
@@ -256,13 +233,20 @@ export const getWeather = (): Effect.Effect<
           forecastText = `Island-wide: ${majority}`;
         }
 
-        const psiValue = nationalOrMeanRegional(
-          psi?.items?.[0]?.readings?.psi_twenty_four_hourly,
+        const pm25TwentyFourHourly =
+          psi?.items?.[0]?.readings?.pm25_twenty_four_hourly;
+        const pm25OneHourly =
+          pm25Response?.data.items[0]?.readings.pm25_one_hourly;
+
+        const aqiRegions = buildRegionalAqi(pm25TwentyFourHourly);
+        const aqiOneHourRegions = buildRegionalAqi(pm25OneHourly);
+        const aqiValue = worstRegionalOrNational(
+          aqiRegions,
+          pm25TwentyFourHourly,
         );
-        const psiOneHourValue = pm25ToPsi(
-          nationalOrMeanRegional(
-            pm25Response?.data.items[0]?.readings.pm25_one_hourly,
-          ),
+        const aqiOneHourValue = worstRegionalOrNational(
+          aqiOneHourRegions,
+          pm25OneHourly,
         );
         const uvValue = uvResponse ? extractLatestUv(uvResponse) : null;
         const fourDayRecord = fourDayResponse
@@ -287,10 +271,12 @@ export const getWeather = (): Effect.Effect<
         return {
           temperature: average(temperatureReadings),
           humidity: average(humidityReadings),
-          psi: psiValue,
-          psiStatus: getPsiStatus(psiValue),
-          psiOneHour: psiOneHourValue,
-          psiOneHourStatus: getPsiStatus(psiOneHourValue),
+          aqi: aqiValue,
+          aqiStatus: getAqiStatus(aqiValue),
+          aqiOneHour: aqiOneHourValue,
+          aqiOneHourStatus: getAqiStatus(aqiOneHourValue),
+          aqiRegions,
+          aqiOneHourRegions,
           uv: uvValue,
           uvStatus: getUvStatus(uvValue),
           fourDay,
@@ -305,8 +291,9 @@ export const getWeather = (): Effect.Effect<
             humidity?.items?.[0]?.update_timestamp,
             humidity?.items?.[0]?.timestamp,
             uvResponse?.data.records[0]?.updatedTimestamp,
-            pm25Response?.data.items[0]?.updatedTimestamp,
             uvResponse?.data.records[0]?.timestamp,
+            pm25Response?.data.items[0]?.updatedTimestamp,
+            pm25Response?.data.items[0]?.timestamp,
             fourDayResponse?.data.records[0]?.timestamp,
           ]),
         } satisfies WeatherData;

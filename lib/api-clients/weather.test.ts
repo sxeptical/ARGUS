@@ -1,13 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import { FetchHttpClient } from "@effect/platform";
 import { Effect } from "effect";
+import { getAqiStatus, pm25ToAqi } from "@/lib/aqi";
 import { CacheLive } from "@/lib/cache";
 import { ExternalApiError } from "@/lib/errors";
 import {
   extractLatestUv,
   getUvStatus,
   getWeather,
-  pm25ToPsi,
 } from "./weather";
 
 const runWithFetch = (
@@ -25,11 +25,115 @@ const runWithFetch = (
   );
 
 describe("getWeather", () => {
-  test("converts 1-hr PM2.5 to PSI", () => {
-    expect(pm25ToPsi(null)).toBeNull();
-    expect(pm25ToPsi(12)).toBe(50);
-    expect(pm25ToPsi(55)).toBe(100);
-    expect(pm25ToPsi(150)).toBe(200);
+  test("converts PM2.5 to US EPA AQI", () => {
+    expect(pm25ToAqi(null)).toBeNull();
+    expect(pm25ToAqi(9)).toBe(50);
+    expect(pm25ToAqi(35.4)).toBe(100);
+    expect(pm25ToAqi(55.4)).toBe(150);
+    expect(pm25ToAqi(125.4)).toBe(200);
+    expect(pm25ToAqi(225.4)).toBe(300);
+    expect(pm25ToAqi(1000)).toBe(500);
+  });
+
+  test("classifies US AQI bands", () => {
+    expect(getAqiStatus(null)).toBe("Unknown");
+    expect(getAqiStatus(50)).toBe("Good");
+    expect(getAqiStatus(100)).toBe("Moderate");
+    expect(getAqiStatus(150)).toBe("Unhealthy for Sensitive Groups");
+    expect(getAqiStatus(200)).toBe("Unhealthy");
+    expect(getAqiStatus(300)).toBe("Very Unhealthy");
+    expect(getAqiStatus(301)).toBe("Hazardous");
+  });
+
+  test("leaves regions without PM2.5 empty instead of mixing in PSI", async () => {
+    const exit = await runWithFetch(async (input) => {
+      const url = String(input);
+      if (url.includes("/psi")) {
+        return Response.json({
+          items: [
+            {
+              readings: {
+                psi_twenty_four_hourly: { north: 300, south: 300 },
+                pm25_twenty_four_hourly: { south: 9 },
+              },
+            },
+          ],
+        });
+      }
+      return new Response("unavailable", { status: 503 });
+    });
+
+    expect(exit._tag).toBe("Success");
+    if (exit._tag !== "Success") return;
+    expect(exit.value.aqiRegions.north).toBeNull();
+    expect(exit.value.aqiRegions.south).toBe(50);
+    expect(exit.value.aqi).toBe(50);
+  });
+
+  test("derives regional US AQI for 24-hr and 1-hr windows using the worst region", async () => {
+    const exit = await runWithFetch(async (input) => {
+      const url = String(input);
+      if (url.includes("/psi")) {
+        return Response.json({
+          items: [
+            {
+              timestamp: "2026-01-01T00:00:00+08:00",
+              readings: {
+                pm25_twenty_four_hourly: {
+                  north: 9,
+                  south: 9,
+                  east: 9,
+                  west: 35.4,
+                  central: 9,
+                },
+              },
+            },
+          ],
+        });
+      }
+      if (url.includes("/pm25")) {
+        return Response.json({
+          data: {
+            items: [
+              {
+                timestamp: "2026-01-01T00:00:00+08:00",
+                readings: {
+                  pm25_one_hourly: {
+                    north: 9,
+                    south: 35.4,
+                    east: 55.4,
+                    west: 125.4,
+                    central: 35.4,
+                  },
+                },
+              },
+            ],
+          },
+        });
+      }
+      return new Response("unavailable", { status: 503 });
+    });
+
+    expect(exit._tag).toBe("Success");
+    if (exit._tag !== "Success") return;
+    expect(exit.value.aqi).toBe(100);
+    expect(exit.value.aqiStatus).toBe("Moderate");
+    expect(exit.value.aqiRegions).toEqual({
+      north: 50,
+      south: 50,
+      east: 50,
+      west: 100,
+      central: 50,
+    });
+    expect(exit.value.aqiOneHour).toBe(200);
+    expect(exit.value.aqiOneHourStatus).toBe("Unhealthy");
+    expect(exit.value.aqiOneHourRegions).toEqual({
+      north: 50,
+      south: 100,
+      east: 150,
+      west: 200,
+      central: 100,
+    });
   });
 
   test("classifies UV index bands", () => {
@@ -84,7 +188,10 @@ describe("getWeather", () => {
     expect(exit.value.forecast).toBe("Island-wide: Cloudy");
     expect(exit.value.temperature).toBeNull();
     expect(exit.value.humidity).toBeNull();
-    expect(exit.value.psi).toBeNull();
+    expect(exit.value.aqi).toBeNull();
+    expect(exit.value.aqiStatus).toBe("Unknown");
+    expect(exit.value.aqiOneHour).toBeNull();
+    expect(exit.value.aqiOneHourStatus).toBe("Unknown");
     expect(exit.value.uv).toBeNull();
     expect(exit.value.fourDay).toEqual([]);
   });
