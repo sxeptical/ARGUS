@@ -51,14 +51,13 @@ type AqiWindow = "24h" | "1h";
 
 const REGION_STRIP_ORDER: ReadonlyArray<{
   key: AqiRegionKey;
-  short: string;
   label: string;
 }> = [
-  { key: "north", short: "N", label: "North" },
-  { key: "west", short: "W", label: "West" },
-  { key: "central", short: "C", label: "Central" },
-  { key: "east", short: "E", label: "East" },
-  { key: "south", short: "S", label: "South" },
+  { key: "north", label: "North" },
+  { key: "west", label: "West" },
+  { key: "central", label: "Central" },
+  { key: "east", label: "East" },
+  { key: "south", label: "South" },
 ];
 
 export default function WeatherPanel({
@@ -342,7 +341,7 @@ function AqiDetail({
         </div>
 
         <div className="grid grid-cols-5 gap-1 text-[10px]">
-          {REGION_STRIP_ORDER.map(({ key, short, label }) => {
+          {REGION_STRIP_ORDER.map(({ key, label }) => {
             const val = regions[key];
             const tone = aqiStatusClass(getAqiStatus(val));
             const isWorst =
@@ -357,7 +356,7 @@ function AqiDetail({
                     : "border-line"
                 }`}
               >
-                <div className="text-[9px] text-muted">{short}</div>
+                <div className="text-[9px] text-muted">{label}</div>
                 <div className={`font-semibold ${tone}`}>
                   {val === null ? "—" : val}
                 </div>
