@@ -3,7 +3,9 @@ import mrtLinesData from "@/public/mrt-lines.json";
 import { interpolateStations } from "@/lib/map-geometry";
 import { MRT_DISPLAY_LINE_STATIONS } from "@/lib/mrt-network";
 
-export function buildBusStopSearchResults(busStops: BusStop[]): MapSearchResult[] {
+export function buildBusStopSearchResults(
+  busStops: BusStop[],
+): MapSearchResult[] {
   return busStops.map((stop) => ({
     id: stop.BusStopCode,
     type: "bus-stop",
@@ -11,10 +13,7 @@ export function buildBusStopSearchResults(busStops: BusStop[]): MapSearchResult[
     lat: stop.Latitude,
     lng: stop.Longitude,
     zoom: 16,
-    keywords: [
-      stop.BusStopCode,
-      stop.RoadName,
-    ],
+    keywords: [stop.BusStopCode, stop.RoadName],
   }));
 }
 

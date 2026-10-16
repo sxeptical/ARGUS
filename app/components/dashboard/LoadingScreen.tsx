@@ -56,17 +56,12 @@ export function LoadingScreen({
     <div className="grid min-h-dvh place-items-center bg-paper px-4 py-8 text-ink">
       <div className="w-full max-w-2xl border border-line bg-surface p-4 sm:p-6">
         <div className="mb-8 flex items-start justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <div className="grid h-9 w-9 shrink-0 place-items-center border border-line-strong bg-ink text-xs font-bold text-paper">
-              A
+          <div>
+            <div className="text-sm font-semibold tracking-[0.16em]">
+              ARGUS
             </div>
-            <div>
-              <div className="text-sm font-semibold tracking-[0.16em]">
-                ARGUS
-              </div>
-              <div className="data-label mt-0.5">
-                {allFailed ? "Connection failed" : "Connecting sources"}
-              </div>
+            <div className="data-label mt-0.5">
+              {allFailed ? "Connection failed" : "Connecting sources"}
             </div>
           </div>
           <div className="hidden text-right sm:block">
