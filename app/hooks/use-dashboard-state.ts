@@ -9,12 +9,10 @@ import { FLIGHTS_ENABLED } from "@/lib/features";
 import { MRT_DISPLAY_LINE_COUNT } from "@/lib/mrt-network";
 import { PARK_COUNT, PARKS_GEOJSON } from "@/lib/parks-data";
 import type { ParkFeatureKind } from "@/types";
-import type {
-  FlightState,
-  TrafficCamera,
-} from "@/types";
+import type { FlightState, TrafficCamera } from "@/types";
 
-export type SensorKey = "flights" | "cameras" | "busStops" | "mrt" | "parks" | "incidents";
+export type SensorKey =
+  "flights" | "cameras" | "busStops" | "mrt" | "parks" | "incidents";
 
 export type SensorRow = {
   readonly key: SensorKey;
@@ -49,7 +47,7 @@ export function useDashboardState() {
   >({
     flights: true,
     cameras: true,
-    busStops: false,
+    busStops: true,
     mrt: true,
     parks: false,
     incidents: false,
@@ -69,12 +67,32 @@ export function useDashboardState() {
     (camera: TrafficCamera) => setSelectedCameraId(camera.CameraID),
     [],
   );
-  const selectFlight = useCallback(
-    (flight: FlightState) => { setSelectedParkId(null); setSelectedFlightId(flight.id); },
+  const selectFlight = useCallback((flight: FlightState) => {
+    setSelectedParkId(null);
+    setSelectedFlightId(flight.id);
+  }, []);
+  const selectedPark = useMemo(
+    () =>
+      PARKS_GEOJSON.features.find(
+        (feature) =>
+          `${feature.properties.kind}:${feature.properties.name}` ===
+          selectedParkId,
+      )?.properties ?? null,
+    [selectedParkId],
+  );
+  const selectPark = useCallback(
+    (feature: {
+      kind: ParkFeatureKind;
+      name: string;
+      park?: string;
+      type?: string;
+      cycle?: boolean;
+    }) => {
+      setSelectedFlightId(null);
+      setSelectedParkId(`${feature.kind}:${feature.name}`);
+    },
     [],
   );
-  const selectedPark = useMemo(() => PARKS_GEOJSON.features.find((feature) => `${feature.properties.kind}:${feature.properties.name}` === selectedParkId)?.properties ?? null, [selectedParkId]);
-  const selectPark = useCallback((feature: { kind: ParkFeatureKind; name: string; park?: string; type?: string; cycle?: boolean }) => { setSelectedFlightId(null); setSelectedParkId(`${feature.kind}:${feature.name}`); }, []);
   const flightSummary = useMemo(
     () => summarizeFlights(data.flights),
     [data.flights],
@@ -86,9 +104,7 @@ export function useDashboardState() {
   const disruptedMrtLines = useMemo(
     () =>
       [
-        ...new Set(
-          disruptedAlerts.flatMap((alert) => alert.affectedLines),
-        ),
+        ...new Set(disruptedAlerts.flatMap((alert) => alert.affectedLines)),
       ].sort((a, b) => a.localeCompare(b, "en-SG")),
     [disruptedAlerts],
   );
@@ -122,8 +138,20 @@ export function useDashboardState() {
       value: MRT_DISPLAY_LINE_COUNT,
       tone: "text-signal-mrt",
     },
-    { key: "parks", label: "Recreation", note: "parks + trails", value: PARK_COUNT, tone: "text-signal-park" },
-    { key: "incidents", label: "Road Incidents", note: "live events", value: data.incidents.length, tone: "text-signal-incident" },
+    {
+      key: "parks",
+      label: "Recreation",
+      note: "parks + trails",
+      value: PARK_COUNT,
+      tone: "text-signal-park",
+    },
+    {
+      key: "incidents",
+      label: "Road Incidents",
+      note: "live events",
+      value: data.incidents.length,
+      tone: "text-signal-incident",
+    },
   ];
   const sensorStatsRows: SensorStatsRow[] = [
     {
@@ -169,7 +197,8 @@ export function useDashboardState() {
     .filter((source) => source.message !== "disabled")
     .map((source) => ({
       label: source.label,
-      value: source.status === "ok" ? 100 : source.status === "loading" ? 50 : 0,
+      value:
+        source.status === "ok" ? 100 : source.status === "loading" ? 50 : 0,
       tone:
         source.status === "ok"
           ? "bg-success"
