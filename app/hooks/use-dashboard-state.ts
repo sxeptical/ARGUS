@@ -7,12 +7,22 @@ import { useMrtPlanner } from "@/app/hooks/use-mrt-planner";
 import { useWeatherHistory } from "@/app/hooks/use-weather-history";
 import { FLIGHTS_ENABLED } from "@/lib/features";
 import { MRT_DISPLAY_LINE_COUNT } from "@/lib/mrt-network";
+import { HAWKER_CENTRES, MALLS } from "@/lib/amenities-data";
 import { PARK_COUNT, PARKS_GEOJSON } from "@/lib/parks-data";
 import type { ParkFeatureKind } from "@/types";
 import type { FlightState, TrafficCamera } from "@/types";
 
 export type SensorKey =
-  "flights" | "cameras" | "busStops" | "mrt" | "parks" | "incidents";
+  | "flights"
+  | "cameras"
+  | "busStops"
+  | "mrt"
+  | "parks"
+  | "incidents"
+  | "carparks"
+  | "evChargers"
+  | "malls"
+  | "hawkers";
 
 export type SensorRow = {
   readonly key: SensorKey;
@@ -35,13 +45,6 @@ function summarizeFlights(flights: readonly FlightState[]) {
 }
 
 export function useDashboardState() {
-  const data = useDashboardSources();
-  const busRoute = useBusRoute();
-  const mrt = useMrtPlanner();
-  const weatherHistory = useWeatherHistory(data.weather);
-  const [selectedCameraId, setSelectedCameraId] = useState<string | null>(null);
-  const [selectedFlightId, setSelectedFlightId] = useState<string | null>(null);
-  const [selectedParkId, setSelectedParkId] = useState<string | null>(null);
   const [sensorVisibility, setSensorVisibility] = useState<
     Record<SensorKey, boolean>
   >({
@@ -51,7 +54,21 @@ export function useDashboardState() {
     mrt: true,
     parks: false,
     incidents: false,
+    carparks: false,
+    evChargers: false,
+    malls: false,
+    hawkers: false,
   });
+  const data = useDashboardSources({
+    carparks: sensorVisibility.carparks,
+    evChargers: sensorVisibility.evChargers,
+  });
+  const busRoute = useBusRoute();
+  const mrt = useMrtPlanner();
+  const weatherHistory = useWeatherHistory(data.weather);
+  const [selectedCameraId, setSelectedCameraId] = useState<string | null>(null);
+  const [selectedFlightId, setSelectedFlightId] = useState<string | null>(null);
+  const [selectedParkId, setSelectedParkId] = useState<string | null>(null);
 
   const selectedCamera = useMemo(
     () =>
@@ -133,7 +150,7 @@ export function useDashboardState() {
     },
     {
       key: "mrt",
-      label: "MRT Network",
+      label: "MRT & LRT",
       note: "lines + stations",
       value: MRT_DISPLAY_LINE_COUNT,
       tone: "text-signal-mrt",
@@ -151,6 +168,34 @@ export function useDashboardState() {
       note: "live events",
       value: data.incidents.length,
       tone: "text-signal-incident",
+    },
+    {
+      key: "carparks",
+      label: "Carparks",
+      note: "live free lots",
+      value: data.carparks.length,
+      tone: "text-signal-carpark",
+    },
+    {
+      key: "evChargers",
+      label: "EV Charging",
+      note: "live chargers",
+      value: data.evChargers.length,
+      tone: "text-signal-ev",
+    },
+    {
+      key: "malls",
+      label: "Malls",
+      note: "shopping centres",
+      value: MALLS.length,
+      tone: "text-signal-mall",
+    },
+    {
+      key: "hawkers",
+      label: "Hawker Centres",
+      note: "food centres",
+      value: HAWKER_CENTRES.length,
+      tone: "text-signal-hawker",
     },
   ];
   const sensorStatsRows: SensorStatsRow[] = [
@@ -215,6 +260,8 @@ export function useDashboardState() {
     busStops: data.busStops,
     cameras: data.cameras,
     incidents: data.incidents,
+    carparks: data.carparks,
+    evChargers: data.evChargers,
     clearBusRoute: busRoute.clear,
     error: data.error,
     flights: data.flights,

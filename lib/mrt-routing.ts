@@ -16,6 +16,8 @@ export type MrtRouteSegment = {
   from: string;
   to: string;
   stops: number;
+  /** Stations ridden in order, `from` to `to`; draws loop routes correctly. */
+  stations: string[];
 };
 
 export type MrtRoutePlan = {
@@ -43,6 +45,12 @@ const MINUTES_PER_STOP_BY_LINE: Record<string, number> = {
   "Thomson-East Coast Line": 2.5,
   // TEL Stage 5 extension (Bayshore → Bedok South → Sungei Bedok) — planned 2H 2026, not yet operational
   "Thomson-East Coast Line Extension": 2.5,
+  // LRT stations are close together; trains take ~1.5 min per hop.
+  "Bukit Panjang LRT": 1.5,
+  "Sengkang LRT East Loop": 1.5,
+  "Sengkang LRT West Loop": 1.5,
+  "Punggol LRT East Loop": 1.5,
+  "Punggol LRT West Loop": 1.5,
 };
 const DEFAULT_MINUTES_PER_STOP = 2;
 
@@ -133,6 +141,8 @@ for (const [line, stations] of Object.entries(MRT_OPERATIONAL_LINE_STATIONS)) {
   for (let index = 0; index < stations.length; index += 1) {
     const station = stations[index];
     const key = `${station}::${line}`;
+    // Loop lines list their interchange twice; it is still one node.
+    if (stationLineNodes.has(key)) continue;
     stationLineNodes.set(key, { key, station, line });
     stationToNodeKeys.set(station, [
       ...(stationToNodeKeys.get(station) ?? []),
@@ -186,6 +196,7 @@ function makeRouteSegments(nodes: StationLineNode[]): {
     from: nodes[0].station,
     to: nodes[0].station,
     stops: 0,
+    stations: [nodes[0].station],
   };
   const segments: MrtRouteSegment[] = [];
   const transferStations: string[] = [];
@@ -208,6 +219,7 @@ function makeRouteSegments(nodes: StationLineNode[]): {
         from: current.station,
         to: current.station,
         stops: 0,
+        stations: [current.station],
       };
       continue;
     }
@@ -221,6 +233,7 @@ function makeRouteSegments(nodes: StationLineNode[]): {
         from: previous.station,
         to: current.station,
         stops: 1,
+        stations: [previous.station, current.station],
       };
       continue;
     }
@@ -229,6 +242,7 @@ function makeRouteSegments(nodes: StationLineNode[]): {
       ...active,
       to: current.station,
       stops: active.stops + 1,
+      stations: [...active.stations, current.station],
     };
   }
 

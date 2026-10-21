@@ -26,10 +26,21 @@ import {
 } from "@/lib/map-geometry";
 import mrtLinesData from "@/public/mrt-lines.json";
 import { aqiTone, getAqiStatus } from "@/lib/aqi";
+import {
+  carparkTone,
+  evChargerTone,
+  describeCarpark,
+  describeEvCharger,
+  type PopupLine,
+} from "@/lib/mobility";
+import { describeHawkerCentre, describeMall } from "@/lib/amenities";
+import { HAWKER_CENTRES, MALLS } from "@/lib/amenities-data";
 import { PARKS_GEOJSON } from "@/lib/parks-data";
 import type {
   AqiRegionKey,
   BusStop,
+  CarparkAvailability,
+  EvChargingLocation,
   FlightState,
   MRTGeoJson,
   RegionalAqiReadings,
@@ -51,6 +62,8 @@ type MapProps = {
   cameras: TrafficCamera[];
   flights: FlightState[];
   incidents: TrafficIncident[];
+  carparks: CarparkAvailability[];
+  evChargers: EvChargingLocation[];
   aqiRegions?: RegionalAqiReadings | null;
   /** Display names of MRT lines currently flagged as disrupted by LTA. */
   disruptedMrtLines?: ReadonlyArray<string>;
@@ -61,6 +74,10 @@ type MapProps = {
     mrt: boolean;
     parks: boolean;
     incidents: boolean;
+    carparks: boolean;
+    evChargers: boolean;
+    malls: boolean;
+    hawkers: boolean;
   };
   searchTarget?: MapSearchTarget | null;
   onStopClick: (stop: BusStop) => void;
@@ -84,7 +101,47 @@ const MAP_COLORS = {
   info: "#73b9d9",
   bus: "#54ffae",
   park: "#73d99a",
+  carpark: "#8a9cf5",
+  ev: "#4fd6e6",
+  mall: "#e879c6",
+  hawker: "#f0b060",
 } as const;
+
+// Malls and hawker centres are a static bundle: build their sources once.
+const MALLS_BY_ID = new globalThis.Map(MALLS.map((mall) => [mall.id, mall]));
+const HAWKERS_BY_ID = new globalThis.Map(HAWKER_CENTRES.map((hawker) => [hawker.id, hawker]));
+const MALLS_GEOJSON = {
+  type: "FeatureCollection" as const,
+  features: MALLS.map((mall) => ({
+    type: "Feature" as const,
+    properties: { id: mall.id, name: mall.name },
+    geometry: { type: "Point" as const, coordinates: [mall.lng, mall.lat] },
+  })),
+};
+const HAWKERS_GEOJSON = {
+  type: "FeatureCollection" as const,
+  features: HAWKER_CENTRES.map((hawker) => ({
+    type: "Feature" as const,
+    properties: { id: hawker.id, name: hawker.name, status: hawker.status },
+    geometry: { type: "Point" as const, coordinates: [hawker.lng, hawker.lat] },
+  })),
+};
+
+// Carpark/EV points keep their layer colour while available, so the two
+// layers stay distinguishable; only low/full/unknown points change colour.
+const availabilityColorExpr = (
+  layerColor: string,
+): maplibregl.ExpressionSpecification => [
+  "match",
+  ["get", "tone"],
+  "success",
+  layerColor,
+  "warning",
+  MAP_COLORS.warning,
+  "danger",
+  MAP_COLORS.danger,
+  MAP_COLORS.muted,
+];
 
 /**
  * OpenFreeMap's stock dark style is intentionally near-black. Increase the
@@ -335,12 +392,40 @@ function createCameraMap() {
 function createIncidentMap() {
   return new globalThis.Map<string, TrafficIncident>();
 }
+function buildCarparksGeoJson(carparks: Iterable<CarparkAvailability>, visible: boolean) {
+  return {
+    type: "FeatureCollection" as const,
+    features: (visible ? [...carparks] : []).map((carpark) => ({
+      type: "Feature" as const,
+      properties: { id: carpark.id, tone: carparkTone(carpark) },
+      geometry: { type: "Point" as const, coordinates: [carpark.lng, carpark.lat] },
+    })),
+  };
+}
+function buildEvChargersGeoJson(locations: Iterable<EvChargingLocation>, visible: boolean) {
+  return {
+    type: "FeatureCollection" as const,
+    features: (visible ? [...locations] : []).map((location) => ({
+      type: "Feature" as const,
+      properties: { id: location.id, tone: evChargerTone(location) },
+      geometry: { type: "Point" as const, coordinates: [location.lng, location.lat] },
+    })),
+  };
+}
+function createCarparkMap() {
+  return new globalThis.Map<string, CarparkAvailability>();
+}
+function createEvChargerMap() {
+  return new globalThis.Map<string, EvChargingLocation>();
+}
 
 function useMapController({
   busStops,
   cameras,
   flights,
   incidents,
+  carparks,
+  evChargers,
   aqiRegions = null,
   disruptedMrtLines = EMPTY_DISRUPTED_MRT_LINES,
   sensorVisibility,
@@ -359,12 +444,14 @@ function useMapController({
   const camerasRef = useLazyRef(createCameraMap);
   const flightsRef = useLazyRef(createFlightMap);
   const incidentsRef = useLazyRef(createIncidentMap);
+  const carparksRef = useLazyRef(createCarparkMap);
+  const evChargersRef = useLazyRef(createEvChargerMap);
   const onStopClickRef = useRef(onStopClick);
   const onCameraClickRef = useRef(onCameraClick);
   const onFlightClickRef = useRef(onFlightClick);
   const onMrtStationClickRef = useRef(onMrtStationClick);
   const onParkClickRef = useRef(onParkClick);
-  const incidentPopupRef = useRef<maplibregl.Popup | null>(null);
+  const hoverPopupRef = useRef<maplibregl.Popup | null>(null);
   const mrtLinesRef = useRef<MRTGeoJson | null>(null);
   const mrtRouteSegmentsRef = useRef<MrtRouteSegment[]>(mrtRouteSegments);
   const busRouteOverlayRef = useRef<BusRouteOverlay | null>(busRouteOverlay);
@@ -426,6 +513,12 @@ function useMapController({
     setLayerVisibility("pcn-lines-layer", sensorVisibility.parks);
     setLayerVisibility("trails-lines-layer", sensorVisibility.parks);
     setLayerVisibility("incidents-point-layer", sensorVisibility.incidents);
+    setLayerVisibility("carparks-point-layer", sensorVisibility.carparks);
+    setLayerVisibility("ev-chargers-point-layer", sensorVisibility.evChargers);
+    setLayerVisibility("malls-point-layer", sensorVisibility.malls);
+    setLayerVisibility("malls-label-layer", sensorVisibility.malls);
+    setLayerVisibility("hawkers-point-layer", sensorVisibility.hawkers);
+    setLayerVisibility("hawkers-label-layer", sensorVisibility.hawkers);
   }, [sensorVisibility]);
 
   useEffect(() => {
@@ -547,29 +640,92 @@ function useMapController({
       const flight = flightsRef.current.get(id);
       if (flight) onFlightClickRef.current(flight);
     };
+    const showHoverPopup = (lngLat: maplibregl.LngLatLike, title: string, titleClass: string, lines: ReadonlyArray<string | PopupLine>, photos: ReadonlyArray<{ src: string; alt: string }> = []) => {
+      const content = document.createElement("div");
+      const heading = document.createElement("div");
+      heading.className = `argus-hover-popup-type ${titleClass}`;
+      heading.textContent = title;
+      content.append(heading);
+      if (photos.length) {
+        // One compact row (the map panel is short); fixed boxes so the popup
+        // doesn't jump while thumbnails load.
+        const strip = document.createElement("div");
+        strip.className = `argus-hover-popup-photos argus-hover-popup-photos-${Math.min(photos.length, 3)}`;
+        for (const photo of photos.slice(0, 3)) {
+          const image = document.createElement("img");
+          image.src = photo.src;
+          image.alt = photo.alt;
+          image.decoding = "async";
+          image.referrerPolicy = "no-referrer";
+          image.onerror = () => image.remove();
+          strip.append(image);
+        }
+        content.append(strip);
+      }
+      for (const line of lines) {
+        const row = document.createElement("div");
+        if (typeof line === "string") {
+          row.className = "argus-hover-popup-message";
+          row.textContent = line;
+        } else {
+          row.className = `argus-hover-popup-${line.kind}${line.tone ? ` text-${line.tone}` : ""}`;
+          row.textContent = line.text;
+        }
+        content.append(row);
+      }
+      hoverPopupRef.current?.remove();
+      const open = (anchor?: maplibregl.PositionAnchor) =>
+        new maplibregl.Popup({ closeButton: false, closeOnClick: false, className: "argus-hover-popup", maxWidth: "280px", anchor })
+          .setLngLat(lngLat)
+          .setDOMContent(content)
+          .addTo(map);
+      let popup = open();
+      // MapLibre's auto-anchor only flips above/below. A tall popup (mall
+      // photos) can fit neither way in the short map panel, so open it beside
+      // the point instead, on whichever side has room.
+      const { offsetHeight: height, offsetWidth: width } = popup.getElement();
+      const point = map.project(lngLat);
+      const { clientHeight, clientWidth } = map.getContainer();
+      if (point.y + height > clientHeight && point.y - height < 0) {
+        popup.remove();
+        popup = open(clientWidth - point.x >= width ? "left" : "right");
+      }
+      hoverPopupRef.current = popup;
+    };
     const handleIncidentEnter = (event: maplibregl.MapLayerMouseEvent) => {
       const id = event.features?.[0]?.properties?.id;
       if (typeof id !== "string") return;
       const incident = incidentsRef.current.get(id);
       if (!incident) return;
-      const content = document.createElement("div");
-      content.className = "argus-incident-popup-body";
-      const type = document.createElement("div");
-      type.className = `argus-incident-popup-type ${incident.type === "Accident" ? "text-danger" : incident.type === "Vehicle Breakdown" || incident.type === "Heavy Traffic" ? "text-warning" : "text-muted"}`;
-      type.textContent = incident.type.toUpperCase();
-      const message = document.createElement("div");
-      message.className = "argus-incident-popup-message";
-      message.textContent = incident.message;
-      content.append(type, message);
-      incidentPopupRef.current?.remove();
-      incidentPopupRef.current = new maplibregl.Popup({ closeButton: false, closeOnClick: false, className: "argus-incident-popup" })
-        .setLngLat(event.lngLat)
-        .setDOMContent(content)
-        .addTo(map);
+      showHoverPopup(event.lngLat, incident.type.toUpperCase(), incident.type === "Accident" ? "text-danger" : incident.type === "Vehicle Breakdown" || incident.type === "Heavy Traffic" ? "text-warning" : "text-muted", [incident.message]);
     };
-    const handleIncidentLeave = () => {
-      incidentPopupRef.current?.remove();
-      incidentPopupRef.current = null;
+    const handleCarparkEnter = (event: maplibregl.MapLayerMouseEvent) => {
+      const id = event.features?.[0]?.properties?.id;
+      if (typeof id !== "string") return;
+      const carpark = carparksRef.current.get(id);
+      if (!carpark) return;
+      showHoverPopup(event.lngLat, `${carpark.agency} CARPARK`, "text-signal-carpark", describeCarpark(carpark));
+    };
+    const handleEvChargerEnter = (event: maplibregl.MapLayerMouseEvent) => {
+      const id = event.features?.[0]?.properties?.id;
+      if (typeof id !== "string") return;
+      const location = evChargersRef.current.get(id);
+      if (!location) return;
+      showHoverPopup(event.lngLat, "EV CHARGING", "text-signal-ev", describeEvCharger(location));
+    };
+    const handleMallEnter = (event: maplibregl.MapLayerMouseEvent) => {
+      const id = event.features?.[0]?.properties?.id;
+      const mall = typeof id === "string" ? MALLS_BY_ID.get(id) : undefined;
+      if (mall) showHoverPopup(event.lngLat, "MALL", "text-signal-mall", describeMall(mall), mall.photos.map((photo, index) => ({ src: photo.thumb, alt: `${mall.name} photo ${index + 1}` })));
+    };
+    const handleHawkerEnter = (event: maplibregl.MapLayerMouseEvent) => {
+      const id = event.features?.[0]?.properties?.id;
+      const hawker = typeof id === "string" ? HAWKERS_BY_ID.get(id) : undefined;
+      if (hawker) showHoverPopup(event.lngLat, "HAWKER CENTRE", "text-signal-hawker", describeHawkerCentre(hawker), hawker.photos.map((photo, index) => ({ src: photo.thumb, alt: `${hawker.name} photo ${index + 1}` })));
+    };
+    const handleHoverPopupLeave = () => {
+      hoverPopupRef.current?.remove();
+      hoverPopupRef.current = null;
     };
     const handleInteractiveLayerEnter = () => {
       map.getCanvas().style.cursor = "pointer";
@@ -1057,6 +1213,10 @@ function useMapController({
           data: geoJson,
         });
 
+        // LRT lines are thinner and sort beneath MRT where they meet. Their
+        // colour in mrt-lines.json is a lightened LTA LRT grey (#748477 is
+        // near-invisible on the dark basemap).
+        const isLrtLine: maplibregl.ExpressionSpecification = ["==", ["get", "mode"], "lrt"];
         map.addLayer({
           id: "mrt-lines-casing-layer",
           type: "line",
@@ -1064,10 +1224,11 @@ function useMapController({
           filter: ["!=", "status", "future"],
           layout: {
             visibility: sensorVisibilityRef.current.mrt ? "visible" : "none",
+            "line-sort-key": ["case", isLrtLine, 0, 1],
           },
           paint: {
             "line-color": MAP_COLORS.paper,
-            "line-width": 6.8,
+            "line-width": ["case", isLrtLine, 5.2, 6.8],
             "line-opacity": 0.84,
           },
         });
@@ -1079,10 +1240,11 @@ function useMapController({
           filter: ["!=", "status", "future"],
           layout: {
             visibility: sensorVisibilityRef.current.mrt ? "visible" : "none",
+            "line-sort-key": ["case", isLrtLine, 0, 1],
           },
           paint: {
             "line-color": ["get", "color"],
-            "line-width": 4.2,
+            "line-width": ["case", isLrtLine, 3, 4.2],
             "line-opacity": 0.96,
           },
         });
@@ -1202,15 +1364,18 @@ function useMapController({
             data: stationsGeoJson,
           });
 
+          // Interchanges keep their MRT colour on top of the LRT dot.
+          const isLrtStation: maplibregl.ExpressionSpecification = ["in", "LRT", ["get", "line"]];
           map.addLayer({
             id: "mrt-stations-layer",
             type: "circle",
             source: "mrt-stations",
             layout: {
               visibility: sensorVisibilityRef.current.mrt ? "visible" : "none",
+              "circle-sort-key": ["case", isLrtStation, 0, 1],
             },
             paint: {
-              "circle-radius": 4,
+              "circle-radius": ["case", isLrtStation, 3.5, 4],
               "circle-color": ["get", "color"],
               "circle-opacity": ["case", ["get", "routeable"], 1, 0.35],
               "circle-stroke-width": 1,
@@ -1279,7 +1444,40 @@ function useMapController({
           "circle-stroke-color": MAP_COLORS.paper,
           "circle-stroke-width": 1,
         } });
-        layerListenerCleanups.push(registerLayerMouseListener(map, "mouseenter", "incidents-point-layer", handleIncidentEnter), registerLayerMouseListener(map, "mouseleave", "incidents-point-layer", handleIncidentLeave), registerLayerMouseListener(map, "mouseenter", "incidents-point-layer", handleInteractiveLayerEnter), registerLayerMouseListener(map, "mouseleave", "incidents-point-layer", handleInteractiveLayerLeave));
+        layerListenerCleanups.push(registerLayerMouseListener(map, "mouseenter", "incidents-point-layer", handleIncidentEnter), registerLayerMouseListener(map, "mouseleave", "incidents-point-layer", handleHoverPopupLeave), registerLayerMouseListener(map, "mouseenter", "incidents-point-layer", handleInteractiveLayerEnter), registerLayerMouseListener(map, "mouseleave", "incidents-point-layer", handleInteractiveLayerLeave));
+        const availabilityPointPaint = (layerColor: string): maplibregl.CircleLayerSpecification["paint"] => ({
+          "circle-color": availabilityColorExpr(layerColor),
+          "circle-radius": ["interpolate", ["linear"], ["zoom"], 10, 2.5, 15, 5.5],
+          "circle-stroke-color": MAP_COLORS.paper,
+          "circle-stroke-width": 1,
+        });
+        // Seed from the refs: feed data can land before the style loads, and
+        // the data effects only re-run when that data changes.
+        const { carparks: carparksVisible, evChargers: evChargersVisible } = sensorVisibilityRef.current;
+        for (const [sourceId, layerId, visible, layerColor, onEnter, data] of [
+          ["carparks-data", "carparks-point-layer", carparksVisible, MAP_COLORS.carpark, handleCarparkEnter, buildCarparksGeoJson(carparksRef.current.values(), carparksVisible)],
+          ["ev-chargers-data", "ev-chargers-point-layer", evChargersVisible, MAP_COLORS.ev, handleEvChargerEnter, buildEvChargersGeoJson(evChargersRef.current.values(), evChargersVisible)],
+        ] as const) {
+          map.addSource(sourceId, { type: "geojson", data });
+          map.addLayer({ id: layerId, type: "circle", source: sourceId, layout: { visibility: visible ? "visible" : "none" }, paint: availabilityPointPaint(layerColor) });
+          layerListenerCleanups.push(registerLayerMouseListener(map, "mouseenter", layerId, onEnter), registerLayerMouseListener(map, "mouseleave", layerId, handleHoverPopupLeave), registerLayerMouseListener(map, "mouseenter", layerId, handleInteractiveLayerEnter), registerLayerMouseListener(map, "mouseleave", layerId, handleInteractiveLayerLeave));
+        }
+        // Planned (under construction) hawker centres are drawn muted.
+        for (const [sourceId, prefix, visible, color, data, onEnter] of [
+          ["malls-data", "malls", sensorVisibilityRef.current.malls, MAP_COLORS.mall, MALLS_GEOJSON, handleMallEnter],
+          ["hawkers-data", "hawkers", sensorVisibilityRef.current.hawkers, ["match", ["get", "status"], "planned", MAP_COLORS.muted, MAP_COLORS.hawker], HAWKERS_GEOJSON, handleHawkerEnter],
+        ] as const) {
+          const visibility = visible ? "visible" : "none";
+          map.addSource(sourceId, { type: "geojson", data });
+          map.addLayer({ id: `${prefix}-point-layer`, type: "circle", source: sourceId, layout: { visibility }, paint: {
+            "circle-color": color as maplibregl.DataDrivenPropertyValueSpecification<string>,
+            "circle-radius": ["interpolate", ["linear"], ["zoom"], 10, 3.5, 15, 7],
+            "circle-stroke-color": MAP_COLORS.paper,
+            "circle-stroke-width": 1.5,
+          } });
+          map.addLayer({ id: `${prefix}-label-layer`, type: "symbol", source: sourceId, minzoom: 14, layout: { visibility, "text-field": ["get", "name"], "text-size": 10, "text-offset": [0, 1.1], "text-anchor": "top" }, paint: { "text-color": color as maplibregl.DataDrivenPropertyValueSpecification<string>, "text-halo-color": MAP_COLORS.paper, "text-halo-width": 1 } });
+          layerListenerCleanups.push(registerLayerMouseListener(map, "mouseenter", `${prefix}-point-layer`, onEnter), registerLayerMouseListener(map, "mouseleave", `${prefix}-point-layer`, handleHoverPopupLeave), registerLayerMouseListener(map, "mouseenter", `${prefix}-point-layer`, handleInteractiveLayerEnter), registerLayerMouseListener(map, "mouseleave", `${prefix}-point-layer`, handleInteractiveLayerLeave));
+        }
       } catch (error) {
         console.warn("MRT layer failed to initialize", error);
       }
@@ -1363,12 +1561,12 @@ function useMapController({
       for (const removeLayerListener of layerListenerCleanups) {
         removeLayerListener();
       }
-      incidentPopupRef.current?.remove();
-      incidentPopupRef.current = null;
+      hoverPopupRef.current?.remove();
+      hoverPopupRef.current = null;
       map.remove();
       mapRef.current = null;
     };
-  }, [busStopsRef, camerasRef, flightsRef, incidentsRef]);
+  }, [busStopsRef, camerasRef, carparksRef, evChargersRef, flightsRef, incidentsRef]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -1510,6 +1708,22 @@ function useMapController({
       })),
     });
   }, [incidents, incidentsRef, sensorVisibility.incidents]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    carparksRef.current = new globalThis.Map(carparks.map((carpark) => [carpark.id, carpark]));
+    const source = map.getSource("carparks-data") as maplibregl.GeoJSONSource | undefined;
+    source?.setData(buildCarparksGeoJson(carparks, sensorVisibility.carparks));
+  }, [carparks, carparksRef, sensorVisibility.carparks]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    evChargersRef.current = new globalThis.Map(evChargers.map((location) => [location.id, location]));
+    const source = map.getSource("ev-chargers-data") as maplibregl.GeoJSONSource | undefined;
+    source?.setData(buildEvChargersGeoJson(evChargers, sensorVisibility.evChargers));
+  }, [evChargers, evChargersRef, sensorVisibility.evChargers]);
 
   useEffect(() => {
     aqiRegionsRef.current = aqiRegions;

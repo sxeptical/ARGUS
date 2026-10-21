@@ -20,10 +20,17 @@ import { LoadingScreen } from "@/app/components/dashboard/LoadingScreen";
 import { MobileLayersDrawer } from "@/app/components/dashboard/MobileLayersDrawer";
 import { useDashboardState } from "@/app/hooks/use-dashboard-state";
 import { formatAltitudeFeet, formatSpeedKmh } from "@/lib/formatters";
+import { buildHawkerSearchResults, buildMallSearchResults } from "@/lib/amenities";
+import { HAWKER_CENTRES, MALLS } from "@/lib/amenities-data";
 import { buildBusStopSearchResults, MRT_STATION_SEARCH_RESULTS } from "@/lib/map-search";
 import { isRouteableMrtStation } from "@/lib/mrt-routing";
 import { buildSignalDigest } from "@/lib/signals";
 import type { RegionalAqiReadings } from "@/types";
+
+const AMENITY_SEARCH_RESULTS = [
+  ...buildMallSearchResults(MALLS),
+  ...buildHawkerSearchResults(HAWKER_CENTRES),
+];
 
 export default function Home() {
   const {
@@ -33,9 +40,11 @@ export default function Home() {
     busRouteState,
     busStops,
     cameras,
+    carparks,
     clearBusRoute,
     disruptedMrtLines,
     error,
+    evChargers,
     flights,
     incidents,
     handleSelectStop,
@@ -124,6 +133,8 @@ export default function Home() {
               cameras={cameras}
               flights={flights}
               incidents={incidents}
+              carparks={carparks}
+              evChargers={evChargers}
               aqiRegions={aqiMapRegions}
               sensorVisibility={sensorVisibility}
               onStopClick={handleSelectStop}
@@ -139,6 +150,7 @@ export default function Home() {
             <MapSearch
               results={[
                 ...MRT_STATION_SEARCH_RESULTS,
+                ...AMENITY_SEARCH_RESULTS,
                 ...buildBusStopSearchResults(busStops),
               ]}
               onSelect={(result) => {
@@ -152,6 +164,10 @@ export default function Home() {
                   if (stop) handleSelectStop(stop);
                 } else if (result.type === "mrt" && isRouteableMrtStation(result.name)) {
                   pickMrtStation(result.name);
+                } else if (result.type === "mall" || result.type === "hawker") {
+                  // Make sure the searched place is actually drawn when we land on it.
+                  const layer = result.type === "mall" ? "malls" : "hawkers";
+                  setSensorVisibility((previous) => ({ ...previous, [layer]: true }));
                 }
               }}
             />
@@ -173,6 +189,10 @@ export default function Home() {
               {sensorVisibility.mrt ? <LegendDot tone="bg-signal-mrt" label="MRT" /> : null}
               {sensorVisibility.parks ? <LegendDot tone="bg-signal-park" label="Parks" /> : null}
               {sensorVisibility.incidents ? <LegendDot tone="bg-signal-incident" label="Incidents" /> : null}
+              {sensorVisibility.carparks ? <LegendDot tone="bg-signal-carpark" label="Carparks" /> : null}
+              {sensorVisibility.evChargers ? <LegendDot tone="bg-signal-ev" label="EV" /> : null}
+              {sensorVisibility.malls ? <LegendDot tone="bg-signal-mall" label="Malls" /> : null}
+              {sensorVisibility.hawkers ? <LegendDot tone="bg-signal-hawker" label="Hawkers" /> : null}
             </div>
           </section>
 

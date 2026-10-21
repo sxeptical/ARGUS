@@ -5,6 +5,8 @@ import { apiFetch } from "@/lib/api-fetch";
 import { FLIGHTS_ENABLED } from "@/lib/features";
 import type {
   BusStop,
+  CarparkAvailability,
+  EvChargingLocation,
   FlightState,
   NewsItem,
   TrafficCamera,
@@ -48,6 +50,19 @@ const INCIDENTS: SourceDefinition = {
   label: "Road Incidents",
   url: "/api/incidents",
   refreshMs: 60 * 1000,
+};
+const CARPARKS: SourceDefinition = {
+  key: "carparks",
+  label: "Carpark Availability",
+  url: "/api/carparks",
+  refreshMs: 60 * 1000,
+};
+const EV_CHARGERS: SourceDefinition = {
+  key: "ev chargers",
+  label: "EV Charging Points",
+  url: "/api/ev-chargers",
+  // LTA regenerates the EV snapshot every five minutes.
+  refreshMs: 5 * 60 * 1000,
 };
 const WEATHER: SourceDefinition = {
   key: "weather",
@@ -141,9 +156,18 @@ function toSourceState(
   };
 }
 
-export function useDashboardSources() {
-  // Hooks stay unconditional; a null SWR key disables flights without
-  // duplicating the feature flag or changing hook order.
+/**
+ * Layers whose feeds are only fetched while toggled on. They never gate boot,
+ * so turning one on doesn't send the dashboard back to the loading screen.
+ */
+export type OnDemandLayers = {
+  readonly carparks: boolean;
+  readonly evChargers: boolean;
+};
+
+export function useDashboardSources(onDemand: OnDemandLayers) {
+  // Hooks stay unconditional; a null SWR key disables flights (and hidden
+  // on-demand layers) without changing hook order.
   const busStops = useSource<BusStop[]>(BUS_STOPS);
   const cameras = useSource<TrafficCamera[]>(CAMERAS);
   const incidents = useSource<TrafficIncident[]>(INCIDENTS);
@@ -151,6 +175,12 @@ export function useDashboardSources() {
   const news = useSource<NewsItem[]>(NEWS);
   const flights = useSource<FlightState[]>(FLIGHTS_ENABLED ? FLIGHTS : null);
   const trainAlerts = useSource<TrainServiceAlert[]>(TRAIN_ALERTS);
+  const carparks = useSource<CarparkAvailability[]>(
+    onDemand.carparks ? CARPARKS : null,
+  );
+  const evChargers = useSource<EvChargingLocation[]>(
+    onDemand.evChargers ? EV_CHARGERS : null,
+  );
 
   const enabled = [
     { definition: BUS_STOPS, result: busStops },
@@ -163,8 +193,14 @@ export function useDashboardSources() {
       ? [{ definition: FLIGHTS, result: flights }]
       : []),
   ];
-  const activeSources = enabled.map(({ definition, result }) =>
-    toSourceState(definition, result),
+  const onDemandEnabled = [
+    ...(onDemand.carparks ? [{ definition: CARPARKS, result: carparks }] : []),
+    ...(onDemand.evChargers
+      ? [{ definition: EV_CHARGERS, result: evChargers }]
+      : []),
+  ];
+  const activeSources = [...enabled, ...onDemandEnabled].map(
+    ({ definition, result }) => toSourceState(definition, result),
   );
   const sources: SourceState[] = FLIGHTS_ENABLED
     ? activeSources
@@ -189,6 +225,8 @@ export function useDashboardSources() {
     news: news.data ?? [],
     flights: flights.data ?? [],
     trainAlerts: trainAlerts.data ?? [],
+    carparks: carparks.data ?? [],
+    evChargers: evChargers.data ?? [],
     sources,
     activeSources,
     onlineSourceCount: activeSources.filter(
