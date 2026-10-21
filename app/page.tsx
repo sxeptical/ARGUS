@@ -23,7 +23,7 @@ import { useDashboardState } from "@/app/hooks/use-dashboard-state";
 import { formatAltitudeFeet, formatSpeedKmh } from "@/lib/formatters";
 import { formatRadius, withinRadius } from "@/lib/geo-filter";
 import { buildBusStopSearchResults, MRT_STATION_SEARCH_RESULTS } from "@/lib/map-search";
-import { isRouteableMrtStation, MRT_STATION_NAMES } from "@/lib/mrt-routing";
+import { MRT_STATION_NAMES } from "@/lib/mrt-routing";
 import { buildSignalDigest } from "@/lib/signals";
 import type { RegionalAqiReadings } from "@/types";
 
@@ -194,8 +194,6 @@ export default function Home() {
                 if (result.type === "bus-stop") {
                   const stop = busStops.find((item) => item.BusStopCode === result.id);
                   if (stop) handleSelectStop(stop);
-                } else if (result.type === "mrt" && isRouteableMrtStation(result.name)) {
-                  pickMrtStation(result.name);
                 }
               }}
             />
