@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import BusPanel from "@/app/components/BusPanel";
 import CameraPanel from "@/app/components/CameraPanel";
 import Map, { type MapSearchTarget } from "@/app/components/Map";
@@ -21,9 +21,9 @@ import { LoadingScreen } from "@/app/components/dashboard/LoadingScreen";
 import { MobileLayersDrawer } from "@/app/components/dashboard/MobileLayersDrawer";
 import { useDashboardState } from "@/app/hooks/use-dashboard-state";
 import { formatAltitudeFeet, formatSpeedKmh } from "@/lib/formatters";
-import { formatRadius } from "@/lib/geo-filter";
+import { formatRadius, withinRadius } from "@/lib/geo-filter";
 import { buildBusStopSearchResults, MRT_STATION_SEARCH_RESULTS } from "@/lib/map-search";
-import { isRouteableMrtStation } from "@/lib/mrt-routing";
+import { isRouteableMrtStation, MRT_STATION_NAMES } from "@/lib/mrt-routing";
 import { buildSignalDigest } from "@/lib/signals";
 import type { RegionalAqiReadings } from "@/types";
 
@@ -86,6 +86,28 @@ export default function Home() {
   const [searchTarget, setSearchTarget] = useState<MapSearchTarget | null>(null);
   const [aqiMapRegions, setAqiMapRegions] =
     useState<RegionalAqiReadings | null>(null);
+  // Searches and station pickers only reach what the radius filter shows:
+  // `busStops` is already scoped, and MRT stations are scoped here.
+  const mrtStationsInRadius = useMemo(
+    () =>
+      withinRadius(MRT_STATION_SEARCH_RESULTS, geoFilter, (result) => [
+        result.lng,
+        result.lat,
+      ]),
+    [geoFilter],
+  );
+  const mapSearchResults = useMemo(
+    () => [...mrtStationsInRadius, ...buildBusStopSearchResults(busStops)],
+    [busStops, mrtStationsInRadius],
+  );
+  const mrtRouterStations = useMemo(() => {
+    if (!geoFilter) return MRT_STATION_NAMES;
+    const inside = new Set(mrtStationsInRadius.map((result) => result.name));
+    return MRT_STATION_NAMES.filter((station) => inside.has(station));
+  }, [geoFilter, mrtStationsInRadius]);
+  const searchScope = geoFilter
+    ? `${formatRadius(geoFilter.radiusM)} radius`
+    : undefined;
   const signalToneClass = (tone: "danger" | "warning" | "info" | "muted") =>
     tone === "danger" ? "text-danger" : tone === "warning" ? "text-warning" : tone === "info" ? "text-info" : "text-muted";
 
@@ -161,10 +183,8 @@ export default function Home() {
               onGeoFilterPick={pickGeoFilterCenter}
             />
             <MapSearch
-              results={[
-                ...MRT_STATION_SEARCH_RESULTS,
-                ...buildBusStopSearchResults(allBusStops),
-              ]}
+              results={mapSearchResults}
+              scope={searchScope}
               onSelect={(result) => {
                 setSearchTarget({
                   lat: result.lat,
@@ -172,7 +192,7 @@ export default function Home() {
                   zoom: result.zoom,
                 });
                 if (result.type === "bus-stop") {
-                  const stop = allBusStops.find((item) => item.BusStopCode === result.id);
+                  const stop = busStops.find((item) => item.BusStopCode === result.id);
                   if (stop) handleSelectStop(stop);
                 } else if (result.type === "mrt" && isRouteableMrtStation(result.name)) {
                   pickMrtStation(result.name);
@@ -226,11 +246,14 @@ export default function Home() {
                 mapPickTarget={mrtMapPickTarget}
                 onMapPickTargetChange={setMrtMapPickTarget}
                 onReset={resetMrtRoute}
+                stations={mrtRouterStations}
+                stationScope={searchScope}
               />
             </div>
             <div className="max-h-[60dvh] min-h-0 overflow-auto xl:max-h-none">
               <BusPanel
-                busStops={allBusStops}
+                busStops={busStops}
+                searchScope={searchScope}
                 selectedStop={selectedStop}
                 onSelectStop={handleSelectStop}
                 routeState={busRouteState}
