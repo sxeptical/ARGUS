@@ -7,6 +7,8 @@ import {
   resolveBusRouteDrawPath,
 } from "./map-geometry";
 import { MRT_DISPLAY_LINE_STATIONS } from "./mrt-network";
+import mrtLinesData from "@/public/mrt-lines.json";
+import type { MRTGeoJson } from "@/types";
 
 describe("resolveBusRouteDrawPath", () => {
   test("returns remaining path from selected index", () => {
@@ -128,5 +130,16 @@ describe("buildRouteGeoJson", () => {
       type: "FeatureCollection",
       features: [],
     });
+  });
+
+  test("draws a loop route the short way through the interchange", () => {
+    const mrtLines = mrtLinesData as MRTGeoJson;
+    const line = mrtLines.features.find((feature) => feature.properties.name === "Sengkang LRT East Loop");
+    const route = buildRouteGeoJson(mrtLines, [
+      { line: "Sengkang LRT East Loop", from: "Ranggung", to: "Compassvale", stops: 2, stations: ["Ranggung", "Sengkang", "Compassvale"] },
+    ], MRT_DISPLAY_LINE_STATIONS);
+    const coords = (line?.geometry.coordinates ?? []) as [number, number][];
+    // Ranggung (index 5) → Sengkang (closing vertex) → Compassvale (index 1).
+    expect(route.features[0].geometry.coordinates).toEqual([coords[5], coords[6], coords[1]]);
   });
 });

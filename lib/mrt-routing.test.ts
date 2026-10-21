@@ -74,3 +74,27 @@ describe("planMrtRoute", () => {
     expect(plan!.estimatedMinutes).toBeGreaterThan(0);
   });
 });
+
+describe("LRT routing", () => {
+  test("rides a loop through its interchange without a transfer", () => {
+    const route = planMrtRoute("Ranggung", "Compassvale");
+    expect(route?.transfers).toBe(0);
+    expect(route?.segments).toEqual([
+      { line: "Sengkang LRT East Loop", from: "Ranggung", to: "Compassvale", stops: 2, stations: ["Ranggung", "Sengkang", "Compassvale"] },
+    ]);
+  });
+
+  test("takes the short way round the Bukit Panjang loop", () => {
+    const route = planMrtRoute("Senja", "Bukit Panjang");
+    expect(route?.segments).toEqual([
+      { line: "Bukit Panjang LRT", from: "Senja", to: "Bukit Panjang", stops: 1, stations: ["Senja", "Bukit Panjang"] },
+    ]);
+  });
+
+  test("changes between loops and MRT at the interchange", () => {
+    const route = planMrtRoute("Renjong", "Kovan");
+    expect(route?.segments.map((segment) => segment.line)).toEqual(["Sengkang LRT West Loop", "North East Line"]);
+    expect(route?.segments[0].to).toBe("Sengkang");
+    expect(route?.transfers).toBe(1);
+  });
+});

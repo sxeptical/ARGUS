@@ -260,6 +260,7 @@ describe("normalizeTrainServiceAlerts", () => {
             { Line: "NEL", Stations: ["NE1"] },
             { Line: "NEL", Stations: ["NE7"] },
             { Line: "PEL", Stations: ["PE1"] },
+            { Line: "XYZ", Stations: ["XY1"] },
           ],
         },
       ],
@@ -267,9 +268,10 @@ describe("normalizeTrainServiceAlerts", () => {
 
     expect(alerts[0].affectedLines).toEqual([
       "North East Line",
-      "PEL",
+      "Punggol LRT East Loop",
+      "XYZ",
     ]);
-    expect(alerts[0].affectedStations).toEqual(["NE1", "NE7", "PE1"]);
+    expect(alerts[0].affectedStations).toEqual(["NE1", "NE7", "PE1", "XY1"]);
   });
 
   test("defaults to normal service when Status is missing", () => {
