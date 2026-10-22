@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { isRouteableMrtStation, MRT_STATION_NAMES, planMrtRoute } from "./mrt-routing";
+import { isRouteableMrtStation, MRT_STATION_NAMES, planMrtRoute } from "@/lib/mrt-routing";
 
 describe("isRouteableMrtStation", () => {
   test("returns true for known operational stations", () => {
@@ -23,16 +23,13 @@ describe("isRouteableMrtStation", () => {
 });
 
 describe("MRT_STATION_NAMES", () => {
-  test("is a sorted, non-empty array", () => {
+  test("is a sorted, non-empty list that contains the well-known stations", () => {
     expect(MRT_STATION_NAMES.length).toBeGreaterThan(0);
     for (let i = 1; i < MRT_STATION_NAMES.length; i++) {
       expect(
         MRT_STATION_NAMES[i - 1].localeCompare(MRT_STATION_NAMES[i], "en-SG"),
       ).toBeLessThanOrEqual(0);
     }
-  });
-
-  test("contains well-known stations", () => {
     expect(MRT_STATION_NAMES).toContain("Raffles Place");
     expect(MRT_STATION_NAMES).toContain("Marina Bay");
     expect(MRT_STATION_NAMES).toContain("Changi Airport");

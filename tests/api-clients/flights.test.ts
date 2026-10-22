@@ -3,7 +3,7 @@ import { FetchHttpClient } from "@effect/platform";
 import { Effect } from "effect";
 import { Cache, CacheLive } from "@/lib/cache";
 import { SchemaParseError } from "@/lib/errors";
-import { getFlights } from "./flights";
+import { getFlights } from "@/lib/api-clients/flights";
 import type { FlightState } from "@/types";
 
 type FetchImpl = (input: string | URL | Request) => Promise<Response>;

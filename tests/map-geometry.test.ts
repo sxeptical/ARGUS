@@ -5,8 +5,8 @@ import {
   buildRouteGeoJson,
   interpolateStations,
   resolveBusRouteDrawPath,
-} from "./map-geometry";
-import { MRT_DISPLAY_LINE_STATIONS } from "./mrt-network";
+} from "@/lib/map-geometry";
+import { MRT_DISPLAY_LINE_STATIONS } from "@/lib/mrt-network";
 
 describe("resolveBusRouteDrawPath", () => {
   test("returns remaining path from selected index", () => {
