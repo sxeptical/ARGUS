@@ -1,28 +1,27 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useBusRoute } from "@/app/hooks/use-bus-route";
 import { useDashboardSources } from "@/app/hooks/use-dashboard-sources";
 import { useMrtPlanner } from "@/app/hooks/use-mrt-planner";
 import { useWeatherHistory } from "@/app/hooks/use-weather-history";
 import { FLIGHTS_ENABLED } from "@/lib/features";
+import {
+  LAYERS,
+  DEFAULT_SENSOR_VISIBILITY,
+  SensorKey,
+  coerceSensorVisibility,
+} from "@/lib/layers";
+import { readStoredJson, writeStoredJson } from "@/lib/local-history";
 import { MRT_DISPLAY_LINE_COUNT } from "@/lib/mrt-network";
 import { HAWKER_CENTRES, MALLS } from "@/lib/amenities-data";
 import { PARK_COUNT, PARKS_GEOJSON } from "@/lib/parks-data";
 import type { ParkFeatureKind } from "@/types";
 import type { FlightState, TrafficCamera } from "@/types";
 
-export type SensorKey =
-  | "flights"
-  | "cameras"
-  | "busStops"
-  | "mrt"
-  | "parks"
-  | "incidents"
-  | "carparks"
-  | "evChargers"
-  | "malls"
-  | "hawkers";
+// v1: persisted layer on/off choices. Versioned like the weather history key
+// so a future schema change can start fresh instead of migrating.
+const SENSOR_VISIBILITY_STORAGE_KEY = "argus.layers.visibility.v1";
 
 export type SensorRow = {
   readonly key: SensorKey;
@@ -30,9 +29,11 @@ export type SensorRow = {
   readonly note: string;
   readonly value: number;
   readonly tone: string;
+  /** Background tone class for the layer dot in the mobile drawer. */
+  readonly dot: string;
 };
 
-export type SensorStatsRow = Omit<SensorRow, "key">;
+export type SensorStatsRow = Omit<SensorRow, "key" | "dot">;
 
 function summarizeFlights(flights: readonly FlightState[]) {
   return flights.reduce(
@@ -47,18 +48,34 @@ function summarizeFlights(flights: readonly FlightState[]) {
 export function useDashboardState() {
   const [sensorVisibility, setSensorVisibility] = useState<
     Record<SensorKey, boolean>
-  >({
-    flights: true,
-    cameras: true,
-    busStops: true,
-    mrt: true,
-    parks: false,
-    incidents: false,
-    carparks: false,
-    evChargers: false,
-    malls: false,
-    hawkers: false,
-  });
+  >(() => ({ ...DEFAULT_SENSOR_VISIBILITY }));
+
+  // Layer choices are curated, not ephemeral: a user who turns layers off
+  // shouldn't redo it after every reload, and that matters more as the layer
+  // count grows. Hydration is deferred to a timer callback (the same
+  // pattern as the weather history) rather than a lazy initializer so the
+  // server render and the first client render agree — no hydration
+  // mismatch, and no `setState` directly inside the effect body.
+  const sensorVisibilityHydratedRef = useRef(false);
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      sensorVisibilityHydratedRef.current = true;
+      setSensorVisibility(
+        coerceSensorVisibility(
+          readStoredJson(SENSOR_VISIBILITY_STORAGE_KEY),
+        ),
+      );
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  // Writes wait for hydration: persisting defaults first would clobber the
+  // stored choices the timer is about to load.
+  useEffect(() => {
+    if (!sensorVisibilityHydratedRef.current) return;
+    writeStoredJson(SENSOR_VISIBILITY_STORAGE_KEY, sensorVisibility);
+  }, [sensorVisibility]);
+
   const data = useDashboardSources({
     carparks: sensorVisibility.carparks,
     evChargers: sensorVisibility.evChargers,
@@ -126,78 +143,28 @@ export function useDashboardState() {
     [disruptedAlerts],
   );
 
-  const sensorRows: SensorRow[] = [
-    {
-      key: "flights",
-      label: "Air Activity",
-      note: "live tracks",
-      value: data.flights.length,
-      tone: "text-signal-inbound",
-    },
-    {
-      key: "cameras",
-      label: "Road Cameras",
-      note: "stream nodes",
-      value: data.cameras.length,
-      tone: "text-signal-camera",
-    },
-    {
-      key: "busStops",
-      label: "Bus Stops",
-      note: "monitor points",
-      value: data.busStops.length,
-      tone: "text-signal-bus",
-    },
-    {
-      key: "mrt",
-      label: "MRT & LRT",
-      note: "lines + stations",
-      value: MRT_DISPLAY_LINE_COUNT,
-      tone: "text-signal-mrt",
-    },
-    {
-      key: "parks",
-      label: "Parks & Trails",
-      note: "parks · connectors · trails",
-      value: PARK_COUNT,
-      tone: "text-signal-park",
-    },
-    {
-      key: "incidents",
-      label: "Road Incidents",
-      note: "live events",
-      value: data.incidents.length,
-      tone: "text-signal-incident",
-    },
-    {
-      key: "carparks",
-      label: "Carparks",
-      note: "live free lots",
-      value: data.carparks.length,
-      tone: "text-signal-carpark",
-    },
-    {
-      key: "evChargers",
-      label: "EV Charging",
-      note: "live chargers",
-      value: data.evChargers.length,
-      tone: "text-signal-ev",
-    },
-    {
-      key: "malls",
-      label: "Malls",
-      note: "shopping centres",
-      value: MALLS.length,
-      tone: "text-signal-mall",
-    },
-    {
-      key: "hawkers",
-      label: "Hawker Centres",
-      note: "food centres",
-      value: HAWKER_CENTRES.length,
-      tone: "text-signal-hawker",
-    },
-  ];
+  // Exhaustive by design: a new registry layer without a count here is a
+  // type error, not a silently empty panel.
+  const layerCounts: Record<SensorKey, number> = {
+    flights: data.flights.length,
+    cameras: data.cameras.length,
+    busStops: data.busStops.length,
+    mrt: MRT_DISPLAY_LINE_COUNT,
+    parks: PARK_COUNT,
+    incidents: data.incidents.length,
+    carparks: data.carparks.length,
+    evChargers: data.evChargers.length,
+    malls: MALLS.length,
+    hawkers: HAWKER_CENTRES.length,
+  };
+  const sensorRows: SensorRow[] = LAYERS.map((layer) => ({
+    key: layer.key,
+    label: layer.label,
+    note: layer.note,
+    tone: layer.tone,
+    dot: layer.dot,
+    value: layerCounts[layer.key],
+  }));
   const sensorStatsRows: SensorStatsRow[] = [
     {
       label: "Inbound Flights",

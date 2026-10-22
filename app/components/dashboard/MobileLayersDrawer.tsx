@@ -2,24 +2,14 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
-import type {
-  SensorKey,
-  SensorRow,
-} from "@/app/hooks/use-dashboard-state";
-
-// Dot colors mirror the map legend tones in app/page.tsx.
-const DOT_TONE: Record<SensorKey, string> = {
-  flights: "bg-signal-inbound",
-  cameras: "bg-signal-camera",
-  busStops: "bg-signal-bus",
-  mrt: "bg-signal-mrt",
-  parks: "bg-signal-park",
-  incidents: "bg-signal-incident",
-  carparks: "bg-signal-carpark",
-  evChargers: "bg-signal-ev",
-  malls: "bg-signal-mall",
-  hawkers: "bg-signal-hawker",
-};
+import {
+  EyeGlyph,
+  LayerFilterInput,
+  LayerGroupHeader,
+} from "@/app/components/dashboard/LayerControls";
+import { useLayerList } from "@/app/hooks/use-layer-list";
+import type { SensorRow } from "@/app/hooks/use-dashboard-state";
+import type { SensorKey } from "@/lib/layers";
 
 export function MobileLayersDrawer({
   sensorRows,
@@ -35,6 +25,20 @@ export function MobileLayersDrawer({
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
+
+  const {
+    groups,
+    filter,
+    setFilter,
+    filterActive,
+    isGroupCollapsed,
+    toggleGroupCollapsed,
+    toggleGroupVisibility,
+  } = useLayerList({
+    rows: sensorRows,
+    visibility: sensorVisibility,
+    setVisibility: setSensorVisibility,
+  });
 
   const close = useCallback(() => {
     setOpen(false);
@@ -124,77 +128,95 @@ export function MobileLayersDrawer({
           </button>
         </div>
 
-        <div className="flex-1 space-y-1 overflow-y-auto p-2 pb-[calc(env(safe-area-inset-bottom)+0.5rem)]">
-          {sensorRows.map((row) => {
-            const visible = sensorVisibility[row.key];
-            return (
-              <button
-                key={row.key}
-                type="button"
-                onClick={() =>
-                  setSensorVisibility((previous) => ({
-                    ...previous,
-                    [row.key]: !previous[row.key],
-                  }))
-                }
-                aria-pressed={visible}
-                aria-label={`${visible ? "Hide" : "Show"} ${row.label}`}
-                title={`${visible ? "Hide" : "Show"} ${row.label}`}
-                className={`flex w-full items-center justify-between gap-3 rounded-sm border px-2.5 py-2.5 text-left transition-colors duration-150 ${
-                  visible
-                    ? "border-line-strong bg-surface-raised"
-                    : "border-line bg-paper"
-                }`}
-              >
-                <span className="flex min-w-0 items-center gap-2">
-                  <span
-                    aria-hidden="true"
-                    className={`h-2 w-2 shrink-0 rounded-full ${DOT_TONE[row.key]} ${
-                      visible ? "opacity-100" : "opacity-30"
-                    }`}
-                  />
-                  <span className="min-w-0">
-                    <span
-                      className={`block truncate text-xs ${
-                        visible ? "text-ink" : "text-faint"
-                      }`}
-                    >
-                      {row.label}
-                    </span>
-                    <span className="data-label block truncate">{row.note}</span>
-                  </span>
-                </span>
-                <span className="flex shrink-0 items-center gap-2">
-                  <span
-                    className={`font-mono text-sm font-medium ${row.tone} ${
-                      visible ? "" : "opacity-40"
-                    }`}
-                  >
-                    {row.value}
-                  </span>
-                  <svg
-                    viewBox="0 0 16 16"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.5"
-                    className={`h-3.5 w-3.5 shrink-0 ${
-                      visible ? "text-success" : "text-faint"
-                    }`}
-                    aria-hidden="true"
-                  >
-                    {visible ? (
-                      <>
-                        <path d="M1.5 8s2.25-4 6.5-4 6.5 4 6.5 4-2.25 4-6.5 4S1.5 8 1.5 8Z" />
-                        <circle cx="8" cy="8" r="1.75" />
-                      </>
-                    ) : (
-                      <path d="M2 2l12 12M6.4 4.2A7.5 7.5 0 0 1 8 4c4.25 0 6.5 4 6.5 4a8.7 8.7 0 0 1-2 2.45M9.6 11.8A7.5 7.5 0 0 1 8 12c-4.25 0-6.5-4-6.5-4a8.7 8.7 0 0 1 2-2.45" />
-                    )}
-                  </svg>
-                </span>
-              </button>
-            );
-          })}
+        {/* Filter stays pinned above the scroll area so it never scrolls away. */}
+        <div className="p-2 pb-0">
+          <LayerFilterInput value={filter} onChange={setFilter} />
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-2 pb-[calc(env(safe-area-inset-bottom)+0.5rem)]">
+          <div className="space-y-2">
+            {groups.map((group) => (
+              <section key={group.id}>
+                <LayerGroupHeader
+                  label={group.label}
+                  visibleCount={group.visibleCount}
+                  totalCount={group.rows.length}
+                  collapsed={isGroupCollapsed(group.id)}
+                  anyVisible={group.visibleCount > 0}
+                  onToggleCollapsed={() => toggleGroupCollapsed(group.id)}
+                  onToggleVisible={() => toggleGroupVisibility(group.id)}
+                />
+                {isGroupCollapsed(group.id) ? null : (
+                  <div className="mt-1 space-y-1">
+                    {group.rows.map((row) => {
+                      const visible = sensorVisibility[row.key];
+                      return (
+                        <button
+                          key={row.key}
+                          type="button"
+                          onClick={() =>
+                            setSensorVisibility((previous) => ({
+                              ...previous,
+                              [row.key]: !previous[row.key],
+                            }))
+                          }
+                          aria-pressed={visible}
+                          aria-label={`${visible ? "Hide" : "Show"} ${row.label}`}
+                          title={`${visible ? "Hide" : "Show"} ${row.label}`}
+                          className={`flex w-full items-center justify-between gap-3 rounded-sm border px-2.5 py-2.5 text-left transition-colors duration-150 ${
+                            visible
+                              ? "border-line-strong bg-surface-raised"
+                              : "border-line bg-paper"
+                          }`}
+                        >
+                          <span className="flex min-w-0 items-center gap-2">
+                            <span
+                              aria-hidden="true"
+                              className={`h-2 w-2 shrink-0 rounded-full ${row.dot} ${
+                                visible ? "opacity-100" : "opacity-30"
+                              }`}
+                            />
+                            <span className="min-w-0">
+                              <span
+                                className={`block truncate text-xs ${
+                                  visible ? "text-ink" : "text-faint"
+                                }`}
+                              >
+                                {row.label}
+                              </span>
+                              <span className="data-label block truncate">
+                                {row.note}
+                              </span>
+                            </span>
+                          </span>
+                          <span className="flex shrink-0 items-center gap-2">
+                            <span
+                              className={`font-mono text-sm font-medium ${row.tone} ${
+                                visible ? "" : "opacity-40"
+                              }`}
+                            >
+                              {row.value}
+                            </span>
+                            <EyeGlyph
+                              visible={visible}
+                              className={`h-3.5 w-3.5 shrink-0 ${
+                                visible ? "text-success" : "text-faint"
+                              }`}
+                            />
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </section>
+            ))}
+            {filterActive && groups.length === 0 ? (
+              <div className="px-2.5 py-3 text-[10px] uppercase tracking-[0.1em] text-muted">
+                No layers match
+              </div>
+            ) : null}
+          </div>
         </div>
       </aside>
     </>
