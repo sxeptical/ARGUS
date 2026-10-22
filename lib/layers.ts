@@ -33,7 +33,7 @@ export type SensorKey =
  * layers accumulate: the list grows by collapsible sections, not by rows.
  */
 export const LAYER_GROUPS = [
-  { id: "mobility", label: "Mobility" },
+  { id: "transport", label: "Transport" },
   { id: "ground", label: "Roads & Parking" },
   { id: "amenities", label: "Amenities" },
 ] as const;
@@ -66,7 +66,7 @@ export type LayerDefinition = {
 export const LAYERS: readonly LayerDefinition[] = [
   {
     key: "flights",
-    group: "mobility",
+    group: "transport",
     label: "Air Activity",
     note: "live tracks",
     tone: "text-signal-inbound",
@@ -79,7 +79,7 @@ export const LAYERS: readonly LayerDefinition[] = [
   },
   {
     key: "mrt",
-    group: "mobility",
+    group: "transport",
     label: "MRT & LRT",
     note: "lines + stations",
     tone: "text-signal-mrt",
@@ -88,7 +88,7 @@ export const LAYERS: readonly LayerDefinition[] = [
   },
   {
     key: "busStops",
-    group: "mobility",
+    group: "transport",
     label: "Bus Stops",
     note: "monitor points",
     tone: "text-signal-bus",
