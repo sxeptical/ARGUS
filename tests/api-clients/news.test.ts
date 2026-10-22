@@ -5,7 +5,7 @@ import {
   extractRssTag,
   isSingaporeRelevant,
   parseRssItems,
-} from "./news";
+} from "@/lib/api-clients/news";
 
 describe("decodeHtmlEntities", () => {
   test("decodes named, decimal, and hex entities", () => {

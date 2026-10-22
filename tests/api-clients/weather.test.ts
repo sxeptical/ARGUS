@@ -8,7 +8,7 @@ import {
   extractLatestUv,
   getUvStatus,
   getWeather,
-} from "./weather";
+} from "@/lib/api-clients/weather";
 
 const runWithFetch = (
   fetchImpl: (input: string | URL | Request) => Promise<Response>,

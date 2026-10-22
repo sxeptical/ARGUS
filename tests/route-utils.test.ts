@@ -6,15 +6,15 @@ import {
   SchemaParseError,
   TimeoutError,
   type AppError,
-} from "./errors";
-import type { AppContext } from "./effect-runtime";
+} from "@/lib/errors";
+import type { AppContext } from "@/lib/effect-runtime";
 import {
   BUS_SERVICE_NO_RE,
   BUS_STOP_ID_RE,
   handle,
   optionalQueryParam,
   requiredQueryParam,
-} from "./route-utils";
+} from "@/lib/route-utils";
 
 const options = { maxRequests: 120, serviceLabel: "Test feed" };
 
@@ -127,119 +127,93 @@ describe("handle", () => {
 });
 
 describe("handle error mapping", () => {
-  test("BadRequestError -> 400 with the message", async () => {
-    const response = await viaHandle(() =>
-      Effect.fail(
-        new BadRequestError({ message: "Query param stopId is required" }),
-      ),
-    );
-    expect(response.status).toBe(400);
-    expect(await response.json()).toEqual({
-      error: "Query param stopId is required",
-    });
-  });
+  const cases: Array<{
+    name: string;
+    error: AppError;
+    status: number;
+    body: { error: string };
+    retryAfter?: string;
+  }> = [
+    {
+      name: "BadRequestError -> 400 with the message",
+      error: new BadRequestError({ message: "Query param stopId is required" }),
+      status: 400,
+      body: { error: "Query param stopId is required" },
+    },
+    {
+      name: "missing/placeholder API key (ExternalApiError 401) -> 500 misconfigured",
+      error: new ExternalApiError({
+        service: "lta",
+        message: "Missing LTA_API_KEY",
+        status: 401,
+      }),
+      status: 500,
+      body: { error: "Test feed is not configured" },
+    },
+    {
+      name: "ExternalApiError 429 -> 429 with Retry-After: 60",
+      error: new ExternalApiError({
+        service: "lta",
+        message: "rate limited",
+        status: 429,
+      }),
+      status: 429,
+      retryAfter: "60",
+      body: { error: "Test feed is temporarily rate limited" },
+    },
+    {
+      name: "ExternalApiError 404 -> 404 with the upstream message",
+      error: new ExternalApiError({
+        service: "opensky",
+        message: "opensky returned 404",
+        status: 404,
+      }),
+      status: 404,
+      body: { error: "opensky returned 404" },
+    },
+    {
+      name: "ExternalApiError 503 -> 502 bad gateway",
+      error: new ExternalApiError({
+        service: "lta",
+        message: "down",
+        status: 503,
+      }),
+      status: 502,
+      body: { error: "Test feed is temporarily unavailable" },
+    },
+    {
+      name: "ExternalApiError 500 -> 502 temporarily unavailable",
+      error: new ExternalApiError({
+        service: "lta",
+        message: "server error",
+        status: 500,
+      }),
+      status: 502,
+      body: { error: "Test feed is temporarily unavailable" },
+    },
+    {
+      name: "TimeoutError -> 504",
+      error: new TimeoutError({ service: "lta", message: "timed out" }),
+      status: 504,
+      body: { error: "Test feed timed out" },
+    },
+    {
+      name: "SchemaParseError -> 502 unexpected response",
+      error: new SchemaParseError({ service: "lta", message: "bad shape" }),
+      status: 502,
+      body: { error: "Test feed returned an unexpected response" },
+    },
+  ];
 
-  test("missing/placeholder API key (ExternalApiError 401) -> 500 misconfigured", async () => {
-    const response = await viaHandle(() =>
-      Effect.fail(
-        new ExternalApiError({
-          service: "lta",
-          message: "Missing LTA_API_KEY",
-          status: 401,
-        }),
-      ),
-    );
-    expect(response.status).toBe(500);
-    expect(await response.json()).toEqual({
-      error: "Test feed is not configured",
-    });
-  });
-
-  test("ExternalApiError 429 -> 429 with Retry-After: 60", async () => {
-    const response = await viaHandle(() =>
-      Effect.fail(
-        new ExternalApiError({
-          service: "lta",
-          message: "rate limited",
-          status: 429,
-        }),
-      ),
-    );
-    expect(response.status).toBe(429);
-    expect(response.headers.get("Retry-After")).toBe("60");
-    expect(await response.json()).toEqual({
-      error: "Test feed is temporarily rate limited",
-    });
-  });
-
-  test("ExternalApiError 404 -> 404 with the upstream message", async () => {
-    const response = await viaHandle(() =>
-      Effect.fail(
-        new ExternalApiError({
-          service: "opensky",
-          message: "opensky returned 404",
-          status: 404,
-        }),
-      ),
-    );
-    expect(response.status).toBe(404);
-    expect(await response.json()).toEqual({ error: "opensky returned 404" });
-  });
-
-  test("ExternalApiError 503 -> 502 bad gateway", async () => {
-    const response = await viaHandle(() =>
-      Effect.fail(
-        new ExternalApiError({
-          service: "lta",
-          message: "down",
-          status: 503,
-        }),
-      ),
-    );
-    expect(response.status).toBe(502);
-    expect(await response.json()).toEqual({
-      error: "Test feed is temporarily unavailable",
-    });
-  });
-
-  test("ExternalApiError 500 -> 502 temporarily unavailable", async () => {
-    const response = await viaHandle(() =>
-      Effect.fail(
-        new ExternalApiError({
-          service: "lta",
-          message: "server error",
-          status: 500,
-        }),
-      ),
-    );
-    expect(response.status).toBe(502);
-    expect(await response.json()).toEqual({
-      error: "Test feed is temporarily unavailable",
-    });
-  });
-
-  test("TimeoutError -> 504", async () => {
-    const response = await viaHandle(() =>
-      Effect.fail(
-        new TimeoutError({ service: "lta", message: "timed out" }),
-      ),
-    );
-    expect(response.status).toBe(504);
-    expect(await response.json()).toEqual({
-      error: "Test feed timed out",
-    });
-  });
-
-  test("SchemaParseError -> 502 unexpected response", async () => {
-    const response = await viaHandle(() =>
-      Effect.fail(
-        new SchemaParseError({ service: "lta", message: "bad shape" }),
-      ),
-    );
-    expect(response.status).toBe(502);
-    expect(await response.json()).toEqual({
-      error: "Test feed returned an unexpected response",
-    });
+  test("maps every app error to its HTTP status, headers, and body", async () => {
+    for (const { name, error, status, body, retryAfter } of cases) {
+      const response = await viaHandle(() => Effect.fail(error));
+      expect(response.status, name).toBe(status);
+      if (retryAfter !== undefined) {
+        expect(response.headers.get("Retry-After"), name).toBe(retryAfter);
+      }
+      expect(await response.json(), name).toEqual(body);
+    }
   });
 });
 

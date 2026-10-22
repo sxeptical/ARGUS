@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { apiFetch } from "./api-fetch";
+import { apiFetch } from "@/lib/api-fetch";
 
 const originalFetch = globalThis.fetch;
 const originalSetTimeout = globalThis.setTimeout;
@@ -32,16 +32,14 @@ describe("apiFetch", () => {
     await expect(apiFetch("/api/x")).rejects.toThrow("rate limited");
   });
 
-  test("falls back to the HTTP status text when the error body is not JSON", async () => {
+  test("uses the server error envelope when present, else the HTTP status text", async () => {
     stubFetch(async () =>
       new Response("oops", { status: 500, statusText: "Internal Server Error" }),
     );
     await expect(apiFetch("/api/x")).rejects.toThrow(
       "HTTP 500: Internal Server Error",
     );
-  });
 
-  test("prefers the server error envelope over the HTTP status text", async () => {
     stubFetch(async () =>
       new Response(JSON.stringify({ error: "misconfigured" }), {
         status: 502,
