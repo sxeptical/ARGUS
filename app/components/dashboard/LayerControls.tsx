@@ -68,7 +68,7 @@ export function LayerGroupHeader({
         onClick={onToggleCollapsed}
         aria-expanded={!collapsed}
         aria-label={`${collapsed ? "Expand" : "Collapse"} ${label} layers`}
-        className="flex min-w-0 items-center gap-1.5 text-left text-[13px] font-semibold uppercase tracking-[0.12em] text-ink transition-colors duration-150 hover:text-muted"
+        className="flex min-w-0 items-center gap-1.5 text-left text-[8px] font-semibold uppercase tracking-[0.12em] text-ink transition-colors duration-150 hover:text-muted"
       >
         <svg
           viewBox="0 0 16 16"
