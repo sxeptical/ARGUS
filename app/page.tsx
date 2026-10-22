@@ -13,6 +13,7 @@ import {
   IntelPanel,
   KeyValue,
   LegendDot,
+  LegendSwatch,
   SignalBar,
 } from "@/app/components/dashboard/IntelPanel";
 import { LayersSidebar } from "@/app/components/dashboard/LayersSidebar";
@@ -22,6 +23,8 @@ import { useDashboardState } from "@/app/hooks/use-dashboard-state";
 import { formatAltitudeFeet, formatSpeedKmh } from "@/lib/formatters";
 import { buildHawkerSearchResults, buildMallSearchResults } from "@/lib/amenities";
 import { HAWKER_CENTRES, MALLS } from "@/lib/amenities-data";
+import { buildParkSearchResults, PARK_KIND_TITLE } from "@/lib/parks";
+import { PARKS_GEOJSON } from "@/lib/parks-data";
 import { buildBusStopSearchResults, MRT_STATION_SEARCH_RESULTS } from "@/lib/map-search";
 import { isRouteableMrtStation } from "@/lib/mrt-routing";
 import { buildSignalDigest } from "@/lib/signals";
@@ -30,7 +33,9 @@ import type { RegionalAqiReadings } from "@/types";
 const AMENITY_SEARCH_RESULTS = [
   ...buildMallSearchResults(MALLS),
   ...buildHawkerSearchResults(HAWKER_CENTRES),
+  ...buildParkSearchResults(PARKS_GEOJSON),
 ];
+const SEARCH_LAYER_BY_TYPE = { mall: "malls", hawker: "hawkers", park: "parks" } as const;
 
 export default function Home() {
   const {
@@ -164,9 +169,9 @@ export default function Home() {
                   if (stop) handleSelectStop(stop);
                 } else if (result.type === "mrt" && isRouteableMrtStation(result.name)) {
                   pickMrtStation(result.name);
-                } else if (result.type === "mall" || result.type === "hawker") {
+                } else if (result.type === "mall" || result.type === "hawker" || result.type === "park") {
                   // Make sure the searched place is actually drawn when we land on it.
-                  const layer = result.type === "mall" ? "malls" : "hawkers";
+                  const layer = SEARCH_LAYER_BY_TYPE[result.type];
                   setSensorVisibility((previous) => ({ ...previous, [layer]: true }));
                 }
               }}
@@ -180,14 +185,16 @@ export default function Home() {
             <div className="pointer-events-none absolute left-2 top-2 border border-line bg-overlay px-2.5 py-1.5 text-[10px] uppercase tracking-[0.12em] text-ink">
               Live map <span className="ml-2 text-muted">Singapore</span>
             </div>
-            <div className="absolute bottom-2 left-2 right-2 flex flex-nowrap gap-x-3 gap-y-1 overflow-x-auto whitespace-nowrap sm:pointer-events-none sm:flex-wrap sm:overflow-visible border border-line bg-overlay px-2.5 py-1.5 text-[10px] uppercase tracking-[0.1em] text-muted sm:right-auto sm:text-[9px]">
+            <div className="absolute bottom-2 left-2 right-2 flex flex-nowrap gap-x-3 gap-y-1 overflow-x-auto whitespace-nowrap sm:pointer-events-none sm:flex-wrap sm:overflow-visible border border-line bg-overlay px-2.5 py-1.5 text-[10px] uppercase tracking-[0.1em] text-muted sm:right-auto sm:max-w-[calc(100%-27rem)] sm:text-[9px]">
               {sensorVisibility.flights ? <LegendDot tone="bg-signal-inbound" label="Inbound" /> : null}
               {sensorVisibility.flights ? <LegendDot tone="bg-signal-outbound" label="Outbound" /> : null}
               {sensorVisibility.flights ? <LegendDot tone="bg-signal-transit" label="Transit" /> : null}
               {sensorVisibility.busStops ? <LegendDot tone="bg-signal-bus" label="Bus" /> : null}
               {sensorVisibility.cameras ? <LegendDot tone="bg-signal-camera" label="Cameras" /> : null}
               {sensorVisibility.mrt ? <LegendDot tone="bg-signal-mrt" label="MRT" /> : null}
-              {sensorVisibility.parks ? <LegendDot tone="bg-signal-park" label="Parks" /> : null}
+              {sensorVisibility.parks ? <LegendSwatch shape="area" tone="border-signal-park bg-signal-park/30" label="Parks" /> : null}
+              {sensorVisibility.parks ? <LegendSwatch shape="line" tone="bg-signal-park" label="Park connectors" /> : null}
+              {sensorVisibility.parks ? <LegendSwatch shape="dashed" tone="border-signal-park" label="Trails" /> : null}
               {sensorVisibility.incidents ? <LegendDot tone="bg-signal-incident" label="Incidents" /> : null}
               {sensorVisibility.carparks ? <LegendDot tone="bg-signal-carpark" label="Carparks" /> : null}
               {sensorVisibility.evChargers ? <LegendDot tone="bg-signal-ev" label="EV" /> : null}
@@ -263,7 +270,7 @@ export default function Home() {
           <div className="order-first xl:order-none">
           <IntelPanel
             title="Target Focus"
-              badge={selectedFlight ? "Flight Locked" : selectedPark ? "Recreation Locked" : "Standby"}
+              badge={selectedFlight ? "Flight Locked" : selectedPark ? "Park Locked" : "Standby"}
           >
             {selectedFlight ? (
               <div className="space-y-2 text-xs">
@@ -298,10 +305,12 @@ export default function Home() {
               </div>
             ) : selectedPark ? (
               <div className="space-y-2 text-xs">
-                <div className="border border-line bg-paper p-2.5"><div className="font-mono text-sm font-medium text-ink">{selectedPark.name}</div><div className="data-label">{selectedPark.kind === "park" ? "PARK" : selectedPark.kind === "pcn" ? "PARK CONNECTOR" : "TRAIL"}</div></div>
-                {selectedPark.park ? <KeyValue label="Park" value={selectedPark.park} /> : null}
-                <KeyValue label="Access" value={selectedPark.cycle ? "CYCLING PERMITTED" : "WALKING TRAIL"} />
-                {selectedPark.type ? <KeyValue label="Type" value={selectedPark.type} /> : null}
+                <div className="border border-line bg-paper p-2.5"><div className="font-mono text-sm font-medium text-ink">{selectedPark.name}</div><div className="data-label">{PARK_KIND_TITLE[selectedPark.kind]}</div></div>
+                {selectedPark.kind === "park" && selectedPark.areaHa ? <KeyValue label="Size" value={`${selectedPark.areaHa.toLocaleString("en-SG")} ha`} /> : null}
+                {selectedPark.kind === "pcn" ? <KeyValue label="Use" value="Walking, running, cycling" /> : null}
+                {selectedPark.kind === "trail" && selectedPark.park ? <KeyValue label="Park" value={selectedPark.park} /> : null}
+                {selectedPark.kind === "trail" ? <KeyValue label="Access" value={selectedPark.cycle ? "Walking and cycling" : "Walking only"} /> : null}
+                {selectedPark.kind === "trail" && selectedPark.type ? <KeyValue label="Type" value={selectedPark.type} /> : null}
               </div>
             ) : (
               <div className="text-xs leading-relaxed text-muted">

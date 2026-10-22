@@ -178,6 +178,8 @@ export interface ParksGeoJson {
       park?: string;
       type?: string;
       cycle?: boolean;
+      /** Park areas only, derived at load from the polygon. */
+      areaHa?: number;
     };
   }>;
 }

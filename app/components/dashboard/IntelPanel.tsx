@@ -62,6 +62,22 @@ export function KeyValue({ label, value }: { label: string; value: string }) {
   );
 }
 
+/** Legend key for area and path layers: a filled area, a solid or a dashed line. */
+export function LegendSwatch({ shape, tone, label }: { shape: "area" | "line" | "dashed"; tone: string; label: string }) {
+  const swatch =
+    shape === "area"
+      ? `h-2 w-3 rounded-[1px] border ${tone}`
+      : shape === "line"
+        ? `h-0.5 w-3 rounded-full ${tone}`
+        : `w-3 border-t border-dashed ${tone}`;
+  return (
+    <span className="inline-flex items-center gap-1">
+      <span className={swatch} />
+      <span>{label}</span>
+    </span>
+  );
+}
+
 export function LegendDot({ tone, label }: { tone: string; label: string }) {
   return (
     <span className="inline-flex items-center gap-1">

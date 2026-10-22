@@ -157,8 +157,8 @@ export function useDashboardState() {
     },
     {
       key: "parks",
-      label: "Recreation",
-      note: "parks + trails",
+      label: "Parks & Trails",
+      note: "parks · connectors · trails",
       value: PARK_COUNT,
       tone: "text-signal-park",
     },

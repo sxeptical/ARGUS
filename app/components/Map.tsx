@@ -35,7 +35,8 @@ import {
 } from "@/lib/mobility";
 import { describeHawkerCentre, describeMall } from "@/lib/amenities";
 import { HAWKER_CENTRES, MALLS } from "@/lib/amenities-data";
-import { PARKS_GEOJSON } from "@/lib/parks-data";
+import { PARK_LABELS_GEOJSON, PARKS_GEOJSON } from "@/lib/parks-data";
+import { describeParkFeature, PARK_KIND_TITLE } from "@/lib/parks";
 import type {
   AqiRegionKey,
   BusStop,
@@ -101,6 +102,8 @@ const MAP_COLORS = {
   info: "#73b9d9",
   bus: "#54ffae",
   park: "#73d99a",
+  parkConnector: "#8ff0b0",
+  trail: "#d2f5de",
   carpark: "#8a9cf5",
   ev: "#4fd6e6",
   mall: "#e879c6",
@@ -509,7 +512,9 @@ function useMapController({
     setLayerVisibility("mrt-stations-layer", sensorVisibility.mrt);
     setLayerVisibility("mrt-stations-label-layer", sensorVisibility.mrt);
     setLayerVisibility("parks-fill-layer", sensorVisibility.parks);
+    setLayerVisibility("parks-outline-layer", sensorVisibility.parks);
     setLayerVisibility("parks-label-layer", sensorVisibility.parks);
+    setLayerVisibility("pcn-casing-layer", sensorVisibility.parks);
     setLayerVisibility("pcn-lines-layer", sensorVisibility.parks);
     setLayerVisibility("trails-lines-layer", sensorVisibility.parks);
     setLayerVisibility("incidents-point-layer", sensorVisibility.incidents);
@@ -723,6 +728,54 @@ function useMapController({
       const hawker = typeof id === "string" ? HAWKERS_BY_ID.get(id) : undefined;
       if (hawker) showHoverPopup(event.lngLat, "HAWKER CENTRE", "text-signal-hawker", describeHawkerCentre(hawker), hawker.photos.map((photo, index) => ({ src: photo.thumb, alt: `${hawker.name} photo ${index + 1}` })));
     };
+    // Parks overlap their own connectors and trails, so one map-level hover
+    // picks the topmost recreation feature rather than racing per-layer
+    // enter/leave events. It never replaces another layer's popup.
+    const PARK_PATH_LAYERS = ["pcn-lines-layer", "trails-lines-layer"];
+    // Paths are a few pixels wide; let the cursor be this close to count.
+    const PARK_PATH_HOVER_PX = 5;
+    let parkPopup: maplibregl.Popup | null = null;
+    let parkHoverKey: string | null = null;
+    const clearParkPopup = () => {
+      if (!parkPopup) return;
+      parkPopup.remove();
+      if (hoverPopupRef.current === parkPopup) hoverPopupRef.current = null;
+      parkPopup = null;
+      parkHoverKey = null;
+    };
+    const handleParkHover = (event: maplibregl.MapMouseEvent) => {
+      if (hoverPopupRef.current && hoverPopupRef.current !== parkPopup) return;
+      const visible = sensorVisibilityRef.current.parks;
+      const pathLayers = visible ? PARK_PATH_LAYERS.filter((id) => map.getLayer(id)) : [];
+      const { x, y } = event.point;
+      const near: [maplibregl.PointLike, maplibregl.PointLike] = [[x - PARK_PATH_HOVER_PX, y - PARK_PATH_HOVER_PX], [x + PARK_PATH_HOVER_PX, y + PARK_PATH_HOVER_PX]];
+      const properties =
+        (pathLayers.length ? map.queryRenderedFeatures(near, { layers: pathLayers })[0]?.properties : undefined) ??
+        (visible && map.getLayer("parks-fill-layer") ? map.queryRenderedFeatures(event.point, { layers: ["parks-fill-layer"] })[0]?.properties : undefined);
+      const kind = properties?.kind as ParkFeatureKind | undefined;
+      if (!properties || !kind || !(kind in PARK_KIND_TITLE) || typeof properties.name !== "string") {
+        clearParkPopup();
+        return;
+      }
+      const key = `${kind}:${properties.name}`;
+      if (key === parkHoverKey && parkPopup && hoverPopupRef.current === parkPopup) return;
+      showHoverPopup(event.lngLat, PARK_KIND_TITLE[kind], "text-signal-park", describeParkFeature({
+        kind,
+        name: properties.name,
+        ...(typeof properties.park === "string" ? { park: properties.park } : {}),
+        ...(typeof properties.type === "string" ? { type: properties.type } : {}),
+        cycle: properties.cycle === true || properties.cycle === "true",
+        ...(typeof properties.areaHa === "number" ? { areaHa: properties.areaHa } : {}),
+      }));
+      parkPopup = hoverPopupRef.current;
+      parkHoverKey = key;
+    };
+    map.on("mousemove", handleParkHover);
+    map.on("mouseout", clearParkPopup);
+    layerListenerCleanups.push(() => {
+      map.off("mousemove", handleParkHover);
+      map.off("mouseout", clearParkPopup);
+    });
     const handleHoverPopupLeave = () => {
       hoverPopupRef.current?.remove();
       hoverPopupRef.current = null;
@@ -1429,11 +1482,24 @@ function useMapController({
           );
         }
 
+        // Recreation reads as three things: park areas (filled + outlined),
+        // park connectors (solid island-wide paths) and trails (dashed paths
+        // inside parks, from street zoom). Big parks are labelled first.
+        const parksVisibility = sensorVisibilityRef.current.parks ? "visible" : "none";
         map.addSource("parks-data", { type: "geojson", data: PARKS_GEOJSON });
-        map.addLayer({ id: "parks-fill-layer", type: "fill", source: "parks-data", filter: ["==", ["get", "kind"], "park"], layout: { visibility: sensorVisibilityRef.current.parks ? "visible" : "none" }, paint: { "fill-color": MAP_COLORS.park, "fill-opacity": 0.07 } });
-        map.addLayer({ id: "parks-label-layer", type: "symbol", source: "parks-data", minzoom: 11.5, filter: ["==", ["get", "kind"], "park"], layout: { visibility: sensorVisibilityRef.current.parks ? "visible" : "none", "text-field": ["get", "name"], "text-size": 10 }, paint: { "text-color": MAP_COLORS.park, "text-halo-color": MAP_COLORS.paper, "text-halo-width": 1 } });
-        map.addLayer({ id: "pcn-lines-layer", type: "line", source: "parks-data", filter: ["==", ["get", "kind"], "pcn"], layout: { visibility: sensorVisibilityRef.current.parks ? "visible" : "none", "line-cap": "round", "line-join": "round" }, paint: { "line-color": MAP_COLORS.park, "line-width": 1.6 } });
-        map.addLayer({ id: "trails-lines-layer", type: "line", source: "parks-data", minzoom: 12.5, filter: ["==", ["get", "kind"], "trail"], layout: { visibility: sensorVisibilityRef.current.parks ? "visible" : "none", "line-cap": "round", "line-join": "round" }, paint: { "line-color": MAP_COLORS.park, "line-width": 1, "line-dasharray": [2, 2] } });
+        map.addLayer({ id: "parks-fill-layer", type: "fill", source: "parks-data", filter: ["==", ["get", "kind"], "park"], layout: { visibility: parksVisibility }, paint: { "fill-color": MAP_COLORS.park, "fill-opacity": ["interpolate", ["linear"], ["zoom"], 10, 0.24, 15, 0.14] } });
+        map.addLayer({ id: "parks-outline-layer", type: "line", source: "parks-data", filter: ["==", ["get", "kind"], "park"], layout: { visibility: parksVisibility }, paint: { "line-color": MAP_COLORS.park, "line-width": 0.8, "line-opacity": 0.6 } });
+        map.addLayer({ id: "trails-lines-layer", type: "line", source: "parks-data", minzoom: 12, filter: ["==", ["get", "kind"], "trail"], layout: { visibility: parksVisibility, "line-cap": "round", "line-join": "round" }, paint: { "line-color": MAP_COLORS.trail, "line-width": 1.2, "line-opacity": 0.85, "line-dasharray": [1.6, 1.4] } });
+        map.addLayer({ id: "pcn-casing-layer", type: "line", source: "parks-data", filter: ["==", ["get", "kind"], "pcn"], layout: { visibility: parksVisibility, "line-cap": "round", "line-join": "round" }, paint: { "line-color": MAP_COLORS.paper, "line-width": ["interpolate", ["linear"], ["zoom"], 10, 3, 15, 5], "line-opacity": 0.7 } });
+        map.addLayer({ id: "pcn-lines-layer", type: "line", source: "parks-data", filter: ["==", ["get", "kind"], "pcn"], layout: { visibility: parksVisibility, "line-cap": "round", "line-join": "round" }, paint: { "line-color": MAP_COLORS.parkConnector, "line-width": ["interpolate", ["linear"], ["zoom"], 10, 1.6, 15, 3] } });
+        map.addSource("park-labels", { type: "geojson", data: PARK_LABELS_GEOJSON });
+        map.addLayer({ id: "parks-label-layer", type: "symbol", source: "park-labels", minzoom: 10.5, layout: {
+          visibility: parksVisibility,
+          // Only parks of 40 ha+ until street zoom, so the island view isn't a wall of names.
+          "text-field": ["step", ["zoom"], ["case", [">=", ["coalesce", ["get", "areaHa"], 0], 40], ["get", "name"], ""], 13, ["get", "name"]],
+          "text-size": 10,
+          "symbol-sort-key": ["-", 0, ["coalesce", ["get", "areaHa"], 0]],
+        }, paint: { "text-color": MAP_COLORS.park, "text-halo-color": MAP_COLORS.paper, "text-halo-width": 1.2 } });
         for (const layerId of ["parks-fill-layer", "pcn-lines-layer", "trails-lines-layer"]) {
           layerListenerCleanups.push(registerLayerMouseListener(map, "click", layerId, handleParkClick), registerLayerMouseListener(map, "mouseenter", layerId, handleInteractiveLayerEnter), registerLayerMouseListener(map, "mouseleave", layerId, handleInteractiveLayerLeave));
         }
