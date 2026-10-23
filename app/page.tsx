@@ -19,9 +19,10 @@ import {
 import { LayersSidebar } from "@/app/components/dashboard/LayersSidebar";
 import { LoadingScreen } from "@/app/components/dashboard/LoadingScreen";
 import { MobileLayersDrawer } from "@/app/components/dashboard/MobileLayersDrawer";
+import { PlacePhotoGallery } from "@/app/components/dashboard/PlacePhotoGallery";
 import { useDashboardState } from "@/app/hooks/use-dashboard-state";
 import { formatAltitudeFeet, formatSpeedKmh } from "@/lib/formatters";
-import { buildHawkerSearchResults, buildMallSearchResults } from "@/lib/amenities";
+import { buildHawkerSearchResults, buildMallSearchResults, formatOpeningHours } from "@/lib/amenities";
 import { HAWKER_CENTRES, MALLS } from "@/lib/amenities-data";
 import { buildParkSearchResults, PARK_KIND_TITLE } from "@/lib/parks";
 import { PARKS_GEOJSON } from "@/lib/parks-data";
@@ -62,6 +63,7 @@ export default function Home() {
     pickMrtStation,
     resetMrtRoute,
     selectBusRouteDirection,
+    selectedAmenity,
     selectedCamera,
     selectedFlight,
     selectedPark,
@@ -73,6 +75,7 @@ export default function Home() {
     setMrtMapPickTarget,
     setMrtStartStation,
     setSelectedCamera,
+    setSelectedAmenity,
     setSelectedFlight,
     setSelectedPark,
     setSensorVisibility,
@@ -146,6 +149,7 @@ export default function Home() {
               onCameraClick={setSelectedCamera}
               onFlightClick={setSelectedFlight}
               onParkClick={setSelectedPark}
+              onAmenityClick={setSelectedAmenity}
               onMrtStationClick={pickMrtStation}
               mrtRouteSegments={mrtRoutePlan?.segments ?? []}
               busRouteOverlay={busRouteOverlay}
@@ -169,10 +173,15 @@ export default function Home() {
                   if (stop) handleSelectStop(stop);
                 } else if (result.type === "mrt" && isRouteableMrtStation(result.name)) {
                   pickMrtStation(result.name);
-                } else if (result.type === "mall" || result.type === "hawker" || result.type === "park") {
-                  // Make sure the searched place is actually drawn when we land on it.
+                } else if (result.type === "mall" || result.type === "hawker") {
+                  // Land in Target Focus, not just on the map, and make sure
+                  // the searched place is actually drawn when we get there.
+                  setSelectedAmenity({ type: result.type, id: result.id });
                   const layer = SEARCH_LAYER_BY_TYPE[result.type];
                   setSensorVisibility((previous) => ({ ...previous, [layer]: true }));
+                } else if (result.type === "park") {
+                  // Make sure the searched place is actually drawn when we land on it.
+                  setSensorVisibility((previous) => ({ ...previous, parks: true }));
                 }
               }}
             />
@@ -270,7 +279,7 @@ export default function Home() {
           <div className="order-first xl:order-none">
           <IntelPanel
             title="Target Focus"
-              badge={selectedFlight ? "Flight Locked" : selectedPark ? "Park Locked" : "Standby"}
+              badge={selectedFlight ? "Flight Locked" : selectedPark ? "Park Locked" : selectedAmenity ? (selectedAmenity.type === "mall" ? "Mall Locked" : "Hawker Locked") : "Standby"}
           >
             {selectedFlight ? (
               <div className="space-y-2 text-xs">
@@ -312,9 +321,31 @@ export default function Home() {
                 {selectedPark.kind === "trail" ? <KeyValue label="Access" value={selectedPark.cycle ? "Walking and cycling" : "Walking only"} /> : null}
                 {selectedPark.kind === "trail" && selectedPark.type ? <KeyValue label="Type" value={selectedPark.type} /> : null}
               </div>
+            ) : selectedAmenity ? (
+              <div className="space-y-2 text-xs">
+                {selectedAmenity.type === "mall" ? (
+                  <>
+                    <div className="border border-line bg-paper p-2.5"><div className="font-mono text-sm font-medium text-ink">{selectedAmenity.mall.name}</div><div className="data-label">Shopping Mall</div></div>
+                    <PlacePhotoGallery key={selectedAmenity.mall.id} name={selectedAmenity.mall.name} photos={selectedAmenity.mall.photos} />
+                    {selectedAmenity.mall.stores !== null ? <KeyValue label="Shops" value={selectedAmenity.mall.stores.toLocaleString("en-SG")} /> : null}
+                    {selectedAmenity.mall.fnb !== null ? <KeyValue label="Food & Drink" value={selectedAmenity.mall.fnb.toLocaleString("en-SG")} /> : null}
+                    {selectedAmenity.mall.nearestMrt ? <KeyValue label="Nearest MRT" value={selectedAmenity.mall.nearestMrt} /> : null}
+                    {selectedAmenity.mall.openingHours ? <KeyValue label="Hours" value={formatOpeningHours(selectedAmenity.mall.openingHours) ?? selectedAmenity.mall.openingHours} /> : null}
+                    {selectedAmenity.mall.address ? <KeyValue label="Address" value={selectedAmenity.mall.address} /> : null}
+                  </>
+                ) : (
+                  <>
+                    <div className="border border-line bg-paper p-2.5"><div className="font-mono text-sm font-medium text-ink">{selectedAmenity.hawker.name}</div><div className="data-label">Hawker Centre</div></div>
+                    <PlacePhotoGallery key={selectedAmenity.hawker.id} name={selectedAmenity.hawker.name} photos={selectedAmenity.hawker.photos} />
+                    {selectedAmenity.hawker.status === "planned" ? <KeyValue label="Status" value={selectedAmenity.hawker.expectedYear ? `Under construction · expected ${selectedAmenity.hawker.expectedYear}` : "Under construction"} /> : <KeyValue label="Status" value="In operation" />}
+                    {selectedAmenity.hawker.stalls !== null ? <KeyValue label="Stalls" value={`${selectedAmenity.hawker.stalls.toLocaleString("en-SG")} cooked food`} /> : null}
+                    {selectedAmenity.hawker.address ? <KeyValue label="Address" value={selectedAmenity.hawker.address} /> : null}
+                  </>
+                )}
+              </div>
             ) : (
               <div className="text-xs leading-relaxed text-muted">
-                Select a flight or park on the map to inspect it here.
+                Select a flight, park or amenity on the map to inspect it here.
               </div>
             )}
           </IntelPanel>

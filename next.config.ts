@@ -88,6 +88,10 @@ const nextConfig: NextConfig = {
         protocol: "https",
         hostname: "dm-traffic-camera-itsc.s3.ap-southeast-1.amazonaws.com",
       },
+      // Mall / hawker centre photos (Wikimedia Commons, NEA).
+      { protocol: "https", hostname: "thumb.wikimedia.org" },
+      { protocol: "https", hostname: "upload.wikimedia.org" },
+      { protocol: "https", hostname: "www.nea.gov.sg" },
     ],
   },
   async headers() {
