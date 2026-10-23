@@ -21,6 +21,8 @@ type BusPanelProps = {
   onShowRoute?: (serviceNo: string) => void;
   onClearRoute?: () => void;
   onSelectRouteDirection?: (direction: number) => void;
+  /** Set while a radius filter limits `busStops`, e.g. "2.5 km radius". */
+  searchScope?: string;
 };
 
 type BusArrivalHistoryPoint = {
@@ -112,6 +114,7 @@ export default function BusPanel({
   onShowRoute,
   onClearRoute,
   onSelectRouteDirection,
+  searchScope,
 }: BusPanelProps) {
   const [search, setSearch] = useState("");
   const [expandedService, setExpandedService] = useState<{
@@ -223,7 +226,11 @@ export default function BusPanel({
           type="text"
           value={search}
           onChange={(event) => setSearch(event.target.value)}
-          placeholder="Search bus stop code or name"
+          placeholder={
+            searchScope
+              ? `Search stops within ${searchScope}`
+              : "Search bus stop code or name"
+          }
           className="field-control text-xs"
         />
 
@@ -248,7 +255,9 @@ export default function BusPanel({
           </div>
         ) : searchQuery ? (
           <div className="text-[11px] text-muted">
-            No stops match &ldquo;{searchQuery}&rdquo;. Try a stop code, road, or description.
+            {searchScope
+              ? <>No stops within the {searchScope} match &ldquo;{searchQuery}&rdquo;. Widen or clear the radius filter to search further.</>
+              : <>No stops match &ldquo;{searchQuery}&rdquo;. Try a stop code, road, or description.</>}
           </div>
         ) : null}
 

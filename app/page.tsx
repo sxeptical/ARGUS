@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import BusPanel from "@/app/components/BusPanel";
 import CameraPanel from "@/app/components/CameraPanel";
 import Map, { type MapSearchTarget } from "@/app/components/Map";
@@ -9,6 +9,7 @@ import MrtRoutePanel from "@/app/components/MrtRoutePanel";
 import NewsPanel from "@/app/components/NewsPanel";
 import UpdateAvailableToast from "@/app/components/UpdateAvailableToast";
 import { DashboardHeader } from "@/app/components/dashboard/DashboardHeader";
+import { GeoFilterPanel } from "@/app/components/dashboard/GeoFilterPanel";
 import {
   IntelPanel,
   KeyValue,
@@ -20,23 +21,29 @@ import { LoadingScreen } from "@/app/components/dashboard/LoadingScreen";
 import { MobileLayersDrawer } from "@/app/components/dashboard/MobileLayersDrawer";
 import { useDashboardState } from "@/app/hooks/use-dashboard-state";
 import { formatAltitudeFeet, formatSpeedKmh } from "@/lib/formatters";
+import { formatRadius, withinRadius } from "@/lib/geo-filter";
 import { buildBusStopSearchResults, MRT_STATION_SEARCH_RESULTS } from "@/lib/map-search";
-import { isRouteableMrtStation } from "@/lib/mrt-routing";
+import { MRT_STATION_NAMES } from "@/lib/mrt-routing";
 import { buildSignalDigest } from "@/lib/signals";
 import type { RegionalAqiReadings } from "@/types";
 
 export default function Home() {
   const {
     activeSources,
+    allBusStops,
     bootComplete,
     busRouteOverlay,
     busRouteState,
     busStops,
     cameras,
     clearBusRoute,
+    clearGeoFilter,
     disruptedMrtLines,
     error,
     flights,
+    geoFilter,
+    geoFilterPicking,
+    geoFilterRadiusM,
     incidents,
     handleSelectStop,
     mrtEndStation,
@@ -45,6 +52,7 @@ export default function Home() {
     mrtStartStation,
     news,
     onlineSourceCount,
+    pickGeoFilterCenter,
     pickMrtStation,
     resetMrtRoute,
     selectBusRouteDirection,
@@ -55,6 +63,8 @@ export default function Home() {
     sensorRows,
     sensorStatsRows,
     sensorVisibility,
+    setGeoFilterPicking,
+    setGeoFilterRadiusM,
     setMrtEndStation,
     setMrtMapPickTarget,
     setMrtStartStation,
@@ -76,6 +86,28 @@ export default function Home() {
   const [searchTarget, setSearchTarget] = useState<MapSearchTarget | null>(null);
   const [aqiMapRegions, setAqiMapRegions] =
     useState<RegionalAqiReadings | null>(null);
+  // Searches and station pickers only reach what the radius filter shows:
+  // `busStops` is already scoped, and MRT stations are scoped here.
+  const mrtStationsInRadius = useMemo(
+    () =>
+      withinRadius(MRT_STATION_SEARCH_RESULTS, geoFilter, (result) => [
+        result.lng,
+        result.lat,
+      ]),
+    [geoFilter],
+  );
+  const mapSearchResults = useMemo(
+    () => [...mrtStationsInRadius, ...buildBusStopSearchResults(busStops)],
+    [busStops, mrtStationsInRadius],
+  );
+  const mrtRouterStations = useMemo(() => {
+    if (!geoFilter) return MRT_STATION_NAMES;
+    const inside = new Set(mrtStationsInRadius.map((result) => result.name));
+    return MRT_STATION_NAMES.filter((station) => inside.has(station));
+  }, [geoFilter, mrtStationsInRadius]);
+  const searchScope = geoFilter
+    ? `${formatRadius(geoFilter.radiusM)} radius`
+    : undefined;
   const signalToneClass = (tone: "danger" | "warning" | "info" | "muted") =>
     tone === "danger" ? "text-danger" : tone === "warning" ? "text-warning" : tone === "info" ? "text-info" : "text-muted";
 
@@ -115,12 +147,23 @@ export default function Home() {
           weather={weather}
           weatherHistory={weatherHistory}
           onAqiMapOverlayChange={setAqiMapRegions}
+          geoFilterPanel={
+            <GeoFilterPanel
+              filter={geoFilter}
+              radiusM={geoFilterRadiusM}
+              picking={geoFilterPicking}
+              onRadiusChange={setGeoFilterRadiusM}
+              onPickingChange={setGeoFilterPicking}
+              onClear={clearGeoFilter}
+            />
+          }
         />
 
         <section className="contents xl:order-2 xl:grid xl:min-w-0 xl:gap-3 xl:min-h-0 xl:grid-rows-[minmax(0,1fr)_minmax(236px,38%)]">
           <section className="relative order-1 h-[45dvh] xl:order-none min-h-72 overflow-hidden border border-line bg-surface xl:h-auto xl:min-h-0">
             <Map
               busStops={busStops}
+              allBusStops={allBusStops}
               cameras={cameras}
               flights={flights}
               incidents={incidents}
@@ -135,12 +178,13 @@ export default function Home() {
               busRouteOverlay={busRouteOverlay}
               disruptedMrtLines={disruptedMrtLines}
               searchTarget={searchTarget}
+              geoFilter={geoFilter}
+              geoFilterPicking={geoFilterPicking}
+              onGeoFilterPick={pickGeoFilterCenter}
             />
             <MapSearch
-              results={[
-                ...MRT_STATION_SEARCH_RESULTS,
-                ...buildBusStopSearchResults(busStops),
-              ]}
+              results={mapSearchResults}
+              scope={searchScope}
               onSelect={(result) => {
                 setSearchTarget({
                   lat: result.lat,
@@ -150,8 +194,6 @@ export default function Home() {
                 if (result.type === "bus-stop") {
                   const stop = busStops.find((item) => item.BusStopCode === result.id);
                   if (stop) handleSelectStop(stop);
-                } else if (result.type === "mrt" && isRouteableMrtStation(result.name)) {
-                  pickMrtStation(result.name);
                 }
               }}
             />
@@ -163,7 +205,22 @@ export default function Home() {
             />
             <div className="pointer-events-none absolute left-2 top-2 border border-line bg-overlay px-2.5 py-1.5 text-[10px] uppercase tracking-[0.12em] text-ink">
               Live map <span className="ml-2 text-muted">Singapore</span>
+              {geoFilter ? (
+                <span className="ml-2 text-info">· {formatRadius(geoFilter.radiusM)} radius</span>
+              ) : null}
             </div>
+            {geoFilterPicking ? (
+              <div className="absolute left-1/2 top-2 z-10 flex -translate-x-1/2 items-center gap-2 border border-info/50 bg-overlay px-2.5 py-1.5 text-[10px] uppercase tracking-[0.1em] text-info">
+                <span className="whitespace-nowrap">Click map to set centre</span>
+                <button
+                  type="button"
+                  onClick={() => setGeoFilterPicking(false)}
+                  className="text-muted transition-colors duration-150 hover:text-ink"
+                >
+                  Esc
+                </button>
+              </div>
+            ) : null}
             <div className="absolute bottom-2 left-2 right-2 flex flex-nowrap gap-x-3 gap-y-1 overflow-x-auto whitespace-nowrap sm:pointer-events-none sm:flex-wrap sm:overflow-visible border border-line bg-overlay px-2.5 py-1.5 text-[10px] uppercase tracking-[0.1em] text-muted sm:right-auto sm:text-[9px]">
               {sensorVisibility.flights ? <LegendDot tone="bg-signal-inbound" label="Inbound" /> : null}
               {sensorVisibility.flights ? <LegendDot tone="bg-signal-outbound" label="Outbound" /> : null}
@@ -187,11 +244,14 @@ export default function Home() {
                 mapPickTarget={mrtMapPickTarget}
                 onMapPickTargetChange={setMrtMapPickTarget}
                 onReset={resetMrtRoute}
+                stations={mrtRouterStations}
+                stationScope={searchScope}
               />
             </div>
             <div className="max-h-[60dvh] min-h-0 overflow-auto xl:max-h-none">
               <BusPanel
                 busStops={busStops}
+                searchScope={searchScope}
                 selectedStop={selectedStop}
                 onSelectStop={handleSelectStop}
                 routeState={busRouteState}

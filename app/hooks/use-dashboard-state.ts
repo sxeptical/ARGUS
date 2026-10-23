@@ -6,8 +6,14 @@ import { useDashboardSources } from "@/app/hooks/use-dashboard-sources";
 import { useMrtPlanner } from "@/app/hooks/use-mrt-planner";
 import { useWeatherHistory } from "@/app/hooks/use-weather-history";
 import { FLIGHTS_ENABLED } from "@/lib/features";
+import {
+  featuresTouchingRadius,
+  GEO_FILTER_DEFAULT_RADIUS_M,
+  withinRadius,
+  type GeoFilter,
+} from "@/lib/geo-filter";
 import { MRT_DISPLAY_LINE_COUNT } from "@/lib/mrt-network";
-import { PARK_COUNT, PARKS_GEOJSON } from "@/lib/parks-data";
+import { PARKS_GEOJSON } from "@/lib/parks-data";
 import type { ParkFeatureKind } from "@/types";
 import type { FlightState, TrafficCamera } from "@/types";
 
@@ -52,6 +58,57 @@ export function useDashboardState() {
     parks: false,
     incidents: false,
   });
+  // Radius filter: `geoFilter` is null until a centre is picked on the map.
+  // The radius is kept separately so it survives clearing and re-picking.
+  const [geoFilterCenter, setGeoFilterCenter] = useState<
+    readonly [number, number] | null
+  >(null);
+  const [geoFilterRadiusM, setGeoFilterRadiusM] = useState(
+    GEO_FILTER_DEFAULT_RADIUS_M,
+  );
+  const [geoFilterPicking, setGeoFilterPicking] = useState(false);
+  const geoFilter = useMemo<GeoFilter | null>(
+    () =>
+      geoFilterCenter
+        ? { center: geoFilterCenter, radiusM: geoFilterRadiusM }
+        : null,
+    [geoFilterCenter, geoFilterRadiusM],
+  );
+  const pickGeoFilterCenter = useCallback((center: [number, number]) => {
+    setGeoFilterCenter(center);
+    setGeoFilterPicking(false);
+  }, []);
+  const clearGeoFilter = useCallback(() => {
+    setGeoFilterCenter(null);
+    setGeoFilterPicking(false);
+  }, []);
+
+  // Live feeds scoped to the radius. Everything downstream (map layers,
+  // panels, sidebar counts, intel digest) reads these; search and selection
+  // lookups keep the unfiltered `data.*` lists.
+  const busStops = useMemo(
+    () => withinRadius(data.busStops, geoFilter, (s) => [s.Longitude, s.Latitude]),
+    [data.busStops, geoFilter],
+  );
+  const cameras = useMemo(
+    () => withinRadius(data.cameras, geoFilter, (c) => [c.Longitude, c.Latitude]),
+    [data.cameras, geoFilter],
+  );
+  const flights = useMemo(
+    () => withinRadius(data.flights, geoFilter, (f) => [f.longitude, f.latitude]),
+    [data.flights, geoFilter],
+  );
+  const incidents = useMemo(
+    () => withinRadius(data.incidents, geoFilter, (i) => [i.lng, i.lat]),
+    [data.incidents, geoFilter],
+  );
+  const parkCount = useMemo(
+    () =>
+      featuresTouchingRadius(PARKS_GEOJSON.features, geoFilter).filter(
+        (feature) => feature.properties.kind === "park",
+      ).length,
+    [geoFilter],
+  );
 
   const selectedCamera = useMemo(
     () =>
@@ -94,8 +151,8 @@ export function useDashboardState() {
     [],
   );
   const flightSummary = useMemo(
-    () => summarizeFlights(data.flights),
-    [data.flights],
+    () => summarizeFlights(flights),
+    [flights],
   );
   const disruptedAlerts = useMemo(
     () => data.trainAlerts.filter((alert) => alert.status === "disrupted"),
@@ -114,21 +171,21 @@ export function useDashboardState() {
       key: "flights",
       label: "Air Activity",
       note: "live tracks",
-      value: data.flights.length,
+      value: flights.length,
       tone: "text-signal-inbound",
     },
     {
       key: "cameras",
       label: "Road Cameras",
       note: "stream nodes",
-      value: data.cameras.length,
+      value: cameras.length,
       tone: "text-signal-camera",
     },
     {
       key: "busStops",
       label: "Bus Stops",
       note: "monitor points",
-      value: data.busStops.length,
+      value: busStops.length,
       tone: "text-signal-bus",
     },
     {
@@ -142,14 +199,14 @@ export function useDashboardState() {
       key: "parks",
       label: "Recreation",
       note: "parks + trails",
-      value: PARK_COUNT,
+      value: parkCount,
       tone: "text-signal-park",
     },
     {
       key: "incidents",
       label: "Road Incidents",
       note: "live events",
-      value: data.incidents.length,
+      value: incidents.length,
       tone: "text-signal-incident",
     },
   ];
@@ -212,12 +269,20 @@ export function useDashboardState() {
     bootComplete: data.bootComplete,
     busRouteOverlay: busRoute.overlay,
     busRouteState: busRoute.state,
-    busStops: data.busStops,
-    cameras: data.cameras,
-    incidents: data.incidents,
+    allBusStops: data.busStops,
+    busStops,
+    cameras,
+    incidents,
     clearBusRoute: busRoute.clear,
     error: data.error,
-    flights: data.flights,
+    flights,
+    geoFilter,
+    geoFilterPicking,
+    geoFilterRadiusM,
+    clearGeoFilter,
+    pickGeoFilterCenter,
+    setGeoFilterPicking,
+    setGeoFilterRadiusM,
     handleSelectStop: busRoute.selectStop,
     mrtEndStation: mrt.end,
     mrtMapPickTarget: mrt.mapPickTarget,

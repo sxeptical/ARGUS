@@ -50,6 +50,60 @@ describe("resolveBusRouteDrawPath", () => {
     ]);
   });
 
+  test("starts at the selected stop, not the start of its road segment", () => {
+    const stop = (n: number, longitude: number, latitude: number) => ({
+      busStopCode: String(n),
+      description: String(n),
+      longitude,
+      latitude,
+      stopSequence: n,
+    });
+    // One 1.1km straight segment; the selected stop is ~100m from its end.
+    const overlay = {
+      serviceNo: "67",
+      direction: 2,
+      stops: [stop(1, 103.8, 1.3), stop(2, 103.809, 1.3002), stop(3, 103.82, 1.3)],
+      selectedStopIndex: 1,
+      path: [
+        [103.8, 1.3],
+        [103.81, 1.3],
+        [103.82, 1.3],
+      ] as Array<readonly [number, number]>,
+      selectedPathIndex: 0,
+    };
+    const [start, ...rest] = resolveBusRouteDrawPath(overlay);
+    expect(start[0]).toBeCloseTo(103.809, 6);
+    expect(start[1]).toBeCloseTo(1.3, 6);
+    expect(rest).toEqual([
+      [103.81, 1.3],
+      [103.82, 1.3],
+    ]);
+  });
+
+  test("draws the whole direction when the selected stop is the terminus", () => {
+    const stops = [1, 2, 3].map((n) => ({
+      busStopCode: String(n),
+      description: String(n),
+      latitude: 1 + n / 10,
+      longitude: 103 + n / 10,
+      stopSequence: n,
+    }));
+    const path: Array<[number, number]> = stops.map((stop) => [
+      stop.longitude,
+      stop.latitude,
+    ]);
+    const overlay = {
+      serviceNo: "12",
+      direction: 1,
+      stops,
+      selectedStopIndex: 2,
+      path,
+      selectedPathIndex: 1,
+    };
+    expect(resolveBusRouteDrawPath(overlay)).toEqual(path);
+    expect(buildBusRouteStopsGeoJson(overlay).features).toHaveLength(3);
+  });
+
   test("falls back to stop chords when no path", () => {
     const overlay = {
       serviceNo: "12",
