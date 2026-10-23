@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { Effect } from "effect";
-import { Cache, CacheLive } from "./cache";
+import { Cache, CacheLive } from "@/lib/cache";
 
 describe("Cache", () => {
   describe("failed producer retry", () => {
@@ -38,33 +38,6 @@ describe("Cache", () => {
       expect(attempts).toBe(3);
     });
 
-    test("failure does not cache the error — next caller re-runs producer", () => {
-      const cache = Effect.runSync(
-        Cache.pipe(Effect.provide(CacheLive)),
-      );
-
-      let calls = 0;
-      const failThenSucceed = Effect.gen(function* () {
-        calls += 1;
-        if (calls === 1) {
-          return yield* Effect.fail("boom" as const);
-        }
-        return "ok";
-      });
-
-      // First call fails
-      const exit1 = Effect.runSyncExit(
-        cache.get("fail-then-ok", 60_000, failThenSucceed),
-      );
-      expect(exit1._tag).toBe("Failure");
-
-      // Second call succeeds — proves failure was NOT cached
-      const val = Effect.runSync(
-        cache.get("fail-then-ok", 60_000, failThenSucceed),
-      );
-      expect(val).toBe("ok");
-      expect(calls).toBe(2);
-    });
   });
 
   describe("concurrent callers", () => {

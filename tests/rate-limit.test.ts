@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { Effect } from "effect";
-import { extractClientIp, RateLimit, RateLimitLive } from "./rate-limit";
+import { extractClientIp, RateLimit, RateLimitLive } from "@/lib/rate-limit";
 
 const originalVercel = process.env.VERCEL;
 const originalTrustProxy = process.env.ARGUS_TRUST_PROXY_HEADERS;

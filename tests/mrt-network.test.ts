@@ -4,8 +4,8 @@ import {
   MRT_DISPLAY_LINE_STATIONS,
   MRT_OPERATIONAL_LINE_COUNT,
   MRT_OPERATIONAL_LINE_STATIONS,
-} from "./mrt-network";
-import { isRouteableMrtStation } from "./mrt-routing";
+} from "@/lib/mrt-network";
+import { isRouteableMrtStation } from "@/lib/mrt-routing";
 
 describe("mrt-network single source of truth", () => {
   test("operational lines are a subset of display lines with same references", () => {

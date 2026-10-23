@@ -8,7 +8,7 @@ import {
   geometryTouchesRadius,
   withinRadius,
   type GeoFilter,
-} from "./geo-filter";
+} from "@/lib/geo-filter";
 
 // Raffles Place MRT, roughly.
 const CENTER = [103.8515, 1.2840] as const;
