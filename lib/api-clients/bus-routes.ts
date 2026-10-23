@@ -43,8 +43,20 @@ const BUSROUTER_GEOMETRY_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const BUSROUTER_GEOMETRY_NEGATIVE_TTL_MS = 5 * 60 * 1000;
 const BUSROUTER_GEOMETRY_TIMEOUT_MS = 15_000;
 const MAX_BUSROUTER_PATH_POINTS = 2_500;
-/** Reject absurd pattern matches (> ~800m average stop distance). */
-export const MAX_PATTERN_MATCH_DISTANCE_M = 800;
+/**
+ * Reject pattern matches whose in-order stop projection averages more than
+ * this. Correct patterns score ~10–30m; a pattern for the opposite direction
+ * scores in the kilometres because its stops cannot be visited in order.
+ */
+export const MAX_PATTERN_MATCH_DISTANCE_M = 200;
+/** A stop within this distance of a path segment counts as on that segment. */
+const STOP_ON_PATH_TOLERANCE_M = 60;
+/** Cap per-stop distance so one unmatched stop cannot dominate a score. */
+const MAX_STOP_DISTANCE_PENALTY_M = 5_000;
+/** First and last stop this close together → loop service. */
+const LOOP_TERMINUS_RADIUS_M = 300;
+/** Polyline start and end this close together → closed loop geometry. */
+const CLOSED_PATH_RADIUS_M = 200;
 
 // ---------- Bus routes index ----------
 
@@ -159,7 +171,7 @@ const getBusRoutesIndex = (): Effect.Effect<
  * Decode a Google-encoded polyline into [lng, lat] pairs.
  * BusRouter / sgbusdata stores patterns in this format.
  */
-const decodeGooglePolyline = (encoded: string): Array<[number, number]> => {
+export const decodeGooglePolyline = (encoded: string): Array<[number, number]> => {
   const coordinates: Array<[number, number]> = [];
   let index = 0;
   let lat = 0;
@@ -208,69 +220,190 @@ const downsamplePath = (
   return result;
 };
 
-const haversineMeters = (
-  lng1: number,
-  lat1: number,
-  lng2: number,
-  lat2: number,
-): number => {
-  const toRad = (deg: number) => (deg * Math.PI) / 180;
-  const dLat = toRad(lat2 - lat1);
-  const dLng = toRad(lng2 - lng1);
-  const a =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
-  return 2 * 6_371_000 * Math.asin(Math.sqrt(a));
-};
-
-const nearestPathIndex = (
-  path: Array<[number, number]>,
+/**
+ * Planar distance in metres from (lng, lat) to segment a–b. An equirectangular
+ * projection around the point is accurate to well under a metre at the
+ * few-hundred-metre scale that matters for snapping stops to roads.
+ */
+const distanceToSegmentMeters = (
   lng: number,
   lat: number,
+  a: readonly [number, number],
+  b: readonly [number, number],
 ): number => {
-  let bestIdx = 0;
-  let bestDist = Number.POSITIVE_INFINITY;
-  for (let i = 0; i < path.length; i += 1) {
-    const [plng, plat] = path[i];
-    const d = haversineMeters(lng, lat, plng, plat);
-    if (d < bestDist) {
-      bestDist = d;
-      bestIdx = i;
-    }
+  const mPerLng = Math.cos((lat * Math.PI) / 180) * 111_320;
+  const mPerLat = 110_540;
+  const ax = (a[0] - lng) * mPerLng;
+  const ay = (a[1] - lat) * mPerLat;
+  const dx = (b[0] - lng) * mPerLng - ax;
+  const dy = (b[1] - lat) * mPerLat - ay;
+  const lengthSq = dx * dx + dy * dy;
+  const t =
+    lengthSq === 0
+      ? 0
+      : Math.max(0, Math.min(1, -(ax * dx + ay * dy) / lengthSq));
+  return Math.hypot(ax + t * dx, ay + t * dy);
+};
+
+const distanceMeters = (
+  a: readonly [number, number],
+  b: readonly [number, number],
+): number => distanceToSegmentMeters(a[0], a[1], b, b);
+
+/** From segment `start`, slide forward while the stop keeps getting closer. */
+const slideToNearestSegment = (
+  path: Array<[number, number]>,
+  stop: BusRouteStop,
+  start: number,
+): { segment: number; distance: number } => {
+  let segment = start;
+  let distance = distanceToSegmentMeters(
+    stop.longitude,
+    stop.latitude,
+    path[segment],
+    path[segment + 1],
+  );
+  while (segment < path.length - 2) {
+    const next = distanceToSegmentMeters(
+      stop.longitude,
+      stop.latitude,
+      path[segment + 1],
+      path[segment + 2],
+    );
+    if (next > distance) break;
+    segment += 1;
+    distance = next;
   }
-  return bestIdx;
+  return { segment, distance };
 };
 
 /**
- * Score how well a road polyline matches an ordered stop sequence by summing
- * nearest-point distances. Lower is better.
+ * Place each stop on the path in route order, never behind the previous stop.
+ *
+ * A global nearest-point search snaps to the wrong pass wherever a route uses
+ * the same road twice (loops, out-and-back legs). Walking forward instead
+ * keeps each stop on the pass that follows the previous one. A stop with no
+ * segment in tolerance gets its nearest forward segment but does not advance
+ * the cursor, so one off-road stop cannot skip the rest of the route.
+ *
+ * Returns, per stop, the index of the path segment it sits on and its
+ * distance from that segment.
  */
-const scorePathAgainstStops = (
+const projectStopsOntoPath = (
   path: Array<[number, number]>,
-  stops: BusRouteStop[],
-): number => {
-  if (path.length === 0 || stops.length === 0) {
-    return Number.POSITIVE_INFINITY;
-  }
-  let total = 0;
-  let sampleCount = 0;
-  // Sample up to 12 stops evenly (always include first + last).
-  const sampleIdx = new Set<number>([0, stops.length - 1]);
-  const midSamples = Math.min(10, Math.max(0, stops.length - 2));
-  for (let i = 1; i <= midSamples; i += 1) {
-    sampleIdx.add(Math.round((i * (stops.length - 1)) / (midSamples + 1)));
-  }
-  for (const i of sampleIdx) {
-    const stop = stops[i];
-    let best = Number.POSITIVE_INFINITY;
-    for (const [lng, lat] of path) {
-      const d = haversineMeters(stop.longitude, stop.latitude, lng, lat);
-      if (d < best) best = d;
+  stops: ReadonlyArray<BusRouteStop>,
+): Array<{ segment: number; distance: number }> => {
+  const projections: Array<{ segment: number; distance: number }> = [];
+  let cursor = 0;
+  for (const stop of stops) {
+    let nearest = { segment: cursor, distance: Number.POSITIVE_INFINITY };
+    let matched: { segment: number; distance: number } | null = null;
+    for (let segment = cursor; segment < path.length - 1; segment += 1) {
+      const distance = distanceToSegmentMeters(
+        stop.longitude,
+        stop.latitude,
+        path[segment],
+        path[segment + 1],
+      );
+      if (distance < nearest.distance) nearest = { segment, distance };
+      if (distance <= STOP_ON_PATH_TOLERANCE_M) {
+        matched = slideToNearestSegment(path, stop, segment);
+        break;
+      }
     }
-    total += best;
-    sampleCount += 1;
+    if (matched) {
+      projections.push(matched);
+      cursor = matched.segment;
+    } else {
+      projections.push(nearest);
+    }
   }
-  return sampleCount === 0 ? Number.POSITIVE_INFINITY : total / sampleCount;
+  return projections;
+};
+
+/**
+ * Loop services publish one closed polyline, which BusRouter sometimes starts
+ * part-way round the loop. Rotate it to begin at the first stop so the
+ * in-order projection — and the remaining-route slice — can reach the end.
+ */
+const startLoopAtFirstStop = (
+  path: Array<[number, number]>,
+  stops: ReadonlyArray<BusRouteStop>,
+): Array<[number, number]> => {
+  const first = stops[0];
+  const last = stops[stops.length - 1];
+  if (
+    path.length < 3 ||
+    !first ||
+    !last ||
+    distanceMeters(
+      [first.longitude, first.latitude],
+      [last.longitude, last.latitude],
+    ) > LOOP_TERMINUS_RADIUS_M ||
+    distanceMeters(path[0], path[path.length - 1]) > CLOSED_PATH_RADIUS_M
+  ) {
+    return path;
+  }
+  for (let segment = 0; segment < path.length - 1; segment += 1) {
+    const distance = distanceToSegmentMeters(
+      first.longitude,
+      first.latitude,
+      path[segment],
+      path[segment + 1],
+    );
+    if (distance <= STOP_ON_PATH_TOLERANCE_M) {
+      if (segment === 0) return path;
+      const start = slideToNearestSegment(path, first, segment).segment;
+      // path[0] ≈ path[last], so drop it when joining the two halves.
+      return [...path.slice(start), ...path.slice(1, start + 1)];
+    }
+  }
+  return path;
+};
+
+export type PatternFit = {
+  readonly path: Array<[number, number]>;
+  /** Per stop: index of the path segment the stop sits on. */
+  readonly stopSegments: number[];
+  /** Mean in-order stop distance in metres. Lower is better. */
+  readonly score: number;
+};
+
+/**
+ * Score a polyline against an ordered stop list by projecting the stops onto
+ * it in order. Unlike a nearest-point score this is direction-aware: the
+ * opposite direction's polyline runs along the same roads, but its stops
+ * cannot be visited in order, so most of them miss.
+ */
+const fitPattern = (
+  pattern: Array<[number, number]>,
+  stops: ReadonlyArray<BusRouteStop>,
+): PatternFit => {
+  const path = startLoopAtFirstStop(pattern, stops);
+  const projections = projectStopsOntoPath(path, stops);
+  const total = projections.reduce(
+    (sum, { distance }) => sum + Math.min(distance, MAX_STOP_DISTANCE_PENALTY_M),
+    0,
+  );
+  return {
+    path,
+    stopSegments: projections.map(({ segment }) => segment),
+    score:
+      projections.length === 0 ? Number.POSITIVE_INFINITY : total / projections.length,
+  };
+};
+
+const bestFit = (
+  patterns: Array<Array<[number, number]>>,
+  stops: ReadonlyArray<BusRouteStop>,
+): PatternFit | null => {
+  let best: PatternFit | null = null;
+  for (const pattern of patterns) {
+    if (pattern.length < 2) continue;
+    const fit = fitPattern(pattern, stops);
+    if (!best || fit.score < best.score) best = fit;
+  }
+  return best && best.score < MAX_PATTERN_MATCH_DISTANCE_M ? best : null;
 };
 
 /** ServiceNo → decoded pattern polylines [lng, lat][] (one per direction pattern). */
@@ -381,39 +514,52 @@ const getBusRouterGeometryIndex = (): Effect.Effect<
   });
 
 /**
- * Greedy bipartite match: assign each direction its best remaining pattern.
- * A pattern is consumed only when it is actually accepted — a pattern that
- * is too far from direction 1 may still be the correct match for direction 2.
+ * Pick each direction's road polyline. Directions choose independently: the
+ * score is direction-aware, so one pattern cannot fit both directions of a
+ * service. When BusRouter publishes a pattern for only one direction, the
+ * other direction falls back to that pattern reversed (the same roads, other
+ * carriageway) before falling back to straight stop-to-stop chords.
  */
 export const matchPatternsToDirections = (
   patterns: Array<Array<[number, number]>>,
   directions: Array<{ direction: number; stops: BusRouteStop[] }>,
-): Map<number, Array<[number, number]>> => {
-  const result = new Map<number, Array<[number, number]>>();
-  if (patterns.length === 0 || directions.length === 0) return result;
+): Map<number, PatternFit> => {
+  const result = new Map<number, PatternFit>();
+  if (patterns.length === 0) return result;
 
-  const remaining = patterns.map((path) => path);
-  const sortedDirs = [...directions].sort((a, b) => a.direction - b.direction);
-
-  for (const dir of sortedDirs) {
-    if (remaining.length === 0) break;
-    let bestIdx = 0;
-    let bestScore = Number.POSITIVE_INFINITY;
-    for (let i = 0; i < remaining.length; i += 1) {
-      const score = scorePathAgainstStops(remaining[i], dir.stops);
-      if (score < bestScore) {
-        bestScore = score;
-        bestIdx = i;
-      }
-    }
-    if (bestScore < MAX_PATTERN_MATCH_DISTANCE_M) {
-      result.set(dir.direction, remaining[bestIdx]);
-      remaining.splice(bestIdx, 1);
-    }
-    // Rejected patterns stay available for later directions.
+  for (const dir of directions) {
+    const fit =
+      bestFit(patterns, dir.stops) ??
+      bestFit(
+        patterns.map((pattern) => [...pattern].reverse()),
+        dir.stops,
+      );
+    if (fit) result.set(dir.direction, fit);
   }
 
   return result;
+};
+
+/**
+ * A bus at the selected stop only travels one way, so keep just the
+ * direction(s) that continue on from it. A direction the stop only ends
+ * (a terminus shared with the other direction's start) is dropped. Without
+ * a selected stop on any direction, every direction is kept.
+ */
+export const directionsLeavingStop = <
+  D extends {
+    readonly selectedStopIndex: number | null;
+    readonly stops: ReadonlyArray<unknown>;
+  },
+>(
+  directions: ReadonlyArray<D>,
+): ReadonlyArray<D> => {
+  const serving = directions.filter((dir) => dir.selectedStopIndex !== null);
+  const departing = serving.filter(
+    (dir) => dir.selectedStopIndex! < dir.stops.length - 1,
+  );
+  if (departing.length > 0) return departing;
+  return serving.length > 0 ? serving : directions;
 };
 
 // ---------- Route assembly ----------
@@ -527,8 +673,10 @@ export const getBusRoute = (
       );
     }
 
+    const shownDirections = directionsLeavingStop(draft);
+
     // Prefer a direction only when the context stop appears on exactly one.
-    const matchingDirections = draft
+    const matchingDirections = shownDirections
       .filter((dir) => dir.selectedStopIndex !== null)
       .map((dir) => dir.direction);
     const preferredDir =
@@ -548,23 +696,18 @@ export const getBusRoute = (
     }
     const pathByDirection = matchPatternsToDirections(
       patterns ?? [],
-      draft.map((d) => ({ direction: d.direction, stops: d.stops })),
+      shownDirections.map((d) => ({ direction: d.direction, stops: d.stops })),
     );
 
-    const directions: BusRouteDirection[] = draft.map((dir) => {
-      const path = pathByDirection.get(dir.direction) ?? [];
-      let selectedPathIndex: number | null = null;
-      const selectedStop =
-        dir.selectedStopIndex !== null
-          ? dir.stops[dir.selectedStopIndex]
-          : undefined;
-      if (path.length >= 2 && selectedStop) {
-        selectedPathIndex = nearestPathIndex(
-          path,
-          selectedStop.longitude,
-          selectedStop.latitude,
-        );
-      }
+    const directions: BusRouteDirection[] = shownDirections.map((dir) => {
+      const fit = pathByDirection.get(dir.direction);
+      const path = fit?.path ?? [];
+      // Same in-order projection used for matching, so the remaining-route
+      // slice starts on the pass of the road the selected stop is actually on.
+      const selectedPathIndex =
+        fit && dir.selectedStopIndex !== null
+          ? (fit.stopSegments[dir.selectedStopIndex] ?? null)
+          : null;
 
       return {
         direction: dir.direction,

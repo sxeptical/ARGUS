@@ -330,6 +330,21 @@ function applyMrtRouteFocus(map: maplibregl.Map, hasRoute: boolean) {
   }
 }
 
+/** Fade the general bus stops so the active route's stops stand out. */
+function applyBusRouteFocus(map: maplibregl.Map, hasRoute: boolean) {
+  if (!map.getLayer("bus-stops-layer")) return;
+  map.setPaintProperty(
+    "bus-stops-layer",
+    "circle-opacity",
+    hasRoute ? 0.18 : 0.88,
+  );
+  map.setPaintProperty(
+    "bus-stops-layer",
+    "circle-stroke-opacity",
+    hasRoute ? 0.18 : 1,
+  );
+}
+
 function buildGeoFilterCenterGeoJson(filter: GeoFilter | null) {
   return {
     type: "FeatureCollection" as const,
@@ -569,6 +584,7 @@ function useMapController({
     if (stopsSource) {
       stopsSource.setData(stopsGeoJson);
     }
+    applyBusRouteFocus(map, geoJson.features.length > 0);
 
     const overlayKey = busRouteOverlay
       ? `${busRouteOverlay.serviceNo}:${busRouteOverlay.direction}:${busRouteOverlay.selectedPathIndex ?? busRouteOverlay.selectedStopIndex ?? "x"}:${busRouteOverlay.path.length}`
@@ -949,6 +965,7 @@ function useMapController({
           "text-halo-width": 1.2,
         },
       });
+      applyBusRouteFocus(map, initialBusRouteGeoJson.features.length > 0);
 
       layerListenerCleanups.push(
         registerLayerMouseListener(
