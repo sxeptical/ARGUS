@@ -1,15 +1,6 @@
 /**
- * Single source of truth for MRT station lists.
- *
- * Previously `Map.tsx:MRT_LINE_STATIONS` (display, incl. future lines) and
- * `mrt-routing.ts:MRT_OPERATIONAL_LINE_STATIONS` (routeable only) were
- * maintained independently — a station rename in one silently desynced the
- * other. Both now import from here.
- *
- * - `MRT_OPERATIONAL_LINE_STATIONS`: routeable network used by Dijkstra.
- * - `MRT_DISPLAY_LINE_STATIONS`: full network for the map, including future
- *   / non-routeable extensions. Operational lines reference the same arrays
- *   so they can never drift.
+ * MRT station lists for routing and map display. Display data includes future
+ * extensions and shares operational line arrays with the routing network.
  */
 
 export const MRT_OPERATIONAL_LINE_STATIONS: Record<string, string[]> = {
@@ -170,8 +161,7 @@ export const MRT_OPERATIONAL_LINE_STATIONS: Record<string, string[]> = {
     "Upper Changi",
     "Expo",
   ],
-  // TEL operational: Woodlands North → Bayshore. TEL Stage 5
-  // (Bedok South, Sungei Bedok) is planned, NOT operational.
+  // TEL Stage 5 (Bedok South, Sungei Bedok) is planned, not operational.
   "Thomson-East Coast Line": [
     "Woodlands North",
     "Woodlands",
@@ -275,11 +265,7 @@ const MRT_FUTURE_LINE_STATIONS: Record<string, string[]> = {
   "Johor Bahru-Singapore RTS": ["Bukit Chagar", "Woodlands North"],
 };
 
-/**
- * Full display network: operational lines (same array references as routing)
- * plus future extensions. The map imports this; routing imports only the
- * operational subset.
- */
+/** Operational lines plus future extensions for map display. */
 export const MRT_DISPLAY_LINE_STATIONS: Record<string, string[]> = {
   ...MRT_OPERATIONAL_LINE_STATIONS,
   ...MRT_FUTURE_LINE_STATIONS,
@@ -293,12 +279,7 @@ export const MRT_DISPLAY_LINE_COUNT = Object.keys(
   MRT_DISPLAY_LINE_STATIONS,
 ).length;
 
-/**
- * LTA DataMall train line codes (TrainServiceAlerts `AffectedSegments.Line`)
- * mapped to the display names used across this app. Codes for lines outside
- * the map network (the LRT loops: BPL, PEL, PWL, SEL, SWL) are intentionally
- * unmapped so alerts keep their raw codes rather than being silently dropped.
- */
+/** LTA line codes to display names; unmapped lines keep their raw codes. */
 export const LTA_LINE_CODE_TO_DISPLAY_NAME: Record<string, string> = {
   NSL: "North South Line",
   EWL: "East West Line",

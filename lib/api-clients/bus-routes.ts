@@ -1,8 +1,4 @@
-/**
- * Bus route clients: the LTA BusRoutes index (service → direction → ordered
- * stops), road-following geometry from BusRouter/sgbusdata, and the join
- * that produces a `BusRouteResponse`.
- */
+/** Combines LTA bus routes with BusRouter road-following geometry. */
 import { HttpClient } from "@effect/platform";
 import { Effect, Schema } from "effect";
 import { Cache } from "@/lib/cache";
@@ -20,34 +16,25 @@ import type {
   BusRouteResponse,
   BusRouteStop,
 } from "@/types";
-import { getBusStops, ltaGet, collectLtaPages } from "./lta";
+import { collectLtaEndpoint, getBusStops } from "./lta";
 import { httpGetJson, withTimeout } from "./http";
 
-// Road-following encoded polylines (Google polyline format) from BusRouter SG /
-// cheeaun/sgbusdata. Used so routes hug roads instead of cutting through parks.
+// BusRouter/sgbusdata polylines keep routes aligned to roads.
 const BUSROUTER_ROUTES_URL = "https://data.busrouter.sg/v1/routes.min.json";
 const BUSROUTER_ROUTES_FALLBACK_URL =
   "https://cdn.jsdelivr.net/gh/cheeaun/sgbusdata@master/data/v1/routes.min.json";
-const BUS_ROUTES_TIMEOUT_MS = 90_000; // 90s aggregate timeout for multi-page BusRoutes
+const BUS_ROUTES_TIMEOUT_MS = 90_000;
 const BUS_ROUTES_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const BUS_ROUTES_PAGE_SIZE = 500;
 const BUS_ROUTES_PAGE_CONCURRENCY = 4;
 /** Safety cap above the known ~26–27k-row BusRoutes dataset (500 rows/page). */
 export const BUS_ROUTES_MAX_PAGES = 128;
 const BUSROUTER_GEOMETRY_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
-/**
- * When both geometry sources fail, remember that for a few minutes so each
- * bus-route request does not pay two slow upstream timeouts. This is an
- * explicit, short negative marker — not a 24h empty "success".
- */
+/** Briefly cache geometry-source failures to avoid repeated slow timeouts. */
 const BUSROUTER_GEOMETRY_NEGATIVE_TTL_MS = 5 * 60 * 1000;
 const BUSROUTER_GEOMETRY_TIMEOUT_MS = 15_000;
 const MAX_BUSROUTER_PATH_POINTS = 2_500;
-/**
- * Reject pattern matches whose in-order stop projection averages more than
- * this. Correct patterns score ~10–30m; a pattern for the opposite direction
- * scores in the kilometres because its stops cannot be visited in order.
- */
+/** Correct in-order patterns typically score 10–30m; reject distant matches. */
 export const MAX_PATTERN_MATCH_DISTANCE_M = 200;
 /** A stop within this distance of a path segment counts as on that segment. */
 const STOP_ON_PATH_TOLERANCE_M = 60;
@@ -132,17 +119,12 @@ const fetchAndIndexBusRoutes = (): Effect.Effect<
   withTimeout(
     "lta-bus-routes",
     Effect.gen(function* () {
-      const allRows = yield* collectLtaPages(
-        (skip) =>
-          ltaGet(`/BusRoutes?$skip=${skip}`, LtaBusRoutesResponseSchema).pipe(
-            Effect.catchTag("ExternalApiError", (e) =>
-              e.status === 404 ? Effect.succeed(null) : Effect.fail(e),
-            ),
-          ),
+      const allRows = yield* collectLtaEndpoint(
+        "/BusRoutes",
+        LtaBusRoutesResponseSchema,
         {
           pageSize: BUS_ROUTES_PAGE_SIZE,
           maxPages: BUS_ROUTES_MAX_PAGES,
-          service: "lta",
           concurrency: BUS_ROUTES_PAGE_CONCURRENCY,
         },
       );
@@ -220,11 +202,7 @@ const downsamplePath = (
   return result;
 };
 
-/**
- * Planar distance in metres from (lng, lat) to segment a–b. An equirectangular
- * projection around the point is accurate to well under a metre at the
- * few-hundred-metre scale that matters for snapping stops to roads.
- */
+/** Local planar distance to a segment, accurate at road-snapping scale. */
 const distanceToSegmentMeters = (
   lng: number,
   lat: number,
@@ -278,16 +256,9 @@ const slideToNearestSegment = (
 };
 
 /**
- * Place each stop on the path in route order, never behind the previous stop.
- *
- * A global nearest-point search snaps to the wrong pass wherever a route uses
- * the same road twice (loops, out-and-back legs). Walking forward instead
- * keeps each stop on the pass that follows the previous one. A stop with no
- * segment in tolerance gets its nearest forward segment but does not advance
- * the cursor, so one off-road stop cannot skip the rest of the route.
- *
- * Returns, per stop, the index of the path segment it sits on and its
- * distance from that segment.
+ * Project stops in route order so repeated roads and loopbacks select the
+ * correct pass. Off-road stops use the nearest forward segment without
+ * advancing the cursor.
  */
 const projectStopsOntoPath = (
   path: Array<[number, number]>,
@@ -321,11 +292,7 @@ const projectStopsOntoPath = (
   return projections;
 };
 
-/**
- * Loop services publish one closed polyline, which BusRouter sometimes starts
- * part-way round the loop. Rotate it to begin at the first stop so the
- * in-order projection — and the remaining-route slice — can reach the end.
- */
+/** Rotate closed loop paths to begin at the first stop. */
 const startLoopAtFirstStop = (
   path: Array<[number, number]>,
   stops: ReadonlyArray<BusRouteStop>,
@@ -369,12 +336,7 @@ export type PatternFit = {
   readonly score: number;
 };
 
-/**
- * Score a polyline against an ordered stop list by projecting the stops onto
- * it in order. Unlike a nearest-point score this is direction-aware: the
- * opposite direction's polyline runs along the same roads, but its stops
- * cannot be visited in order, so most of them miss.
- */
+/** Score a path by in-order stop distance to distinguish travel directions. */
 const fitPattern = (
   pattern: Array<[number, number]>,
   stops: ReadonlyArray<BusRouteStop>,
@@ -478,11 +440,7 @@ const fetchBusRouterGeometryIndex = (): Effect.Effect<
 
 const EMPTY_GEOMETRY_INDEX: BusRouterGeometryIndex = new Map();
 
-/**
- * Geometry is optional data: a total failure must not fail bus-route
- * requests (they fall back to stop chords), so failures resolve to an empty
- * index for a short, explicit negative window.
- */
+/** Fall back to stop chords and briefly cache geometry-source failures. */
 const getBusRouterGeometryIndex = (): Effect.Effect<
   BusRouterGeometryIndex,
   never,

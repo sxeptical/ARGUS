@@ -18,19 +18,16 @@ describe("Cache", () => {
         return "recovered";
       });
 
-      // First call fails
       const result1 = Effect.runSyncExit(
         cache.get("flaky", 60_000, flakyProducer),
       );
       expect(result1._tag).toBe("Failure");
 
-      // Second call also fails (attempt 2)
       const result2 = Effect.runSyncExit(
         cache.get("flaky", 60_000, flakyProducer),
       );
       expect(result2._tag).toBe("Failure");
 
-      // Third call succeeds (attempt 3) — proves the key was not poisoned
       const result3 = Effect.runSync(
         cache.get("flaky", 60_000, flakyProducer),
       );
@@ -86,7 +83,6 @@ describe("Cache", () => {
           return "concurrent-ok";
         });
 
-        // All 3 concurrent callers see the same failure
         const exit1 = yield* Effect.exit(
           Effect.all(
             [
@@ -98,7 +94,6 @@ describe("Cache", () => {
           ),
         );
 
-        // Subsequent call retries and succeeds
         const val = yield* cache.get("conc-fail", 60_000, flakyConcurrent);
 
         return { exitTag: exit1._tag, val, calls };
@@ -146,10 +141,9 @@ describe("Cache", () => {
       });
 
       Effect.runSync(cache.get("expire-key", 1, producer));
-      // busy-wait to let TTL expire
       const start = Date.now();
       while (Date.now() - start < 5) {
-        /* spin */
+        // Let the TTL expire.
       }
       Effect.runSync(cache.get("expire-key", 1, producer));
 
@@ -187,11 +181,11 @@ describe("Cache", () => {
       Effect.runSync(cache.set("old-snapshot", "last-good"));
       const start = Date.now();
       while (Date.now() - start < 5) {
-        /* let the one-millisecond max age expire */
+        // Let the one-millisecond max age expire.
       }
 
       expect(Effect.runSync(cache.peek<string>("old-snapshot", 1))).toBeNull();
-      // A wider age still sees the original value: peek did not write null.
+      // An expired peek must not overwrite the stored value.
       expect(
         Effect.runSync(cache.peek<string>("old-snapshot", 60_000)),
       ).toBe("last-good");

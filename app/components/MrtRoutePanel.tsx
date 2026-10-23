@@ -19,11 +19,7 @@ type MrtRoutePanelProps = {
   stationScope?: string;
 };
 
-/**
- * Options for one start/end list. A station that is already selected but
- * falls outside the current scope stays listed (flagged) so the select keeps
- * showing it rather than silently jumping to another value.
- */
+/** Keep selected stations listed even when outside the current scope. */
 function stationOptions(
   stations: ReadonlyArray<string>,
   selected: string,

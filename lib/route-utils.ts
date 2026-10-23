@@ -1,10 +1,6 @@
 /**
- * Shared route handler helper for the ARGUS server.
- *
- * Rate limiting is deliberately the outermost operation: malformed query
- * strings consume the same request budget as valid ones, so validation
- * cannot be used to bypass endpoint throttling. The producer is lazy and is
- * not invoked until the request is allowed.
+ * Route handler helper. Rate limiting precedes validation so malformed requests
+ * also consume budget; allowed requests invoke the producer lazily.
  */
 import { Effect } from "effect";
 import { runtime, type AppContext } from "@/lib/effect-runtime";

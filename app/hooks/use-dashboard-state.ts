@@ -6,6 +6,7 @@ import { useDashboardSources } from "@/app/hooks/use-dashboard-sources";
 import { useMrtPlanner } from "@/app/hooks/use-mrt-planner";
 import { useWeatherHistory } from "@/app/hooks/use-weather-history";
 import { FLIGHTS_ENABLED } from "@/lib/features";
+import { summarizeFlights } from "@/lib/flights";
 import {
   featuresTouchingRadius,
   GEO_FILTER_DEFAULT_RADIUS_M,
@@ -30,16 +31,6 @@ export type SensorRow = {
 
 export type SensorStatsRow = Omit<SensorRow, "key">;
 
-function summarizeFlights(flights: readonly FlightState[]) {
-  return flights.reduce(
-    (summary, flight) => {
-      summary[flight.direction] += 1;
-      return summary;
-    },
-    { inbound: 0, outbound: 0, transit: 0 },
-  );
-}
-
 export function useDashboardState() {
   const data = useDashboardSources();
   const busRoute = useBusRoute();
@@ -58,8 +49,7 @@ export function useDashboardState() {
     parks: false,
     incidents: false,
   });
-  // Radius filter: `geoFilter` is null until a centre is picked on the map.
-  // The radius is kept separately so it survives clearing and re-picking.
+  // Keep the radius when clearing and re-picking the filter centre.
   const [geoFilterCenter, setGeoFilterCenter] = useState<
     readonly [number, number] | null
   >(null);
@@ -83,9 +73,7 @@ export function useDashboardState() {
     setGeoFilterPicking(false);
   }, []);
 
-  // Live feeds scoped to the radius. Everything downstream (map layers,
-  // panels, sidebar counts, intel digest) reads these; search and selection
-  // lookups keep the unfiltered `data.*` lists.
+  // Display filtered feeds, but keep unfiltered data for search and selection.
   const busStops = useMemo(
     () => withinRadius(data.busStops, geoFilter, (s) => [s.Longitude, s.Latitude]),
     [data.busStops, geoFilter],
@@ -236,8 +224,7 @@ export function useDashboardState() {
       tone: "text-ink",
     },
   ];
-  // Flights are disabled upstream: hide their toggle + stats so the panel
-  // doesn't show permanently-zero controls next to live layers.
+  // Hide permanently empty controls when flights are disabled upstream.
   const visibleSensorRows = FLIGHTS_ENABLED
     ? sensorRows
     : sensorRows.filter((row) => row.key !== "flights");
@@ -247,9 +234,7 @@ export function useDashboardState() {
   const visibleSensorCount = visibleSensorRows.filter(
     (row) => sensorVisibility[row.key],
   ).length;
-  // Intentionally-off feeds (flights) never enter the panel: sources only
-  // contains a "disabled" entry when FLIGHTS_ENABLED is false, and those
-  // feeds can't recover so they don't belong in Source Health.
+  // Disabled feeds are not health indicators.
   const signalBars = data.sources
     .filter((source) => source.message !== "disabled")
     .map((source) => ({
@@ -297,7 +282,6 @@ export function useDashboardState() {
     selectedFlight,
     selectedPark,
     selectedStop: busRoute.selectedStop,
-    disruptedAlerts,
     disruptedMrtLines,
     trainAlerts: data.trainAlerts,
     sensorRows: visibleSensorRows,
@@ -319,5 +303,3 @@ export function useDashboardState() {
     weatherHistory,
   };
 }
-
-export type DashboardState = ReturnType<typeof useDashboardState>;

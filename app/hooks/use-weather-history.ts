@@ -8,10 +8,9 @@ import {
 } from "@/lib/local-history";
 import type { WeatherData, WeatherHistoryPoint } from "@/types";
 
-// v2: the air-quality reading switched from NEA PSI to US AQI; a new key keeps
-// old PSI samples out of the AQI trend.
+// Separate legacy PSI samples from the US AQI trend.
 const STORAGE_KEY = "argus.weather.history.v2";
-const MAX_POINTS = 288; // 24 hours at a five-minute cadence
+const MAX_POINTS = 288; // 24 hours at five-minute intervals
 
 function isWeatherHistoryPoint(value: unknown): value is WeatherHistoryPoint {
   if (!value || typeof value !== "object") return false;
@@ -71,8 +70,7 @@ export function useWeatherHistory(weather: WeatherData) {
   useEffect(() => {
     const timer = window.setTimeout(() => {
       setHistory((current) => {
-        // Merge storage again at write time. This makes the operation safe
-        // even if a cached data callback beats the hydration timer.
+        // Preserve points recorded before storage hydration completes.
         const persisted = readPointList(
           STORAGE_KEY,
           isWeatherHistoryPoint,

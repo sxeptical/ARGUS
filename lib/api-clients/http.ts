@@ -1,12 +1,4 @@
-/**
- * Shared HTTP plumbing for the external API clients.
- *
- * `httpGetJson` is generic over its Effect Schema, so the decoded type is
- * derived from the schema that actually validates the response — callers
- * can no longer pair a schema with an unrelated result type. Timeouts
- * cover the full request → status → body → schema path, and every failure
- * is normalized to the `UpstreamError` union declared in `@/lib/errors`.
- */
+/** Schema-validated HTTP requests with timeouts and normalized errors. */
 import { HttpClient } from "@effect/platform";
 import { Duration, Effect, Schema } from "effect";
 import {
@@ -20,11 +12,7 @@ import {
 
 export const DEFAULT_TIMEOUT_MS = 10_000;
 
-/**
- * Apply a timeout that covers the whole effect (request, body read, and
- * decode) so a server that sends headers and then stalls the body still
- * surfaces as a `TimeoutError`.
- */
+/** Time out the entire request, body read, and decode pipeline. */
 export const withTimeout = <A, E, R>(
   service: string,
   effect: Effect.Effect<A, E, R>,
@@ -42,11 +30,7 @@ const errorTag = (e: unknown): string | undefined =>
     ? String((e as { _tag: unknown })._tag)
     : undefined;
 
-/**
- * Normalize an unknown failure from the HTTP pipeline into `UpstreamError`.
- * Unknown shapes become 502 `ExternalApiError`s rather than escaping the
- * typed error channel.
- */
+/** Normalize HTTP failures; unknown shapes become 502 `ExternalApiError`s. */
 export const toAppHttpError = (
   service: string,
   e: unknown,
@@ -87,12 +71,8 @@ export const toAppHttpError = (
 };
 
 /**
- * A single typed HTTP GET that returns the schema-decoded JSON body.
- *
- * The body is read with `.json` and decoded directly with the provided
- * Schema: `HttpClientResponse.schemaJson` wraps the body in
- * `{ status, headers, body }`, which is the wrong shape for the flat
- * upstream payloads used here.
+ * GET and schema-decode a flat JSON body. `HttpClientResponse.schemaJson`
+ * is unsuitable because it expects a `{ status, headers, body }` wrapper.
  */
 export const httpGetJson = <A, I>(
   service: string,

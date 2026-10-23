@@ -1,4 +1,5 @@
 import TerminalPanel from "@/app/components/TerminalPanel";
+import { MiniTrend, summarizeValues } from "@/app/components/trend";
 import { AQI_BANDS, aqiTone, getAqiStatus } from "@/lib/aqi";
 import { formatSgDateTime, formatSgTime } from "@/lib/formatters";
 import type {
@@ -475,12 +476,7 @@ function MetricHistorySummary({
   }
 
   const values = points.map((point) => point.value);
-  const latest = values[values.length - 1];
-  const min = Math.min(...values);
-  const max = Math.max(...values);
-  const average = Math.round(
-    values.reduce((sum, value) => sum + value, 0) / values.length,
-  );
+  const { latest, average, min, max } = summarizeValues(values);
   const firstTimestamp = points[0].timestamp;
 
   return (
@@ -489,7 +485,7 @@ function MetricHistorySummary({
         <span>{label}</span>
         <span>{points.length} samples</span>
       </div>
-      <MiniTrend values={values} barClass={barClass} />
+      <MiniTrend values={values} barClass={barClass} rounded />
       <div className="grid grid-cols-2 gap-x-2 gap-y-0.5 text-[10px]">
         <span>
           Latest: {latest}
@@ -511,29 +507,6 @@ function MetricHistorySummary({
       <div className="text-[10px] opacity-75">
         Since {formatSgTime(firstTimestamp)}. Stored locally in this browser.
       </div>
-    </div>
-  );
-}
-
-function MiniTrend({ values, barClass }: { values: number[]; barClass: string }) {
-  const recent = values.slice(-24);
-  const min = Math.min(...recent);
-  const max = Math.max(...recent);
-  const range = max - min;
-
-  return (
-    <div className="flex h-8 items-end gap-0.5 border border-line bg-paper px-1 py-1">
-      {recent.map((value, index) => {
-        const height = range === 0 ? 50 : 18 + ((value - min) / range) * 82;
-        return (
-          <div
-            key={`${index}-${value}`}
-            className={`w-full min-w-0 rounded-t opacity-80 ${barClass}`}
-            style={{ height: `${height}%` }}
-            title={`${value}`}
-          />
-        );
-      })}
     </div>
   );
 }

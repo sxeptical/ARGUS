@@ -217,9 +217,9 @@ describe("getFlights fallback chain", () => {
     expect(exit._tag).toBe("Success");
     if (exit._tag !== "Success") return;
     expect(exit.value.first).toHaveLength(1);
-    // An outage returns the snapshot, not an empty array...
+    // An outage returns the last-good snapshot.
     expect(exit.value.second).toEqual(exit.value.first);
-    // ...and the snapshot survives further outages (peek never writes).
+    // Further outages leave the snapshot intact.
     expect(exit.value.third).toEqual(exit.value.first);
   });
 
