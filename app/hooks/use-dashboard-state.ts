@@ -10,7 +10,12 @@ import { MRT_DISPLAY_LINE_COUNT } from "@/lib/mrt-network";
 import { HAWKER_CENTRES, MALLS } from "@/lib/amenities-data";
 import { PARK_COUNT, PARKS_GEOJSON } from "@/lib/parks-data";
 import type { ParkFeatureKind } from "@/types";
-import type { FlightState, TrafficCamera } from "@/types";
+import type {
+  FlightState,
+  HawkerCentre,
+  Mall,
+  TrafficCamera,
+} from "@/types";
 
 export type SensorKey =
   | "flights"
@@ -33,6 +38,14 @@ export type SensorRow = {
 };
 
 export type SensorStatsRow = Omit<SensorRow, "key">;
+
+/** Which static amenity the map (or search) picked, by its bundle id. */
+export type AmenitySelectionTarget = { type: "mall" | "hawker"; id: string };
+
+/** A selected amenity resolved to its bundle record. */
+export type SelectedAmenity =
+  | { type: "mall"; mall: Mall }
+  | { type: "hawker"; hawker: HawkerCentre };
 
 function summarizeFlights(flights: readonly FlightState[]) {
   return flights.reduce(
@@ -69,6 +82,8 @@ export function useDashboardState() {
   const [selectedCameraId, setSelectedCameraId] = useState<string | null>(null);
   const [selectedFlightId, setSelectedFlightId] = useState<string | null>(null);
   const [selectedParkId, setSelectedParkId] = useState<string | null>(null);
+  const [selectedAmenityId, setSelectedAmenityId] =
+    useState<AmenitySelectionTarget | null>(null);
 
   const selectedCamera = useMemo(
     () =>
@@ -86,6 +101,7 @@ export function useDashboardState() {
   );
   const selectFlight = useCallback((flight: FlightState) => {
     setSelectedParkId(null);
+    setSelectedAmenityId(null);
     setSelectedFlightId(flight.id);
   }, []);
   const selectedPark = useMemo(
@@ -106,10 +122,28 @@ export function useDashboardState() {
       cycle?: boolean;
     }) => {
       setSelectedFlightId(null);
+      setSelectedAmenityId(null);
       setSelectedParkId(`${feature.kind}:${feature.name}`);
     },
     [],
   );
+  const selectAmenity = useCallback((target: AmenitySelectionTarget) => {
+    setSelectedFlightId(null);
+    setSelectedParkId(null);
+    setSelectedAmenityId(target);
+  }, []);
+  const selectedAmenity = useMemo<SelectedAmenity | null>(() => {
+    if (!selectedAmenityId) return null;
+    if (selectedAmenityId.type === "mall") {
+      const mall =
+        MALLS.find((mall) => mall.id === selectedAmenityId.id) ?? null;
+      return mall ? { type: "mall", mall } : null;
+    }
+    const hawker =
+      HAWKER_CENTRES.find((hawker) => hawker.id === selectedAmenityId.id) ??
+      null;
+    return hawker ? { type: "hawker", hawker } : null;
+  }, [selectedAmenityId]);
   const flightSummary = useMemo(
     () => summarizeFlights(data.flights),
     [data.flights],
@@ -275,6 +309,7 @@ export function useDashboardState() {
     pickMrtStation: mrt.pickStation,
     resetMrtRoute: mrt.reset,
     selectBusRouteDirection: busRoute.selectDirection,
+    selectedAmenity,
     selectedCamera,
     selectedFlight,
     selectedPark,
@@ -289,6 +324,7 @@ export function useDashboardState() {
     setMrtMapPickTarget: mrt.setMapPickTarget,
     setMrtStartStation: mrt.setStart,
     setSelectedCamera: selectCamera,
+    setSelectedAmenity: selectAmenity,
     setSelectedFlight: selectFlight,
     setSelectedPark: selectPark,
     setSensorVisibility,
