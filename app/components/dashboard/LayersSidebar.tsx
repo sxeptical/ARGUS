@@ -1,6 +1,6 @@
 "use client";
 
-import type { Dispatch, SetStateAction } from "react";
+import type { Dispatch, ReactNode, SetStateAction } from "react";
 import FlightPanel from "@/app/components/FlightPanel";
 import WeatherPanel from "@/app/components/WeatherPanel";
 import { IntelPanel } from "@/app/components/dashboard/IntelPanel";
@@ -29,6 +29,7 @@ export function LayersSidebar({
   weather,
   weatherHistory,
   onAqiMapOverlayChange,
+  geoFilterPanel,
 }: {
   flights: FlightState[];
   selectedFlight: FlightState | null;
@@ -41,6 +42,8 @@ export function LayersSidebar({
   weather: WeatherData;
   weatherHistory: WeatherHistoryPoint[];
   onAqiMapOverlayChange?: (regions: RegionalAqiReadings | null) => void;
+  /** Radius filter controls, rendered directly under the layer toggles. */
+  geoFilterPanel?: ReactNode;
 }) {
   return (
     <aside className="order-4 flex min-w-0 flex-col gap-2 sm:gap-3 xl:order-1 xl:min-h-0 xl:overflow-y-auto xl:pr-1">
@@ -125,6 +128,8 @@ export function LayersSidebar({
           ))}
         </div>
       </IntelPanel>
+
+      {geoFilterPanel}
 
       <WeatherPanel
         weather={weather}

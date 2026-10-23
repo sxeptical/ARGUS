@@ -24,6 +24,12 @@ import {
   type BusRouteOverlay,
   type MRTStationGeoJson,
 } from "@/lib/map-geometry";
+import {
+  buildGeoFilterCircleGeoJson,
+  buildGeoFilterMaskGeoJson,
+  featuresTouchingRadius,
+  type GeoFilter,
+} from "@/lib/geo-filter";
 import mrtLinesData from "@/public/mrt-lines.json";
 import { aqiTone, getAqiStatus } from "@/lib/aqi";
 import { PARKS_GEOJSON } from "@/lib/parks-data";
@@ -48,6 +54,11 @@ export type MapSearchTarget = {
 
 type MapProps = {
   busStops: BusStop[];
+  /**
+   * Every known bus stop, used to resolve clicks on bus-route stops that may
+   * sit outside the radius filter. Defaults to `busStops`.
+   */
+  allBusStops?: BusStop[];
   cameras: TrafficCamera[];
   flights: FlightState[];
   incidents: TrafficIncident[];
@@ -70,6 +81,11 @@ type MapProps = {
   onParkClick: (feature: { kind: ParkFeatureKind; name: string; park?: string; type?: string; cycle?: boolean }) => void;
   mrtRouteSegments?: MrtRouteSegment[];
   busRouteOverlay?: BusRouteOverlay | null;
+  /** Active radius filter, drawn as a circle; scopes MRT stations and parks. */
+  geoFilter?: GeoFilter | null;
+  /** While true, the next map click sets the radius filter centre. */
+  geoFilterPicking?: boolean;
+  onGeoFilterPick?: (center: [number, number]) => void;
 };
 
 // MapLibre parses its own color values, so this palette mirrors the CSS design
@@ -84,6 +100,7 @@ const MAP_COLORS = {
   info: "#73b9d9",
   bus: "#54ffae",
   park: "#73d99a",
+  geoFilter: "#73b9d9",
 } as const;
 
 /**
@@ -313,6 +330,58 @@ function applyMrtRouteFocus(map: maplibregl.Map, hasRoute: boolean) {
   }
 }
 
+/** Fade the general bus stops so the active route's stops stand out. */
+function applyBusRouteFocus(map: maplibregl.Map, hasRoute: boolean) {
+  if (!map.getLayer("bus-stops-layer")) return;
+  map.setPaintProperty(
+    "bus-stops-layer",
+    "circle-opacity",
+    hasRoute ? 0.18 : 0.88,
+  );
+  map.setPaintProperty(
+    "bus-stops-layer",
+    "circle-stroke-opacity",
+    hasRoute ? 0.18 : 1,
+  );
+}
+
+function buildGeoFilterCenterGeoJson(filter: GeoFilter | null) {
+  return {
+    type: "FeatureCollection" as const,
+    features: filter
+      ? [
+          {
+            type: "Feature" as const,
+            properties: {},
+            geometry: {
+              type: "Point" as const,
+              coordinates: [filter.center[0], filter.center[1]],
+            },
+          },
+        ]
+      : [],
+  };
+}
+
+function filterMrtStations(
+  stations: MRTStationGeoJson,
+  filter: GeoFilter | null,
+): MRTStationGeoJson {
+  return {
+    type: "FeatureCollection",
+    features: featuresTouchingRadius(stations.features, filter),
+  };
+}
+
+function filterParks(filter: GeoFilter | null) {
+  return filter
+    ? {
+        ...PARKS_GEOJSON,
+        features: featuresTouchingRadius(PARKS_GEOJSON.features, filter),
+      }
+    : PARKS_GEOJSON;
+}
+
 function useLazyRef<T>(createValue: () => T): { current: T } {
   const ref = useRef<T | null>(null);
   if (ref.current === null) {
@@ -338,6 +407,7 @@ function createIncidentMap() {
 
 function useMapController({
   busStops,
+  allBusStops,
   cameras,
   flights,
   incidents,
@@ -352,10 +422,14 @@ function useMapController({
   mrtRouteSegments = EMPTY_MRT_ROUTE_SEGMENTS,
   busRouteOverlay = null,
   searchTarget = null,
+  geoFilter = null,
+  geoFilterPicking = false,
+  onGeoFilterPick,
 }: MapProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const busStopsRef = useLazyRef(createBusStopMap);
+  const busStopLookupRef = useLazyRef(createBusStopMap);
   const camerasRef = useLazyRef(createCameraMap);
   const flightsRef = useLazyRef(createFlightMap);
   const incidentsRef = useLazyRef(createIncidentMap);
@@ -370,6 +444,10 @@ function useMapController({
   const busRouteOverlayRef = useRef<BusRouteOverlay | null>(busRouteOverlay);
   const aqiRegionsRef = useRef<RegionalAqiReadings | null>(aqiRegions);
   const sensorVisibilityRef = useRef(sensorVisibility);
+  const geoFilterRef = useRef<GeoFilter | null>(geoFilter);
+  const geoFilterPickingRef = useRef(geoFilterPicking);
+  const onGeoFilterPickRef = useRef(onGeoFilterPick);
+  const mrtStationsRef = useRef<MRTStationGeoJson | null>(null);
   const lastFittedBusRouteKeyRef = useRef<string | null>(null);
   const [mapInitError, setMapInitError] = useState<string | null>(null);
 
@@ -393,6 +471,37 @@ function useMapController({
   useEffect(() => {
     sensorVisibilityRef.current = sensorVisibility;
   }, [sensorVisibility]);
+
+  useEffect(() => {
+    onGeoFilterPickRef.current = onGeoFilterPick;
+  }, [onGeoFilterPick]);
+
+  useEffect(() => {
+    geoFilterPickingRef.current = geoFilterPicking;
+    const map = mapRef.current;
+    if (!map) return;
+    map.getCanvas().style.cursor = geoFilterPicking ? "crosshair" : "";
+  }, [geoFilterPicking]);
+
+  // Live feeds arrive pre-filtered via props; the static MRT station and
+  // parks sources are filtered here, and the circle itself is redrawn.
+  useEffect(() => {
+    geoFilterRef.current = geoFilter;
+    const map = mapRef.current;
+    if (!map) return;
+    (map.getSource("geo-filter") as maplibregl.GeoJSONSource | undefined)
+      ?.setData(buildGeoFilterCircleGeoJson(geoFilter));
+    (map.getSource("geo-filter-mask") as maplibregl.GeoJSONSource | undefined)
+      ?.setData(buildGeoFilterMaskGeoJson(geoFilter));
+    (map.getSource("geo-filter-center") as maplibregl.GeoJSONSource | undefined)
+      ?.setData(buildGeoFilterCenterGeoJson(geoFilter));
+    if (mrtStationsRef.current) {
+      (map.getSource("mrt-stations") as maplibregl.GeoJSONSource | undefined)
+        ?.setData(filterMrtStations(mrtStationsRef.current, geoFilter));
+    }
+    (map.getSource("parks-data") as maplibregl.GeoJSONSource | undefined)
+      ?.setData(filterParks(geoFilter));
+  }, [geoFilter]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -475,6 +584,7 @@ function useMapController({
     if (stopsSource) {
       stopsSource.setData(stopsGeoJson);
     }
+    applyBusRouteFocus(map, geoJson.features.length > 0);
 
     const overlayKey = busRouteOverlay
       ? `${busRouteOverlay.serviceNo}:${busRouteOverlay.direction}:${busRouteOverlay.selectedPathIndex ?? busRouteOverlay.selectedStopIndex ?? "x"}:${busRouteOverlay.path.length}`
@@ -533,14 +643,22 @@ function useMapController({
     }
 
     const layerListenerCleanups: Array<() => void> = [];
+    // While picking a radius centre, the click belongs to the picker, not to
+    // whatever feature happens to be under the cursor.
+    const handleMapClick = (event: maplibregl.MapMouseEvent) => {
+      if (!geoFilterPickingRef.current) return;
+      onGeoFilterPickRef.current?.([event.lngLat.lng, event.lngLat.lat]);
+    };
     const handleBusStopClick = (event: maplibregl.MapLayerMouseEvent) => {
+      if (geoFilterPickingRef.current) return;
       const feature = event.features?.[0];
       const code = feature?.properties?.BusStopCode;
       if (typeof code !== "string") return;
-      const stop = busStopsRef.current.get(code);
+      const stop = busStopLookupRef.current.get(code);
       if (stop) onStopClickRef.current(stop);
     };
     const handleFlightClick = (event: maplibregl.MapLayerMouseEvent) => {
+      if (geoFilterPickingRef.current) return;
       const feature = event.features?.[0];
       const id = feature?.properties?.id;
       if (typeof id !== "string") return;
@@ -572,12 +690,17 @@ function useMapController({
       incidentPopupRef.current = null;
     };
     const handleInteractiveLayerEnter = () => {
-      map.getCanvas().style.cursor = "pointer";
+      map.getCanvas().style.cursor = geoFilterPickingRef.current
+        ? "crosshair"
+        : "pointer";
     };
     const handleInteractiveLayerLeave = () => {
-      map.getCanvas().style.cursor = "";
+      map.getCanvas().style.cursor = geoFilterPickingRef.current
+        ? "crosshair"
+        : "";
     };
     const handleCameraPointClick = (event: maplibregl.MapLayerMouseEvent) => {
+      if (geoFilterPickingRef.current) return;
       const feature = event.features?.[0];
       const cameraId = feature?.properties?.CameraID;
       if (typeof cameraId !== "string") return;
@@ -585,6 +708,7 @@ function useMapController({
       if (camera) onCameraClickRef.current(camera);
     };
     const handleCameraClusterClick = (event: maplibregl.MapLayerMouseEvent) => {
+      if (geoFilterPickingRef.current) return;
       const feature = event.features?.[0];
       const clusterId = feature?.properties?.cluster_id;
       const geometry = feature?.geometry as
@@ -621,6 +745,7 @@ function useMapController({
       }
     };
     const handleMrtStationClick = (event: maplibregl.MapLayerMouseEvent) => {
+      if (geoFilterPickingRef.current) return;
       const feature = event.features?.[0];
       const stationName = feature?.properties?.name;
       const routeable = feature?.properties?.routeable;
@@ -633,9 +758,14 @@ function useMapController({
         const value = feature.properties?.routeable;
         return value === true || value === "true";
       });
-      map.getCanvas().style.cursor = routeable ? "pointer" : "";
+      map.getCanvas().style.cursor = geoFilterPickingRef.current
+        ? "crosshair"
+        : routeable
+          ? "pointer"
+          : "";
     };
     const handleParkClick = (event: maplibregl.MapLayerMouseEvent) => {
+      if (geoFilterPickingRef.current) return;
       const properties = event.features?.[0]?.properties;
       if (!properties || !["park", "pcn", "trail"].includes(properties.kind)) return;
       if (typeof properties.name !== "string" || !properties.name) return;
@@ -650,6 +780,60 @@ function useMapController({
 
     const handleMapLoad = () => {
       improveDarkBasemapContrast(map);
+
+      // Radius filter circle sits beneath every data overlay.
+      map.addSource("geo-filter", {
+        type: "geojson",
+        data: buildGeoFilterCircleGeoJson(geoFilterRef.current),
+      });
+      map.addSource("geo-filter-mask", {
+        type: "geojson",
+        data: buildGeoFilterMaskGeoJson(geoFilterRef.current),
+      });
+      map.addSource("geo-filter-center", {
+        type: "geojson",
+        data: buildGeoFilterCenterGeoJson(geoFilterRef.current),
+      });
+      map.addLayer({
+        id: "geo-filter-mask-layer",
+        type: "fill",
+        source: "geo-filter-mask",
+        paint: {
+          "fill-color": MAP_COLORS.paper,
+          "fill-opacity": 0.45,
+        },
+      });
+      map.addLayer({
+        id: "geo-filter-fill-layer",
+        type: "fill",
+        source: "geo-filter",
+        paint: {
+          "fill-color": MAP_COLORS.geoFilter,
+          "fill-opacity": 0.05,
+        },
+      });
+      map.addLayer({
+        id: "geo-filter-line-layer",
+        type: "line",
+        source: "geo-filter",
+        paint: {
+          "line-color": MAP_COLORS.geoFilter,
+          "line-width": 2,
+          "line-opacity": 1,
+          "line-dasharray": [3, 2],
+        },
+      });
+      map.addLayer({
+        id: "geo-filter-center-layer",
+        type: "circle",
+        source: "geo-filter-center",
+        paint: {
+          "circle-radius": 3.5,
+          "circle-color": MAP_COLORS.geoFilter,
+          "circle-stroke-width": 1.5,
+          "circle-stroke-color": MAP_COLORS.paper,
+        },
+      });
 
       map.addSource("bus-stops", {
         type: "geojson",
@@ -781,6 +965,7 @@ function useMapController({
           "text-halo-width": 1.2,
         },
       });
+      applyBusRouteFocus(map, initialBusRouteGeoJson.features.length > 0);
 
       layerListenerCleanups.push(
         registerLayerMouseListener(
@@ -1197,9 +1382,10 @@ function useMapController({
             features: stationFeatures,
           };
 
+          mrtStationsRef.current = stationsGeoJson;
           map.addSource("mrt-stations", {
             type: "geojson",
-            data: stationsGeoJson,
+            data: filterMrtStations(stationsGeoJson, geoFilterRef.current),
           });
 
           map.addLayer({
@@ -1264,7 +1450,7 @@ function useMapController({
           );
         }
 
-        map.addSource("parks-data", { type: "geojson", data: PARKS_GEOJSON });
+        map.addSource("parks-data", { type: "geojson", data: filterParks(geoFilterRef.current) });
         map.addLayer({ id: "parks-fill-layer", type: "fill", source: "parks-data", filter: ["==", ["get", "kind"], "park"], layout: { visibility: sensorVisibilityRef.current.parks ? "visible" : "none" }, paint: { "fill-color": MAP_COLORS.park, "fill-opacity": 0.07 } });
         map.addLayer({ id: "parks-label-layer", type: "symbol", source: "parks-data", minzoom: 11.5, filter: ["==", ["get", "kind"], "park"], layout: { visibility: sensorVisibilityRef.current.parks ? "visible" : "none", "text-field": ["get", "name"], "text-size": 10 }, paint: { "text-color": MAP_COLORS.park, "text-halo-color": MAP_COLORS.paper, "text-halo-width": 1 } });
         map.addLayer({ id: "pcn-lines-layer", type: "line", source: "parks-data", filter: ["==", ["get", "kind"], "pcn"], layout: { visibility: sensorVisibilityRef.current.parks ? "visible" : "none", "line-cap": "round", "line-join": "round" }, paint: { "line-color": MAP_COLORS.park, "line-width": 1.6 } });
@@ -1355,11 +1541,14 @@ function useMapController({
     };
 
     const removeMapLoadListener = registerMapLoadListener(map, handleMapLoad);
+    map.on("click", handleMapClick);
+    if (geoFilterPickingRef.current) map.getCanvas().style.cursor = "crosshair";
 
     mapRef.current = map;
 
     return () => {
       removeMapLoadListener();
+      map.off("click", handleMapClick);
       for (const removeLayerListener of layerListenerCleanups) {
         removeLayerListener();
       }
@@ -1368,7 +1557,7 @@ function useMapController({
       map.remove();
       mapRef.current = null;
     };
-  }, [busStopsRef, camerasRef, flightsRef, incidentsRef]);
+  }, [busStopsRef, busStopLookupRef, camerasRef, flightsRef, incidentsRef]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -1377,6 +1566,9 @@ function useMapController({
     busStopsRef.current = new globalThis.Map(
       busStops.map((stop) => [stop.BusStopCode, stop]),
     );
+    busStopLookupRef.current = allBusStops
+      ? new globalThis.Map(allBusStops.map((stop) => [stop.BusStopCode, stop]))
+      : busStopsRef.current;
 
     const busStopSource = map.getSource("bus-stops") as
       maplibregl.GeoJSONSource | undefined;
@@ -1402,7 +1594,7 @@ function useMapController({
         ),
       });
     }
-  }, [busStops, busStopsRef, sensorVisibility.busStops]);
+  }, [allBusStops, busStopLookupRef, busStops, busStopsRef, sensorVisibility.busStops]);
 
   useEffect(() => {
     const map = mapRef.current;
