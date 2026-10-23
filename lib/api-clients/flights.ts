@@ -1,13 +1,7 @@
 /**
- * Flight clients: AviationStack (primary) with OpenSky fallback and a
- * last-good snapshot.
- *
- * Failure semantics: a single AviationStack endpoint failing is tolerated
- * (partial results), but the provider as a whole fails when every endpoint
- * fails — so `getFlights` can distinguish "provider down" (fall back to
- * OpenSky) from "no aircraft airborne". The last-good snapshot is read with
- * `Cache.peek`, which never writes, so an outage can no longer overwrite
- * the snapshot with an empty array.
+ * AviationStack flights with OpenSky and last-good snapshot fallbacks.
+ * AviationStack allows partial endpoint failures; OpenSky is used only when
+ * all primary endpoints fail. Snapshot reads never overwrite cached data.
  */
 import { HttpClient } from "@effect/platform";
 import { Effect } from "effect";
@@ -26,7 +20,7 @@ const OPENSKY_BASE_URL = "https://opensky-network.org/api";
 const FLIGHT_TIMEOUT_MS = 6_000;
 const FLIGHTS_CACHE_TTL_MS = 15_000;
 const FLIGHTS_FALLBACK_KEY = "flights-sg-fallback";
-const FLIGHTS_FALLBACK_MAX_AGE_MS = 10 * 60 * 1000; // 10 minutes
+const FLIGHTS_FALLBACK_MAX_AGE_MS = 10 * 60 * 1000;
 const SG_BOUNDS = {
   lamin: 1.15,
   lomin: 103.45,
@@ -170,8 +164,7 @@ const toFlightStateFromAviationStack = (
     : null;
 
   return {
-    // Aircraft identity must survive provider refreshes; timestamps belong
-    // in `lastContact`, never in React/Map feature identity.
+    // Keep feature identity stable across provider refreshes.
     id: icao24,
     icao24,
     callsign,
@@ -203,8 +196,6 @@ const fetchFlightsFromAviationStack = (): Effect.Effect<
       { arr_icao: "WSSL" },
     ] as const;
 
-    // Individual endpoint failures are tolerated (partial results); the
-    // provider as a whole fails only when every endpoint fails.
     const batches = yield* Effect.all(
       endpoints.map((filter) =>
         Effect.gen(function* () {
@@ -396,8 +387,7 @@ export const getFlights = (): Effect.Effect<
           return sorted;
         }
 
-        // Last-good snapshot. `peek` only reads: caching an empty producer
-        // here used to overwrite the snapshot after a 10-minute outage.
+        // Read the last-good snapshot without replacing it on failure.
         const snapshot = yield* cache.peek<FlightState[]>(
           FLIGHTS_FALLBACK_KEY,
           FLIGHTS_FALLBACK_MAX_AGE_MS,

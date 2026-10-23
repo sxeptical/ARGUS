@@ -16,15 +16,9 @@ const securityHeaders = [
   },
   {
     key: "Content-Security-Policy",
-    // MapLibre loads its worker same-origin (public/maplibre/) and
-    // OpenFreeMap serves the keyless basemap. Next.js dev needs
-    // 'unsafe-eval' +
-    // 'unsafe-inline' for HMR; production builds only need 'unsafe-inline'
-    // for runtime style injection. We loosen only where necessary.
     value: [
       "default-src 'self'",
-      // Next.js inlines small scripts; dev mode needs eval for HMR.
-      // Production drops unsafe-eval — only inline scripts remain.
+      // Next.js needs inline scripts, plus eval for HMR in development.
       `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ""}`,
       // Tailwind emits inline styles at runtime; runtime style injection.
       "style-src 'self' 'unsafe-inline'",
@@ -34,9 +28,7 @@ const securityHeaders = [
       "connect-src 'self' https://tiles.openfreemap.org",
       // Google Fonts (loaded via stylesheet) and self-hosted font data URIs.
       "font-src 'self' data: https://fonts.gstatic.com",
-      // MapLibre v6 loads its ESM worker from a same-origin URL
-      // (public/maplibre/, copied by scripts/copy-maplibre-worker.mjs), so no
-      // blob: worker allowance is needed anymore.
+      // MapLibre's worker is copied to public/maplibre/ at build time.
       "worker-src 'self'",
       "child-src 'self'",
       "frame-ancestors 'none'",
@@ -57,15 +49,8 @@ const nextConfig: NextConfig = {
     "*.preview.usehoplite.com",
   ],
   experimental: {
-    // TypeScript setup: the project installs real typescript@6 as the
-    // canonical compiler API (required by typescript-eslint and Next's
-    // API-based build checker) plus @typescript/native (TS 7) whose binary
-    // backs `bun run typecheck`. Next's default CLI checker requires a
-    // physical typescript/bin/tsc from the typescript package itself and
-    // mis-resolves aliased installs on some environments, so builds
-    // type-check via the JS API here instead. `stableTypeOrdering` is
-    // enabled in tsconfig so TS 6 and TS 7 use compatible ordering; see
-    // https://devblogs.microsoft.com/typescript/announcing-typescript-7-0/
+    // Use Next's compiler API: its CLI checker can mis-resolve the native
+    // TypeScript package alias used by `bun run typecheck`.
     useTypeScriptCli: false,
   },
   images: {

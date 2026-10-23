@@ -33,8 +33,7 @@ const BUS_STOPS: SourceDefinition = {
   key: "bus stops",
   label: "LTA Bus Network",
   url: "/api/bus-stops",
-  // The server caches this essentially-static national catalogue for 24h;
-  // do not transfer thousands of stops every minute.
+  // Match the server's 24-hour cache for this large, mostly static catalogue.
   refreshMs: 30 * 60 * 1000,
 };
 const CAMERAS: SourceDefinition = {
@@ -71,8 +70,7 @@ const TRAIN_ALERTS: SourceDefinition = {
   key: "train alerts",
   label: "Train Service Alerts",
   url: "/api/train-alerts",
-  // Server caches for 60s; poll at the same cadence. Disruption state
-  // changes slowly, so this is deliberately not a high-frequency feed.
+  // Match the server cache; disruption state changes slowly.
   refreshMs: 60 * 1000,
 };
 

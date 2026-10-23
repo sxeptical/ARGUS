@@ -1,4 +1,5 @@
 import TerminalPanel from "@/app/components/TerminalPanel";
+import { summarizeFlights } from "@/lib/flights";
 import {
   formatAltitudeFeet,
   formatSpeedKmh,
@@ -16,15 +17,7 @@ export default function FlightPanel({
   selectedFlight,
   onSelectFlight,
 }: FlightPanelProps) {
-  const inbound = flights.filter(
-    (flight) => flight.direction === "inbound",
-  ).length;
-  const outbound = flights.filter(
-    (flight) => flight.direction === "outbound",
-  ).length;
-  const transit = flights.filter(
-    (flight) => flight.direction === "transit",
-  ).length;
+  const { inbound, outbound, transit } = summarizeFlights(flights);
 
   return (
     <TerminalPanel title="FLIGHTS (SG AIRSPACE)" contentClassName="min-h-40 sm:min-h-48">

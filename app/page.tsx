@@ -86,8 +86,7 @@ export default function Home() {
   const [searchTarget, setSearchTarget] = useState<MapSearchTarget | null>(null);
   const [aqiMapRegions, setAqiMapRegions] =
     useState<RegionalAqiReadings | null>(null);
-  // Searches and station pickers only reach what the radius filter shows:
-  // `busStops` is already scoped, and MRT stations are scoped here.
+  // Scope station search and pickers to the active radius filter.
   const mrtStationsInRadius = useMemo(
     () =>
       withinRadius(MRT_STATION_SEARCH_RESULTS, geoFilter, (result) => [

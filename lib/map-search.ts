@@ -1,7 +1,5 @@
-import type { BusStop, MapSearchResult, MRTGeoJson } from "@/types";
-import mrtLinesData from "@/public/mrt-lines.json";
-import { interpolateStations } from "@/lib/map-geometry";
-import { MRT_DISPLAY_LINE_STATIONS } from "@/lib/mrt-network";
+import { MRT_STATION_GEOJSON } from "@/lib/map-features";
+import type { BusStop, MapSearchResult } from "@/types";
 
 export function buildBusStopSearchResults(
   busStops: BusStop[],
@@ -17,37 +15,26 @@ export function buildBusStopSearchResults(
   }));
 }
 
-// Uses the same approximate station positions the map draws, so a search
-// result lands on the station marker. Interchanges appear once, keyed by name,
-// with every line they serve as keywords.
+// Match map marker positions and index interchanges once under all served lines.
 function buildMrtStationSearchResults(): MapSearchResult[] {
   const byName = new Map<string, MapSearchResult>();
-  for (const lineFeature of (mrtLinesData as MRTGeoJson).features) {
-    const line = lineFeature.properties.name;
-    const stations = interpolateStations(
-      lineFeature.geometry.coordinates,
-      MRT_DISPLAY_LINE_STATIONS[line] ?? [],
-      line,
-      lineFeature.properties.color,
-    );
-    for (const station of stations) {
-      const name = station.properties.name;
-      const existing = byName.get(name);
-      if (existing) {
-        existing.keywords.push(line);
-        continue;
-      }
-      const [lng, lat] = station.geometry.coordinates;
-      byName.set(name, {
-        id: name,
-        type: "mrt",
-        name,
-        lat,
-        lng,
-        zoom: 15,
-        keywords: ["mrt", line],
-      });
+  for (const station of MRT_STATION_GEOJSON.features) {
+    const { name, line } = station.properties;
+    const existing = byName.get(name);
+    if (existing) {
+      existing.keywords.push(line);
+      continue;
     }
+    const [lng, lat] = station.geometry.coordinates;
+    byName.set(name, {
+      id: name,
+      type: "mrt",
+      name,
+      lat,
+      lng,
+      zoom: 15,
+      keywords: ["mrt", line],
+    });
   }
   return Array.from(byName.values());
 }

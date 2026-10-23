@@ -75,11 +75,8 @@ export interface TrafficIncident {
 }
 
 /**
- * Normalized LTA Train Service Alerts row. `affectedLines` maps LTA line
- * codes to the display names used across the app ("EWL" → "East West
- * Line"); codes without a known display mapping pass through unchanged.
- * `startTime`/`endTime` are LTA-supplied strings already in Singapore
- * local time.
+ * Normalized LTA alert with display line names where known. Times are
+ * LTA-supplied strings in Singapore local time.
  */
 export interface TrainServiceAlert {
   status: "normal" | "disrupted";
@@ -108,7 +105,6 @@ export interface FlightState {
   lastContact: number | null;
 }
 
-/** GeoJSON contract used by the restored pre-refactor Map component. */
 export interface MRTGeoJson {
   type: "FeatureCollection";
   features: Array<{

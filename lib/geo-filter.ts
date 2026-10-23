@@ -1,14 +1,7 @@
 /**
- * Radius ("within N metres of a point") filtering for map data.
- *
- * Distances use a local flat projection around the filter centre, scaled by
- * the WGS84 ellipsoid's radii of curvature at the centre latitude: the
- * meridional radius M for north–south and the prime-vertical radius N for
- * east–west. A single mean-Earth radius would be ~0.5% too long north–south
- * near the equator (~28 m at 5 km); with M and N the error against an exact
- * ellipsoidal geodesic stays well under a metre for radii of a few
- * kilometres. Working in flat metres also lets lines and polygons be tested
- * with plain 2D segment geometry.
+ * Radius filtering using a local flat projection scaled by the WGS84 radii
+ * of curvature. This keeps errors below a metre over typical filter radii
+ * while allowing simple 2D geometry checks.
  */
 
 export type GeoFilter = {
@@ -204,10 +197,7 @@ export function buildGeoFilterCircleGeoJson(
   };
 }
 
-/**
- * World-covering polygon with the filter circle cut out, used to dim
- * everything outside the radius.
- */
+/** World polygon with the filter circle cut out to dim exterior areas. */
 export function buildGeoFilterMaskGeoJson(
   filter: GeoFilter | null,
 ): GeoFilterCircleGeoJson {

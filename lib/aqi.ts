@@ -1,8 +1,4 @@
-/**
- * US EPA Air Quality Index helpers. Pure and dependency-free so the API
- * client, weather panel, map overlay, and signal digest share one set of
- * breakpoints and bands.
- */
+/** Shared US EPA AQI breakpoints and display bands. */
 import type { AqiStatus } from "@/types";
 
 type Breakpoint = readonly [

@@ -1,13 +1,6 @@
 /**
- * Data.gov.sg weather client: 2-hour forecast, 24-hr PM2.5 (from the PSI
- * feed), air temperature, relative humidity, UV, 1-hr PM2.5, and four-day
- * outlook, aggregated into a single `WeatherData`. Air quality is reported
- * as US EPA AQI derived from PM2.5.
- *
- * The seven endpoints are independent: when some fail, the rest still produce
- * a usable (partially nulled) reading. The whole source fails only when
- * every endpoint fails, so a single flaky sub-feed no longer blanks the
- * weather panel.
+ * Aggregates Data.gov.sg weather feeds, including PM2.5-derived US AQI.
+ * Endpoints fail independently; the source fails only when all feeds fail.
  */
 import { HttpClient } from "@effect/platform";
 import { Effect, Either, Schema } from "effect";
@@ -32,22 +25,11 @@ const DATA_GOV_V2_BASE_URL = "https://api-open.data.gov.sg/v2/real-time/api";
 const dataGovGet = <A, I>(
   endpoint: string,
   schema: Schema.Schema<A, I, never>,
+  baseUrl: string = DATA_GOV_BASE_URL,
 ): Effect.Effect<A, UpstreamError, HttpClient.HttpClient> =>
   httpGetJson(
     "data.gov.sg",
-    `${DATA_GOV_BASE_URL}${endpoint}`,
-    { Accept: "application/json" },
-    schema,
-    DEFAULT_TIMEOUT_MS,
-  );
-
-const dataGovV2Get = <A, I>(
-  endpoint: string,
-  schema: Schema.Schema<A, I, never>,
-): Effect.Effect<A, UpstreamError, HttpClient.HttpClient> =>
-  httpGetJson(
-    "data.gov.sg",
-    `${DATA_GOV_V2_BASE_URL}${endpoint}`,
+    `${baseUrl}${endpoint}`,
     { Accept: "application/json" },
     schema,
     DEFAULT_TIMEOUT_MS,
@@ -178,12 +160,17 @@ export const getWeather = (): Effect.Effect<
                 DataGovHumidityResponseSchema,
               ),
             ),
-            Effect.either(dataGovV2Get("/uv", DataGovUvResponseSchema)),
-            Effect.either(dataGovV2Get("/pm25", DataGovPm25ResponseSchema)),
             Effect.either(
-              dataGovV2Get(
+              dataGovGet("/uv", DataGovUvResponseSchema, DATA_GOV_V2_BASE_URL),
+            ),
+            Effect.either(
+              dataGovGet("/pm25", DataGovPm25ResponseSchema, DATA_GOV_V2_BASE_URL),
+            ),
+            Effect.either(
+              dataGovGet(
                 "/four-day-outlook",
                 DataGovFourDayResponseSchema,
+                DATA_GOV_V2_BASE_URL,
               ),
             ),
           ] as const,
@@ -209,10 +196,7 @@ export const getWeather = (): Effect.Effect<
         const pm25Response = right(pm25R);
         const fourDayResponse = right(fourDayR);
 
-        // Use a majority-aggregate across all areas instead of picking a
-        // single area (which could be "Ang Mo Kio") and labelling it as
-        // "Singapore". The data.gov.sg 2-hour forecast has no national
-        // field, so we find the most common forecast text.
+        // The forecast has no national field, so use the most common area value.
         const forecasts = forecast?.items?.[0]?.forecasts ?? [];
         let forecastText: string;
         if (forecasts.length === 0) {

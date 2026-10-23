@@ -1,10 +1,4 @@
-/**
- * Pure GeoJSON builders extracted from `app/components/Map.tsx`.
- *
- * Map.tsx was 1674 lines mixing basemap theming, GeoJSON construction, and
- * MapLibre lifecycle. These builders are framework-free so they can be
- * unit-tested without a browser.
- */
+/** Framework-free GeoJSON builders for map overlays. */
 import { isRouteableMrtStation, type MrtRouteSegment } from "@/lib/mrt-routing";
 import type { BusRouteStop, MRTGeoJson } from "@/types";
 
@@ -99,13 +93,7 @@ export type MRTRouteGeoJson = {
   }>;
 };
 
-/**
- * Resolve the polyline to draw for a bus route overlay.
- *
- * When the user selected a stop, only the remaining segment from that stop
- * to the terminus is returned (not the full outbound+return geometry, and
- * not the portion already travelled).
- */
+/** Resolve the full route, or only the selected stop's remaining segment. */
 export function resolveBusRouteDrawPath(
   overlay: BusRouteOverlay,
 ): Array<[number, number]> {
@@ -193,12 +181,12 @@ export function buildBusRouteGeoJson(
   overlay: BusRouteOverlay | null | undefined,
 ): BusRouteLineGeoJson {
   if (!overlay || (overlay.path.length < 2 && overlay.stops.length < 2)) {
-    return { type: "FeatureCollection", features: [] };
+    return EMPTY_BUS_ROUTE_GEOJSON;
   }
 
   const drawCoords = resolveBusRouteDrawPath(overlay);
   if (drawCoords.length < 2) {
-    return { type: "FeatureCollection", features: [] };
+    return EMPTY_BUS_ROUTE_GEOJSON;
   }
 
   // Single polyline only — remaining path from selected stop to destination.
@@ -257,11 +245,8 @@ export function buildBusRouteStopsGeoJson(
 }
 
 /**
- * Station positions are approximate: when the line geometry vertex count
- * matches the station count (the common case — the GeoJSON was authored with
- * one vertex per station), vertices are used directly. Otherwise stations are
- * distributed evenly along the polyline. For precise platform coordinates a
- * dedicated `mrt-stations.json` with surveyed positions should replace this.
+ * Use line vertices as station positions when counts match; otherwise
+ * distribute stations evenly along the line. Positions are approximate.
  */
 export function interpolateStations(
   coordinates: number[][],
