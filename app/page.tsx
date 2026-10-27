@@ -25,7 +25,7 @@ import { formatRadius, withinRadius } from "@/lib/geo-filter";
 import { buildBusStopSearchResults, MRT_STATION_SEARCH_RESULTS } from "@/lib/map-search";
 import { MRT_STATION_NAMES } from "@/lib/mrt-routing";
 import { buildSignalDigest } from "@/lib/signals";
-import type { RegionalAqiReadings } from "@/types";
+import type { AirQualityOverlay } from "@/types";
 
 export default function Home() {
   const {
@@ -84,8 +84,8 @@ export default function Home() {
 
   const signalDigest = buildSignalDigest({ trainAlerts, incidents, weather });
   const [searchTarget, setSearchTarget] = useState<MapSearchTarget | null>(null);
-  const [aqiMapRegions, setAqiMapRegions] =
-    useState<RegionalAqiReadings | null>(null);
+  const [airQualityOverlay, setAirQualityOverlay] =
+    useState<AirQualityOverlay | null>(null);
   // Scope station search and pickers to the active radius filter.
   const mrtStationsInRadius = useMemo(
     () =>
@@ -145,7 +145,7 @@ export default function Home() {
           visibleSensorCount={visibleSensorCount}
           weather={weather}
           weatherHistory={weatherHistory}
-          onAqiMapOverlayChange={setAqiMapRegions}
+          onAirQualityOverlayChange={setAirQualityOverlay}
           geoFilterPanel={
             <GeoFilterPanel
               filter={geoFilter}
@@ -166,7 +166,7 @@ export default function Home() {
               cameras={cameras}
               flights={flights}
               incidents={incidents}
-              aqiRegions={aqiMapRegions}
+              airQualityOverlay={airQualityOverlay}
               sensorVisibility={sensorVisibility}
               onStopClick={handleSelectStop}
               onCameraClick={setSelectedCamera}

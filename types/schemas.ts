@@ -188,7 +188,7 @@ const RegionalReadingSchema = Schema.Struct({
 });
 
 const PsiReadingSchema = Schema.Struct({
-  pm25_twenty_four_hourly: Schema.optional(RegionalReadingSchema),
+  psi_twenty_four_hourly: Schema.optional(RegionalReadingSchema),
 });
 
 const PsiItemSchema = Schema.Struct({

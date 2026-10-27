@@ -13,31 +13,41 @@ export type BusRouteStop = BusRouteStopContract;
 export type BusRouteDirection = BusRouteDirectionContract;
 export type BusRouteResponse = BusRouteResponseContract;
 
-export type AqiRegionKey = "north" | "south" | "east" | "west" | "central";
+export type AirRegionKey = "north" | "south" | "east" | "west" | "central";
 
-export type RegionalAqiReadings = Record<AqiRegionKey, number | null>;
+export type RegionalAirReadings = Record<AirRegionKey, number | null>;
 
-export type AqiStatus =
+/** NEA PSI health descriptor. */
+export type PsiStatus =
   | "Good"
   | "Moderate"
-  | "Unhealthy for Sensitive Groups"
   | "Unhealthy"
   | "Very Unhealthy"
   | "Hazardous"
   | "Unknown";
 
+/** NEA 1-hr PM2.5 concentration band (I–IV). */
+export type Pm25Band = "Normal" | "Elevated" | "High" | "Very High" | "Unknown";
+
+export type AirQualityTone = "success" | "warning" | "danger" | "muted";
+
+/** Per-region values and colour tones drawn by the map's air-quality overlay. */
+export type AirQualityOverlay = Record<
+  AirRegionKey,
+  { value: number | null; tone: AirQualityTone }
+>;
+
 export interface WeatherData {
   temperature: number | null;
   humidity: number | null;
-  /** Worst-region US AQI from 24-hr PM2.5. */
-  aqi: number | null;
-  aqiStatus: AqiStatus;
-  /** Worst-region US AQI from the latest 1-hr PM2.5. */
-  aqiOneHour: number | null;
-  aqiOneHourStatus: AqiStatus;
-  /** Regional US AQI readings for the 24-hr and 1-hr windows. */
-  aqiRegions: RegionalAqiReadings;
-  aqiOneHourRegions: RegionalAqiReadings;
+  /** NEA 24-hr PSI for the worst region. */
+  psi: number | null;
+  psiStatus: PsiStatus;
+  psiRegions: RegionalAirReadings;
+  /** NEA 1-hr PM2.5 (µg/m³) for the worst region. */
+  pm25OneHour: number | null;
+  pm25OneHourBand: Pm25Band;
+  pm25OneHourRegions: RegionalAirReadings;
   uv: number | null;
   uvStatus: "Low" | "Moderate" | "High" | "Very High" | "Extreme" | "Unknown";
   fourDay: Array<{
@@ -54,7 +64,7 @@ export interface WeatherHistoryPoint {
   timestamp: string;
   temperature: number | null;
   humidity: number | null;
-  aqi: number | null;
+  psi: number | null;
 }
 
 export interface NewsItem {

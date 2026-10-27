@@ -33,14 +33,13 @@ import {
   buildFlightGeoJson,
   MRT_STATION_GEOJSON,
 } from "@/lib/map-features";
-import { aqiTone, getAqiStatus } from "@/lib/aqi";
 import { PARKS_GEOJSON } from "@/lib/parks-data";
 import type {
-  AqiRegionKey,
+  AirRegionKey,
   BusStop,
   FlightState,
   MRTGeoJson,
-  RegionalAqiReadings,
+  AirQualityOverlay,
   TrafficCamera,
   TrafficIncident,
   ParkFeatureKind,
@@ -64,7 +63,7 @@ type MapProps = {
   cameras: TrafficCamera[];
   flights: FlightState[];
   incidents: TrafficIncident[];
-  aqiRegions?: RegionalAqiReadings | null;
+  airQualityOverlay?: AirQualityOverlay | null;
   /** Display names of MRT lines currently flagged as disrupted by LTA. */
   disruptedMrtLines?: ReadonlyArray<string>;
   sensorVisibility: {
@@ -160,8 +159,8 @@ const MRT_LINES = mrtLinesData as MRTGeoJson;
 const EMPTY_MRT_ROUTE_SEGMENTS: MrtRouteSegment[] = [];
 const EMPTY_DISRUPTED_MRT_LINES: ReadonlyArray<string> = [];
 
-const AQI_REGION_CENTERS: ReadonlyArray<{
-  key: AqiRegionKey;
+const AIR_REGION_CENTERS: ReadonlyArray<{
+  key: AirRegionKey;
   label: string;
   lng: number;
   lat: number;
@@ -173,26 +172,25 @@ const AQI_REGION_CENTERS: ReadonlyArray<{
   { key: "central", label: "CENTRAL", lng: 103.82, lat: 1.35735 },
 ];
 
-function buildAqiRegionsGeoJson(
-  regions: RegionalAqiReadings | null | undefined,
+function buildAirQualityGeoJson(
+  overlay: AirQualityOverlay | null | undefined,
 ) {
-  if (!regions) {
+  if (!overlay) {
     return { type: "FeatureCollection" as const, features: [] };
   }
   return {
     type: "FeatureCollection" as const,
-    features: AQI_REGION_CENTERS.flatMap(({ key, label, lng, lat }) => {
-      const aqi = regions[key];
-      if (typeof aqi !== "number" || !Number.isFinite(aqi)) return [];
-      const tone = aqiTone(getAqiStatus(aqi));
+    features: AIR_REGION_CENTERS.flatMap(({ key, label, lng, lat }) => {
+      const { value, tone } = overlay[key];
+      if (value === null || !Number.isFinite(value)) return [];
       return [
         {
           type: "Feature" as const,
           properties: {
             region: key,
-            aqi,
+            value,
             tone,
-            label: `${label}\n${aqi}`,
+            label: `${label}\n${value}`,
           },
           geometry: {
             type: "Point" as const,
@@ -406,7 +404,7 @@ function useMapController({
   cameras,
   flights,
   incidents,
-  aqiRegions = null,
+  airQualityOverlay = null,
   disruptedMrtLines = EMPTY_DISRUPTED_MRT_LINES,
   sensorVisibility,
   onStopClick,
@@ -437,7 +435,7 @@ function useMapController({
   const mrtLinesRef = useRef<MRTGeoJson | null>(null);
   const mrtRouteSegmentsRef = useRef<MrtRouteSegment[]>(mrtRouteSegments);
   const busRouteOverlayRef = useRef<BusRouteOverlay | null>(busRouteOverlay);
-  const aqiRegionsRef = useRef<RegionalAqiReadings | null>(aqiRegions);
+  const airQualityOverlayRef = useRef<AirQualityOverlay | null>(airQualityOverlay);
   const sensorVisibilityRef = useRef(sensorVisibility);
   const geoFilterRef = useRef<GeoFilter | null>(geoFilter);
   const geoFilterPickingRef = useRef(geoFilterPicking);
@@ -1377,9 +1375,9 @@ function useMapController({
       }
 
       // Separate block so an MRT/sensor layer failure cannot silently drop the
-      // AQI overlay (and vice versa).
+      // air-quality overlay (and vice versa).
       try {
-        const aqiColorExpr: maplibregl.ExpressionSpecification = [
+        const airQualityColorExpr: maplibregl.ExpressionSpecification = [
           "match",
           ["get", "tone"],
           "success",
@@ -1390,14 +1388,14 @@ function useMapController({
           MAP_COLORS.danger,
           MAP_COLORS.muted,
         ];
-        map.addSource("aqi-regions", {
+        map.addSource("air-quality-regions", {
           type: "geojson",
-          data: buildAqiRegionsGeoJson(aqiRegionsRef.current),
+          data: buildAirQualityGeoJson(airQualityOverlayRef.current),
         });
         map.addLayer({
-          id: "aqi-regions-glow-layer",
+          id: "air-quality-regions-glow-layer",
           type: "circle",
-          source: "aqi-regions",
+          source: "air-quality-regions",
           paint: {
             "circle-radius": [
               "interpolate",
@@ -1408,27 +1406,27 @@ function useMapController({
               12,
               88,
             ],
-            "circle-color": aqiColorExpr,
+            "circle-color": airQualityColorExpr,
             "circle-blur": 0.85,
             "circle-opacity": 0.26,
           },
         });
         map.addLayer({
-          id: "aqi-regions-node-layer",
+          id: "air-quality-regions-node-layer",
           type: "circle",
-          source: "aqi-regions",
+          source: "air-quality-regions",
           paint: {
             "circle-radius": 18,
             "circle-color": MAP_COLORS.paper,
             "circle-opacity": 0.88,
             "circle-stroke-width": 1.5,
-            "circle-stroke-color": aqiColorExpr,
+            "circle-stroke-color": airQualityColorExpr,
           },
         });
         map.addLayer({
-          id: "aqi-regions-label-layer",
+          id: "air-quality-regions-label-layer",
           type: "symbol",
-          source: "aqi-regions",
+          source: "air-quality-regions",
           layout: {
             "text-field": ["get", "label"],
             "text-size": 10,
@@ -1436,13 +1434,13 @@ function useMapController({
             "text-ignore-placement": true,
           },
           paint: {
-            "text-color": aqiColorExpr,
+            "text-color": airQualityColorExpr,
             "text-halo-color": MAP_COLORS.paper,
             "text-halo-width": 1,
           },
         });
       } catch (error) {
-        console.warn("AQI overlay failed to initialize", error);
+        console.warn("Air quality overlay failed to initialize", error);
       }
     };
 
@@ -1554,14 +1552,14 @@ function useMapController({
   }, [incidents, incidentsRef, sensorVisibility.incidents]);
 
   useEffect(() => {
-    aqiRegionsRef.current = aqiRegions;
+    airQualityOverlayRef.current = airQualityOverlay;
     const map = mapRef.current;
     if (!map) return;
-    const source = map.getSource("aqi-regions") as
+    const source = map.getSource("air-quality-regions") as
       | maplibregl.GeoJSONSource
       | undefined;
-    source?.setData(buildAqiRegionsGeoJson(aqiRegions));
-  }, [aqiRegions]);
+    source?.setData(buildAirQualityGeoJson(airQualityOverlay));
+  }, [airQualityOverlay]);
 
   return { containerRef, mapInitError };
 }

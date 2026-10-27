@@ -12,7 +12,7 @@ import type {
 import { FLIGHTS_ENABLED } from "@/lib/features";
 import type {
   FlightState,
-  RegionalAqiReadings,
+  AirQualityOverlay,
   WeatherData,
   WeatherHistoryPoint,
 } from "@/types";
@@ -28,7 +28,7 @@ export function LayersSidebar({
   visibleSensorCount,
   weather,
   weatherHistory,
-  onAqiMapOverlayChange,
+  onAirQualityOverlayChange,
   geoFilterPanel,
 }: {
   flights: FlightState[];
@@ -41,7 +41,7 @@ export function LayersSidebar({
   visibleSensorCount: number;
   weather: WeatherData;
   weatherHistory: WeatherHistoryPoint[];
-  onAqiMapOverlayChange?: (regions: RegionalAqiReadings | null) => void;
+  onAirQualityOverlayChange?: (overlay: AirQualityOverlay | null) => void;
   /** Radius filter controls, rendered directly under the layer toggles. */
   geoFilterPanel?: ReactNode;
 }) {
@@ -134,7 +134,7 @@ export function LayersSidebar({
       <WeatherPanel
         weather={weather}
         history={weatherHistory}
-        onAqiMapOverlayChange={onAqiMapOverlayChange}
+        onAirQualityOverlayChange={onAirQualityOverlayChange}
       />
       {FLIGHTS_ENABLED ? (
         <FlightPanel

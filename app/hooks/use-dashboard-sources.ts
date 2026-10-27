@@ -74,7 +74,7 @@ const TRAIN_ALERTS: SourceDefinition = {
   refreshMs: 60 * 1000,
 };
 
-const EMPTY_REGIONAL_AQI = {
+const EMPTY_REGIONAL_AIR = {
   north: null,
   south: null,
   east: null,
@@ -85,12 +85,12 @@ const EMPTY_REGIONAL_AQI = {
 const DEFAULT_WEATHER: WeatherData = {
   temperature: null,
   humidity: null,
-  aqi: null,
-  aqiStatus: "Unknown",
-  aqiOneHour: null,
-  aqiOneHourStatus: "Unknown",
-  aqiRegions: EMPTY_REGIONAL_AQI,
-  aqiOneHourRegions: EMPTY_REGIONAL_AQI,
+  psi: null,
+  psiStatus: "Unknown",
+  psiRegions: EMPTY_REGIONAL_AIR,
+  pm25OneHour: null,
+  pm25OneHourBand: "Unknown",
+  pm25OneHourRegions: EMPTY_REGIONAL_AIR,
   uv: null,
   uvStatus: "Unknown",
   fourDay: [],
