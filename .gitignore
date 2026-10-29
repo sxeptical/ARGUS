@@ -39,7 +39,8 @@ yarn-error.log*
 
 # opencode
 .opencode
-
+.claude
+/tmp/
 # typescript
 *.tsbuildinfo
 next-env.d.ts
