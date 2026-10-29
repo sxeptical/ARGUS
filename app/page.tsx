@@ -180,7 +180,10 @@ export default function Home() {
                   const layer = SEARCH_LAYER_BY_TYPE[result.type];
                   setSensorVisibility((previous) => ({ ...previous, [layer]: true }));
                 } else if (result.type === "park") {
-                  // Make sure the searched place is actually drawn when we land on it.
+                  const park = PARKS_GEOJSON.features.find(
+                    (feature) => `park:${feature.properties.name}` === result.id,
+                  );
+                  if (park) setSelectedPark(park.properties);
                   setSensorVisibility((previous) => ({ ...previous, parks: true }));
                 }
               }}
