@@ -4,6 +4,7 @@ import { useCallback, useMemo, useState } from "react";
 import { useBusRoute } from "@/app/hooks/use-bus-route";
 import { useDashboardSources } from "@/app/hooks/use-dashboard-sources";
 import { useMrtPlanner } from "@/app/hooks/use-mrt-planner";
+import { usePersistentState } from "@/app/hooks/use-persistent-state";
 import { useWeatherHistory } from "@/app/hooks/use-weather-history";
 import { FLIGHTS_ENABLED } from "@/lib/features";
 import { summarizeFlights } from "@/lib/flights";
@@ -15,6 +16,14 @@ import {
 } from "@/lib/geo-filter";
 import { MRT_DISPLAY_LINE_COUNT } from "@/lib/mrt-network";
 import { PARKS_GEOJSON } from "@/lib/parks-data";
+import {
+  GEO_FILTER_CENTER_KEY,
+  GEO_FILTER_RADIUS_KEY,
+  parseGeoFilterCenter,
+  parseGeoFilterRadius,
+  parseSensorVisibility,
+  SENSOR_VISIBILITY_KEY,
+} from "@/lib/ui-preferences";
 import type { ParkFeatureKind } from "@/types";
 import type { FlightState, TrafficCamera } from "@/types";
 
@@ -31,6 +40,18 @@ export type SensorRow = {
 
 export type SensorStatsRow = Omit<SensorRow, "key">;
 
+const DEFAULT_SENSOR_VISIBILITY: Readonly<Record<SensorKey, boolean>> = {
+  flights: true,
+  cameras: true,
+  busStops: true,
+  mrt: true,
+  parks: false,
+  incidents: false,
+};
+
+const parseStoredSensorVisibility = (stored: unknown) =>
+  parseSensorVisibility(stored, DEFAULT_SENSOR_VISIBILITY);
+
 export function useDashboardState() {
   const data = useDashboardSources();
   const busRoute = useBusRoute();
@@ -39,22 +60,21 @@ export function useDashboardState() {
   const [selectedCameraId, setSelectedCameraId] = useState<string | null>(null);
   const [selectedFlightId, setSelectedFlightId] = useState<string | null>(null);
   const [selectedParkId, setSelectedParkId] = useState<string | null>(null);
-  const [sensorVisibility, setSensorVisibility] = useState<
+  const [sensorVisibility, setSensorVisibility] = usePersistentState<
     Record<SensorKey, boolean>
-  >({
-    flights: true,
-    cameras: true,
-    busStops: true,
-    mrt: true,
-    parks: false,
-    incidents: false,
-  });
+  >(
+    SENSOR_VISIBILITY_KEY,
+    DEFAULT_SENSOR_VISIBILITY,
+    parseStoredSensorVisibility,
+  );
   // Keep the radius when clearing and re-picking the filter centre.
-  const [geoFilterCenter, setGeoFilterCenter] = useState<
+  const [geoFilterCenter, setGeoFilterCenter] = usePersistentState<
     readonly [number, number] | null
-  >(null);
-  const [geoFilterRadiusM, setGeoFilterRadiusM] = useState(
+  >(GEO_FILTER_CENTER_KEY, null, parseGeoFilterCenter);
+  const [geoFilterRadiusM, setGeoFilterRadiusM] = usePersistentState(
+    GEO_FILTER_RADIUS_KEY,
     GEO_FILTER_DEFAULT_RADIUS_M,
+    parseGeoFilterRadius,
   );
   const [geoFilterPicking, setGeoFilterPicking] = useState(false);
   const geoFilter = useMemo<GeoFilter | null>(
@@ -67,11 +87,11 @@ export function useDashboardState() {
   const pickGeoFilterCenter = useCallback((center: [number, number]) => {
     setGeoFilterCenter(center);
     setGeoFilterPicking(false);
-  }, []);
+  }, [setGeoFilterCenter]);
   const clearGeoFilter = useCallback(() => {
     setGeoFilterCenter(null);
     setGeoFilterPicking(false);
-  }, []);
+  }, [setGeoFilterCenter]);
 
   // Display filtered feeds, but keep unfiltered data for search and selection.
   const busStops = useMemo(
