@@ -8,10 +8,10 @@ import {
 } from "@/lib/local-history";
 import type { WeatherData, WeatherHistoryPoint } from "@/types";
 
-// v2: the air-quality reading switched from NEA PSI to US AQI; a new key keeps
-// old PSI samples out of the AQI trend.
-const STORAGE_KEY = "argus.weather.history.v2";
-const MAX_POINTS = 288; // 24 hours at a five-minute cadence
+// v3: back on NEA PSI; a new key keeps the interim US AQI samples (v2) out
+// of the PSI trend.
+const STORAGE_KEY = "argus.weather.history.v3";
+const MAX_POINTS = 288; // 24 hours at five-minute intervals
 
 function isWeatherHistoryPoint(value: unknown): value is WeatherHistoryPoint {
   if (!value || typeof value !== "object") return false;
@@ -22,7 +22,7 @@ function isWeatherHistoryPoint(value: unknown): value is WeatherHistoryPoint {
   ) {
     return false;
   }
-  return [point.temperature, point.humidity, point.aqi].every(
+  return [point.temperature, point.humidity, point.psi].every(
     (reading) => reading === null || Number.isFinite(reading),
   );
 }
@@ -34,7 +34,7 @@ function recordWeather(
   if (
     weather.temperature === null &&
     weather.humidity === null &&
-    weather.aqi === null
+    weather.psi === null
   ) {
     return [...history];
   }
@@ -43,7 +43,7 @@ function recordWeather(
       timestamp: weather.lastUpdated,
       temperature: weather.temperature,
       humidity: weather.humidity,
-      aqi: weather.aqi,
+      psi: weather.psi,
     },
   ]).slice(-MAX_POINTS);
 }
@@ -71,8 +71,7 @@ export function useWeatherHistory(weather: WeatherData) {
   useEffect(() => {
     const timer = window.setTimeout(() => {
       setHistory((current) => {
-        // Merge storage again at write time. This makes the operation safe
-        // even if a cached data callback beats the hydration timer.
+        // Preserve points recorded before storage hydration completes.
         const persisted = readPointList(
           STORAGE_KEY,
           isWeatherHistoryPoint,

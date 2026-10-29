@@ -1,10 +1,4 @@
-/**
- * Pure GeoJSON builders extracted from `app/components/Map.tsx`.
- *
- * Map.tsx was 1674 lines mixing basemap theming, GeoJSON construction, and
- * MapLibre lifecycle. These builders are framework-free so they can be
- * unit-tested without a browser.
- */
+/** Framework-free GeoJSON builders for map overlays. */
 import { isRouteableMrtStation, type MrtRouteSegment } from "@/lib/mrt-routing";
 import type { BusRouteStop, MRTGeoJson } from "@/types";
 
@@ -20,7 +14,7 @@ export type BusRouteOverlay = {
    * connecting `stops` with straight segments.
    */
   path: ReadonlyArray<readonly [number, number]>;
-  /** Index into `path` nearest the selected stop for remaining-path emphasis. */
+  /** Index of the `path` segment the selected stop sits on (remaining-path start). */
   selectedPathIndex: number | null;
 };
 
@@ -99,13 +93,7 @@ export type MRTRouteGeoJson = {
   }>;
 };
 
-/**
- * Resolve the polyline to draw for a bus route overlay.
- *
- * When the user selected a stop, only the remaining segment from that stop
- * to the terminus is returned (not the full outbound+return geometry, and
- * not the portion already travelled).
- */
+/** Resolve the full route, or only the selected stop's remaining segment. */
 export function resolveBusRouteDrawPath(
   overlay: BusRouteOverlay,
 ): Array<[number, number]> {
@@ -124,12 +112,55 @@ export function resolveBusRouteDrawPath(
       ? overlay.selectedPathIndex
       : overlay.selectedStopIndex;
 
-  if (startIdx !== null && startIdx >= 0 && startIdx < fullCoords.length - 1) {
-    return fullCoords.slice(startIdx);
+  const atTerminus = overlay.selectedStopIndex === overlay.stops.length - 1;
+  if (
+    !atTerminus &&
+    startIdx !== null &&
+    startIdx >= 0 &&
+    startIdx < fullCoords.length - 1
+  ) {
+    const stop =
+      overlay.selectedStopIndex !== null
+        ? overlay.stops[overlay.selectedStopIndex]
+        : undefined;
+    if (overlay.path.length < 2 || !stop) return fullCoords.slice(startIdx);
+    // `startIdx` is the road segment the stop sits on. Straight roads can be a
+    // single segment over a kilometre long, so start at the stop's point on
+    // it rather than the segment start, which may be far behind the stop.
+    const start = closestPointOnSegment(
+      [stop.longitude, stop.latitude],
+      fullCoords[startIdx],
+      fullCoords[startIdx + 1],
+    );
+    return [start, ...fullCoords.slice(startIdx + 1)];
   }
 
   // No stop context (or stop is the terminus) → full active direction only.
   return fullCoords;
+}
+
+/** Closest point to `point` on segment a–b (planar; fine at street scale). */
+function closestPointOnSegment(
+  point: [number, number],
+  a: [number, number],
+  b: [number, number],
+): [number, number] {
+  // Scale longitude so distances are comparable to latitude.
+  const k = Math.cos((point[1] * Math.PI) / 180);
+  const dx = (b[0] - a[0]) * k;
+  const dy = b[1] - a[1];
+  const lengthSq = dx * dx + dy * dy;
+  const t =
+    lengthSq === 0
+      ? 0
+      : Math.max(
+          0,
+          Math.min(
+            1,
+            ((point[0] - a[0]) * k * dx + (point[1] - a[1]) * dy) / lengthSq,
+          ),
+        );
+  return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
 }
 
 /** Stops on the remaining path (selected stop → terminus), inclusive. */
@@ -140,7 +171,7 @@ export function resolveRemainingRouteStops(
   const startIdx =
     overlay.selectedStopIndex !== null &&
     overlay.selectedStopIndex >= 0 &&
-    overlay.selectedStopIndex < overlay.stops.length
+    overlay.selectedStopIndex < overlay.stops.length - 1
       ? overlay.selectedStopIndex
       : 0;
   return overlay.stops.slice(startIdx);
@@ -150,12 +181,12 @@ export function buildBusRouteGeoJson(
   overlay: BusRouteOverlay | null | undefined,
 ): BusRouteLineGeoJson {
   if (!overlay || (overlay.path.length < 2 && overlay.stops.length < 2)) {
-    return { type: "FeatureCollection", features: [] };
+    return EMPTY_BUS_ROUTE_GEOJSON;
   }
 
   const drawCoords = resolveBusRouteDrawPath(overlay);
   if (drawCoords.length < 2) {
-    return { type: "FeatureCollection", features: [] };
+    return EMPTY_BUS_ROUTE_GEOJSON;
   }
 
   // Single polyline only — remaining path from selected stop to destination.
@@ -214,11 +245,8 @@ export function buildBusRouteStopsGeoJson(
 }
 
 /**
- * Station positions are approximate: when the line geometry vertex count
- * matches the station count (the common case — the GeoJSON was authored with
- * one vertex per station), vertices are used directly. Otherwise stations are
- * distributed evenly along the polyline. For precise platform coordinates a
- * dedicated `mrt-stations.json` with surveyed positions should replace this.
+ * Use line vertices as station positions when counts match; otherwise
+ * distribute stations evenly along the line. Positions are approximate.
  */
 export function interpolateStations(
   coordinates: number[][],

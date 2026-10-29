@@ -6,9 +6,11 @@ import type { MapSearchResult } from "@/types";
 type MapSearchProps = {
 	results: MapSearchResult[];
 	onSelect: (result: MapSearchResult) => void;
+	/** Set while a radius filter limits `results`, e.g. "2.5 km radius". */
+	scope?: string;
 };
 
-export default function MapSearch({ results, onSelect }: MapSearchProps) {
+export default function MapSearch({ results, onSelect, scope }: MapSearchProps) {
 	const [isOpen, setIsOpen] = useState(false);
 	const [query, setQuery] = useState("");
 	const inputRef = useRef<HTMLInputElement>(null);
@@ -109,7 +111,7 @@ export default function MapSearch({ results, onSelect }: MapSearchProps) {
 							type="search"
 							value={query}
 							onChange={(event) => setQuery(event.target.value)}
-							placeholder="Search map locations..."
+							placeholder={scope ? `Search within ${scope}...` : "Search map locations..."}
 							className="min-w-0 flex-1 bg-transparent text-base text-ink outline-none placeholder:text-muted"
 						/>
 						<button
@@ -140,7 +142,7 @@ export default function MapSearch({ results, onSelect }: MapSearchProps) {
 							</button>
 						)) : (
 							<div className="px-3 py-5 text-center text-[10px] uppercase tracking-[0.1em] text-muted">
-								No locations found
+								{scope ? `No locations found within ${scope}` : "No locations found"}
 							</div>
 						)}
 					</div>

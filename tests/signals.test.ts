@@ -2,8 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { buildSignalDigest } from "@/lib/signals";
 import type { WeatherData } from "@/types";
 
-const weather = (aqiStatus: WeatherData["aqiStatus"], aqi: number | null = 42) =>
-  ({ aqiStatus, aqi } as WeatherData);
+const weather = (psiStatus: WeatherData["psiStatus"], psi: number | null = 42) =>
+  ({ psiStatus, psi } as WeatherData);
 
 describe("buildSignalDigest", () => {
   test("orders rail, road, then weather signals", () => {
@@ -14,7 +14,7 @@ describe("buildSignalDigest", () => {
     });
     expect(digest.map((row) => row.category)).toEqual(["rail", "road", "weather"]);
     expect(digest[0]?.text).toBe("EWL, NSL: No service");
-    expect(digest[2]?.text).toBe("AQI 151 (Unhealthy)");
+    expect(digest[2]?.text).toBe("PSI 151 (Unhealthy)");
     expect(digest[2]?.tone).toBe("danger");
   });
 
@@ -35,10 +35,10 @@ describe("buildSignalDigest", () => {
     expect(buildSignalDigest({ trainAlerts: [], incidents: [], weather: weather("Good") })).toEqual([]);
   });
 
-  test("only emits a weather signal above AQI 100", () => {
+  test("only emits a weather signal above PSI 100", () => {
     expect(buildSignalDigest({ trainAlerts: [], incidents: [], weather: weather("Moderate", 100) })).toEqual([]);
     expect(
-      buildSignalDigest({ trainAlerts: [], incidents: [], weather: weather("Unhealthy for Sensitive Groups", 120) }),
-    ).toEqual([{ category: "weather", tone: "warning", text: "AQI 120 (Unhealthy for Sensitive Groups)" }]);
+      buildSignalDigest({ trainAlerts: [], incidents: [], weather: weather("Very Unhealthy", 250) }),
+    ).toEqual([{ category: "weather", tone: "danger", text: "PSI 250 (Very Unhealthy)" }]);
   });
 });

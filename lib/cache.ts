@@ -1,19 +1,6 @@
 /**
- * In-memory TTL cache exposed as an Effect `Cache` service.
- *
- * Behavior:
- *  - Entries live for `ttlMs` from their write timestamp.
- *  - Concurrent calls for the same key share one in-flight producer
- *    (de-duplicated via a per-key Map of memoized Effects).
- *  - When the map reaches `MAX_ENTRIES`, the oldest entry is evicted.
- *
- * The cached entries and the in-flight Map are both constructed inside
- * `make`, so each `CacheLive` instance isolates its own producers. Within
- * an instance the check-then-set is atomic because JavaScript is
- * single-threaded and Effect fibers are cooperatively scheduled.
- *
- * A `CacheLive` layer is exported for production use; tests provide a
- * custom `Layer.succeed(Cache, ...)` instead.
+ * In-memory TTL cache with per-key producer deduplication and oldest-entry
+ * eviction. Cache state and in-flight producers are isolated per layer instance.
  */
 import { Context, Effect, Layer, Ref } from "effect";
 
@@ -58,10 +45,7 @@ const evictOldest = (entries: Map<string, CacheEntry>): void => {
 
 const make = Effect.gen(function* () {
   const state = yield* Ref.make<CacheState>({ entries: new Map() });
-  // Per-instance in-flight registry. Each entry stores the inner Effect of
-  // `Effect.cached(producer)`, i.e. the `await Deferred` that callers of
-  // *this* cache share. Late joiners `yield*` the same inner and receive
-  // the same value. A second CacheLive must not see this map.
+  // Concurrent callers await the same memoized producer effect.
   const inFlight = new Map<string, ProducerEffect<unknown, unknown, unknown>>();
 
   const get: Cache["get"] = <A, E, R>(
@@ -76,18 +60,11 @@ const make = Effect.gen(function* () {
         return current.value as A;
       }
 
-      // Atomic in JavaScript: the check-then-set below has no yield between
-      // it. If a slot already exists, the second caller reuses it. If not,
-      // this caller becomes the leader and the `Effect.cached(producer)` it
-      // builds is stored in the map.
+      // Register without yielding so callers cannot interleave this check.
       let inner = inFlight.get(key);
       if (!inner) {
         const outer = Effect.cached(producer);
-        // First caller materializes the outer Effect to get the inner. The
-        // outer runs once and forks the producer into a Deferred; the
-        // returned inner is `await Deferred`. We store the inner so any
-        // subsequent caller that arrives while the producer is still
-        // running yields the same inner and receives the same value.
+        // Materialize `Effect.cached` once; later callers await this effect.
         inner = (yield* outer) as unknown as ProducerEffect<
           unknown,
           unknown,
@@ -99,22 +76,17 @@ const make = Effect.gen(function* () {
         );
       }
 
-      // Capture the exit so we can always clean up the in-flight entry
-      // even when the producer fails. Previously, a failure skipped the
-      // cleanup, permanently poisoning the key on that warm instance.
+      // Capture failures too so the in-flight entry is always cleaned up.
       const exit = yield* Effect.exit(
         inner as ProducerEffect<A, E, R>,
       );
 
-      // Always clean up the in-flight entry (leader owns cleanup via
-      // reflex equality). This ensures failures don't poison the key
-      // and the next caller can retry the producer.
+      // Only the current producer may clear its entry; failures remain retryable.
       if (inFlight.get(key) === inner) {
         inFlight.delete(key);
       }
 
       if (exit._tag === "Success") {
-        // Only cache successful values — never cache failures.
         yield* Ref.update(state, (s) => {
           evictOldest(s.entries);
           s.entries.set(key, { value: exit.value, timestamp: Date.now() });
@@ -123,8 +95,6 @@ const make = Effect.gen(function* () {
         return exit.value;
       }
 
-      // Propagate the failure without caching it. The next call will
-      // re-create the producer since inFlight was cleaned up above.
       return yield* Effect.failCause(exit.cause);
     });
 
