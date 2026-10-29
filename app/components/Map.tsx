@@ -1,14 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-// maplibre-gl v6 is ESM-only: default imports no longer work, so use a
-// namespace import (keeps all maplibregl.* value and type usages intact).
+// MapLibre v6 is ESM-only and requires a namespace import.
 import * as maplibregl from "maplibre-gl";
 import { setWorkerUrl } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 
-// The ESM worker cannot be resolved inside the bundler module graph (its
-// maplibre-gl-shared.mjs sibling goes missing), so serve it from public/
-// instead. scripts/copy-maplibre-worker.mjs copies both files at build time
-// via the predev/prebuild hooks.
+// Serve the worker directly because bundlers can miss its shared chunk.
+// scripts/copy-maplibre-worker.mjs copies it here via predev/prebuild.
 setWorkerUrl("/maplibre/maplibre-gl-worker.mjs");
 import type { MrtRouteSegment } from "@/lib/mrt-routing";
 import { MRT_DISPLAY_LINE_STATIONS } from "@/lib/mrt-network";
@@ -16,7 +13,6 @@ import {
   buildBusRouteGeoJson,
   buildBusRouteStopsGeoJson,
   buildRouteGeoJson,
-  interpolateStations,
   resolveBusRouteDrawPath,
   resolveRemainingRouteStops,
   EMPTY_BUS_ROUTE_GEOJSON,
@@ -24,8 +20,19 @@ import {
   type BusRouteOverlay,
   type MRTStationGeoJson,
 } from "@/lib/map-geometry";
+import {
+  buildGeoFilterCircleGeoJson,
+  buildGeoFilterMaskGeoJson,
+  featuresTouchingRadius,
+  type GeoFilter,
+} from "@/lib/geo-filter";
 import mrtLinesData from "@/public/mrt-lines.json";
-import { aqiTone, getAqiStatus } from "@/lib/aqi";
+import {
+  buildBusStopGeoJson,
+  buildCameraGeoJson,
+  buildFlightGeoJson,
+  MRT_STATION_GEOJSON,
+} from "@/lib/map-features";
 import {
   carparkTone,
   evChargerTone,
@@ -38,13 +45,13 @@ import { HAWKER_CENTRES, MALLS } from "@/lib/amenities-data";
 import { PARK_LABELS_GEOJSON, PARKS_GEOJSON } from "@/lib/parks-data";
 import { describeParkFeature, PARK_KIND_TITLE } from "@/lib/parks";
 import type {
-  AqiRegionKey,
+  AirRegionKey,
   BusStop,
   CarparkAvailability,
   EvChargingLocation,
   FlightState,
   MRTGeoJson,
-  RegionalAqiReadings,
+  AirQualityOverlay,
   TrafficCamera,
   TrafficIncident,
   ParkFeatureKind,
@@ -60,12 +67,17 @@ export type MapSearchTarget = {
 
 type MapProps = {
   busStops: BusStop[];
+  /**
+   * Every known bus stop, used to resolve clicks on bus-route stops that may
+   * sit outside the radius filter. Defaults to `busStops`.
+   */
+  allBusStops?: BusStop[];
   cameras: TrafficCamera[];
   flights: FlightState[];
   incidents: TrafficIncident[];
   carparks: CarparkAvailability[];
   evChargers: EvChargingLocation[];
-  aqiRegions?: RegionalAqiReadings | null;
+  airQualityOverlay?: AirQualityOverlay | null;
   /** Display names of MRT lines currently flagged as disrupted by LTA. */
   disruptedMrtLines?: ReadonlyArray<string>;
   sensorVisibility: {
@@ -90,10 +102,14 @@ type MapProps = {
   onAmenityClick?: (target: { type: "mall" | "hawker"; id: string }) => void;
   mrtRouteSegments?: MrtRouteSegment[];
   busRouteOverlay?: BusRouteOverlay | null;
+  /** Active radius filter, drawn as a circle; scopes MRT stations and parks. */
+  geoFilter?: GeoFilter | null;
+  /** While true, the next map click sets the radius filter centre. */
+  geoFilterPicking?: boolean;
+  onGeoFilterPick?: (center: [number, number]) => void;
 };
 
-// MapLibre parses its own color values, so this palette mirrors the CSS design
-// tokens in a library-compatible format rather than reading ad-hoc colors.
+// Mirror the CSS design tokens in MapLibre-compatible colors.
 const MAP_COLORS = {
   paper: "#0a0a0a",
   ink: "#f2f2f2",
@@ -110,6 +126,7 @@ const MAP_COLORS = {
   ev: "#4fd6e6",
   mall: "#e879c6",
   hawker: "#f0b060",
+  geoFilter: "#73b9d9",
 } as const;
 
 // Malls and hawker centres are a static bundle: build their sources once.
@@ -148,11 +165,7 @@ const availabilityColorExpr = (
   MAP_COLORS.muted,
 ];
 
-/**
- * OpenFreeMap's stock dark style is intentionally near-black. Increase the
- * contrast of only the provider's base layers before ARGUS adds its own MRT,
- * bus, flight, and camera overlays, so those signal colours remain intact.
- */
+/** Increase basemap contrast without changing overlay colors. */
 function improveDarkBasemapContrast(map: maplibregl.Map): void {
   for (const layer of map.getStyle().layers ?? []) {
     const id = layer.id.toLowerCase();
@@ -204,14 +217,12 @@ function improveDarkBasemapContrast(map: maplibregl.Map): void {
   }
 }
 
-const MRT_LINE_STATIONS: Record<string, string[]> = MRT_DISPLAY_LINE_STATIONS;
-
 const MRT_LINES = mrtLinesData as MRTGeoJson;
 const EMPTY_MRT_ROUTE_SEGMENTS: MrtRouteSegment[] = [];
 const EMPTY_DISRUPTED_MRT_LINES: ReadonlyArray<string> = [];
 
-const AQI_REGION_CENTERS: ReadonlyArray<{
-  key: AqiRegionKey;
+const AIR_REGION_CENTERS: ReadonlyArray<{
+  key: AirRegionKey;
   label: string;
   lng: number;
   lat: number;
@@ -223,26 +234,25 @@ const AQI_REGION_CENTERS: ReadonlyArray<{
   { key: "central", label: "CENTRAL", lng: 103.82, lat: 1.35735 },
 ];
 
-function buildAqiRegionsGeoJson(
-  regions: RegionalAqiReadings | null | undefined,
+function buildAirQualityGeoJson(
+  overlay: AirQualityOverlay | null | undefined,
 ) {
-  if (!regions) {
+  if (!overlay) {
     return { type: "FeatureCollection" as const, features: [] };
   }
   return {
     type: "FeatureCollection" as const,
-    features: AQI_REGION_CENTERS.flatMap(({ key, label, lng, lat }) => {
-      const aqi = regions[key];
-      if (typeof aqi !== "number" || !Number.isFinite(aqi)) return [];
-      const tone = aqiTone(getAqiStatus(aqi));
+    features: AIR_REGION_CENTERS.flatMap(({ key, label, lng, lat }) => {
+      const { value, tone } = overlay[key];
+      if (value === null || !Number.isFinite(value)) return [];
       return [
         {
           type: "Feature" as const,
           properties: {
             region: key,
-            aqi,
+            value,
             tone,
-            label: `${label}\n${aqi}`,
+            label: `${label}\n${value}`,
           },
           geometry: {
             type: "Point" as const,
@@ -375,6 +385,66 @@ function applyMrtRouteFocus(map: maplibregl.Map, hasRoute: boolean) {
   }
 }
 
+/** Fade the general bus stops so the active route's stops stand out. */
+function applyBusRouteFocus(map: maplibregl.Map, hasRoute: boolean) {
+  if (!map.getLayer("bus-stops-layer")) return;
+  map.setPaintProperty(
+    "bus-stops-layer",
+    "circle-opacity",
+    hasRoute ? 0.18 : 0.88,
+  );
+  map.setPaintProperty(
+    "bus-stops-layer",
+    "circle-stroke-opacity",
+    hasRoute ? 0.18 : 1,
+  );
+}
+
+function buildGeoFilterCenterGeoJson(filter: GeoFilter | null) {
+  return {
+    type: "FeatureCollection" as const,
+    features: filter
+      ? [
+          {
+            type: "Feature" as const,
+            properties: {},
+            geometry: {
+              type: "Point" as const,
+              coordinates: [filter.center[0], filter.center[1]],
+            },
+          },
+        ]
+      : [],
+  };
+}
+
+function filterMrtStations(
+  stations: MRTStationGeoJson,
+  filter: GeoFilter | null,
+): MRTStationGeoJson {
+  return {
+    type: "FeatureCollection",
+    features: featuresTouchingRadius(stations.features, filter),
+  };
+}
+
+/** Static point layers (park labels, malls, hawker centres) inside the radius. */
+function filterPointFeatures<C extends { features: Array<{ geometry: { type: "Point"; coordinates: number[] } }> }>(
+  collection: C,
+  filter: GeoFilter | null,
+): C {
+  return filter ? { ...collection, features: featuresTouchingRadius(collection.features, filter) } : collection;
+}
+
+function filterParks(filter: GeoFilter | null) {
+  return filter
+    ? {
+        ...PARKS_GEOJSON,
+        features: featuresTouchingRadius(PARKS_GEOJSON.features, filter),
+      }
+    : PARKS_GEOJSON;
+}
+
 function useLazyRef<T>(createValue: () => T): { current: T } {
   const ref = useRef<T | null>(null);
   if (ref.current === null) {
@@ -426,12 +496,13 @@ function createEvChargerMap() {
 
 function useMapController({
   busStops,
+  allBusStops,
   cameras,
   flights,
   incidents,
   carparks,
   evChargers,
-  aqiRegions = null,
+  airQualityOverlay = null,
   disruptedMrtLines = EMPTY_DISRUPTED_MRT_LINES,
   sensorVisibility,
   onStopClick,
@@ -443,10 +514,14 @@ function useMapController({
   mrtRouteSegments = EMPTY_MRT_ROUTE_SEGMENTS,
   busRouteOverlay = null,
   searchTarget = null,
+  geoFilter = null,
+  geoFilterPicking = false,
+  onGeoFilterPick,
 }: MapProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const busStopsRef = useLazyRef(createBusStopMap);
+  const busStopLookupRef = useLazyRef(createBusStopMap);
   const camerasRef = useLazyRef(createCameraMap);
   const flightsRef = useLazyRef(createFlightMap);
   const incidentsRef = useLazyRef(createIncidentMap);
@@ -462,8 +537,11 @@ function useMapController({
   const mrtLinesRef = useRef<MRTGeoJson | null>(null);
   const mrtRouteSegmentsRef = useRef<MrtRouteSegment[]>(mrtRouteSegments);
   const busRouteOverlayRef = useRef<BusRouteOverlay | null>(busRouteOverlay);
-  const aqiRegionsRef = useRef<RegionalAqiReadings | null>(aqiRegions);
+  const airQualityOverlayRef = useRef<AirQualityOverlay | null>(airQualityOverlay);
   const sensorVisibilityRef = useRef(sensorVisibility);
+  const geoFilterRef = useRef<GeoFilter | null>(geoFilter);
+  const geoFilterPickingRef = useRef(geoFilterPicking);
+  const onGeoFilterPickRef = useRef(onGeoFilterPick);
   const lastFittedBusRouteKeyRef = useRef<string | null>(null);
   const [mapInitError, setMapInitError] = useState<string | null>(null);
 
@@ -488,6 +566,41 @@ function useMapController({
   useEffect(() => {
     sensorVisibilityRef.current = sensorVisibility;
   }, [sensorVisibility]);
+
+  useEffect(() => {
+    onGeoFilterPickRef.current = onGeoFilterPick;
+  }, [onGeoFilterPick]);
+
+  useEffect(() => {
+    geoFilterPickingRef.current = geoFilterPicking;
+    const map = mapRef.current;
+    if (!map) return;
+    map.getCanvas().style.cursor = geoFilterPicking ? "crosshair" : "";
+  }, [geoFilterPicking]);
+
+  // Live feeds arrive pre-filtered via props; the static MRT station, park,
+  // mall and hawker sources are filtered here, and the circle is redrawn.
+  useEffect(() => {
+    geoFilterRef.current = geoFilter;
+    const map = mapRef.current;
+    if (!map) return;
+    (map.getSource("geo-filter") as maplibregl.GeoJSONSource | undefined)
+      ?.setData(buildGeoFilterCircleGeoJson(geoFilter));
+    (map.getSource("geo-filter-mask") as maplibregl.GeoJSONSource | undefined)
+      ?.setData(buildGeoFilterMaskGeoJson(geoFilter));
+    (map.getSource("geo-filter-center") as maplibregl.GeoJSONSource | undefined)
+      ?.setData(buildGeoFilterCenterGeoJson(geoFilter));
+    (map.getSource("mrt-stations") as maplibregl.GeoJSONSource | undefined)
+      ?.setData(filterMrtStations(MRT_STATION_GEOJSON, geoFilter));
+    (map.getSource("parks-data") as maplibregl.GeoJSONSource | undefined)
+      ?.setData(filterParks(geoFilter));
+    (map.getSource("park-labels") as maplibregl.GeoJSONSource | undefined)
+      ?.setData(filterPointFeatures(PARK_LABELS_GEOJSON, geoFilter));
+    (map.getSource("malls-data") as maplibregl.GeoJSONSource | undefined)
+      ?.setData(filterPointFeatures(MALLS_GEOJSON, geoFilter));
+    (map.getSource("hawkers-data") as maplibregl.GeoJSONSource | undefined)
+      ?.setData(filterPointFeatures(HAWKERS_GEOJSON, geoFilter));
+  }, [geoFilter]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -550,7 +663,7 @@ function useMapController({
     const routeGeoJson = buildRouteGeoJson(
       mrtLinesRef.current,
       mrtRouteSegmentsRef.current,
-      MRT_LINE_STATIONS,
+      MRT_DISPLAY_LINE_STATIONS,
     );
     const routeSource = map.getSource("mrt-route") as
       maplibregl.GeoJSONSource | undefined;
@@ -578,6 +691,7 @@ function useMapController({
     if (stopsSource) {
       stopsSource.setData(stopsGeoJson);
     }
+    applyBusRouteFocus(map, geoJson.features.length > 0);
 
     const overlayKey = busRouteOverlay
       ? `${busRouteOverlay.serviceNo}:${busRouteOverlay.direction}:${busRouteOverlay.selectedPathIndex ?? busRouteOverlay.selectedStopIndex ?? "x"}:${busRouteOverlay.path.length}`
@@ -597,9 +711,7 @@ function useMapController({
       return;
     }
 
-    // MapLibre throws (e.g. GPUInitializationError when WebGL2 is missing)
-    // from its constructor. That must not take down the whole dashboard:
-    // the data panels below the map stay fully functional without it.
+    // Keep data panels usable if map construction fails (for example, no WebGL2).
     let map: maplibregl.Map;
     try {
       map = new maplibregl.Map({
@@ -636,14 +748,22 @@ function useMapController({
     }
 
     const layerListenerCleanups: Array<() => void> = [];
+    // While picking a radius centre, the click belongs to the picker, not to
+    // whatever feature happens to be under the cursor.
+    const handleMapClick = (event: maplibregl.MapMouseEvent) => {
+      if (!geoFilterPickingRef.current) return;
+      onGeoFilterPickRef.current?.([event.lngLat.lng, event.lngLat.lat]);
+    };
     const handleBusStopClick = (event: maplibregl.MapLayerMouseEvent) => {
+      if (geoFilterPickingRef.current) return;
       const feature = event.features?.[0];
       const code = feature?.properties?.BusStopCode;
       if (typeof code !== "string") return;
-      const stop = busStopsRef.current.get(code);
+      const stop = busStopLookupRef.current.get(code);
       if (stop) onStopClickRef.current(stop);
     };
     const handleFlightClick = (event: maplibregl.MapLayerMouseEvent) => {
+      if (geoFilterPickingRef.current) return;
       const feature = event.features?.[0];
       const id = feature?.properties?.id;
       if (typeof id !== "string") return;
@@ -796,12 +916,17 @@ function useMapController({
       hoverPopupRef.current = null;
     };
     const handleInteractiveLayerEnter = () => {
-      map.getCanvas().style.cursor = "pointer";
+      map.getCanvas().style.cursor = geoFilterPickingRef.current
+        ? "crosshair"
+        : "pointer";
     };
     const handleInteractiveLayerLeave = () => {
-      map.getCanvas().style.cursor = "";
+      map.getCanvas().style.cursor = geoFilterPickingRef.current
+        ? "crosshair"
+        : "";
     };
     const handleCameraPointClick = (event: maplibregl.MapLayerMouseEvent) => {
+      if (geoFilterPickingRef.current) return;
       const feature = event.features?.[0];
       const cameraId = feature?.properties?.CameraID;
       if (typeof cameraId !== "string") return;
@@ -809,6 +934,7 @@ function useMapController({
       if (camera) onCameraClickRef.current(camera);
     };
     const handleCameraClusterClick = (event: maplibregl.MapLayerMouseEvent) => {
+      if (geoFilterPickingRef.current) return;
       const feature = event.features?.[0];
       const clusterId = feature?.properties?.cluster_id;
       const geometry = feature?.geometry as
@@ -845,6 +971,7 @@ function useMapController({
       }
     };
     const handleMrtStationClick = (event: maplibregl.MapLayerMouseEvent) => {
+      if (geoFilterPickingRef.current) return;
       const feature = event.features?.[0];
       const stationName = feature?.properties?.name;
       const routeable = feature?.properties?.routeable;
@@ -857,9 +984,14 @@ function useMapController({
         const value = feature.properties?.routeable;
         return value === true || value === "true";
       });
-      map.getCanvas().style.cursor = routeable ? "pointer" : "";
+      map.getCanvas().style.cursor = geoFilterPickingRef.current
+        ? "crosshair"
+        : routeable
+          ? "pointer"
+          : "";
     };
     const handleParkClick = (event: maplibregl.MapLayerMouseEvent) => {
+      if (geoFilterPickingRef.current) return;
       const properties = event.features?.[0]?.properties;
       if (!properties || !["park", "pcn", "trail"].includes(properties.kind)) return;
       if (typeof properties.name !== "string" || !properties.name) return;
@@ -875,22 +1007,63 @@ function useMapController({
     const handleMapLoad = () => {
       improveDarkBasemapContrast(map);
 
+      // Radius filter circle sits beneath every data overlay.
+      map.addSource("geo-filter", {
+        type: "geojson",
+        data: buildGeoFilterCircleGeoJson(geoFilterRef.current),
+      });
+      map.addSource("geo-filter-mask", {
+        type: "geojson",
+        data: buildGeoFilterMaskGeoJson(geoFilterRef.current),
+      });
+      map.addSource("geo-filter-center", {
+        type: "geojson",
+        data: buildGeoFilterCenterGeoJson(geoFilterRef.current),
+      });
+      map.addLayer({
+        id: "geo-filter-mask-layer",
+        type: "fill",
+        source: "geo-filter-mask",
+        paint: {
+          "fill-color": MAP_COLORS.paper,
+          "fill-opacity": 0.45,
+        },
+      });
+      map.addLayer({
+        id: "geo-filter-fill-layer",
+        type: "fill",
+        source: "geo-filter",
+        paint: {
+          "fill-color": MAP_COLORS.geoFilter,
+          "fill-opacity": 0.05,
+        },
+      });
+      map.addLayer({
+        id: "geo-filter-line-layer",
+        type: "line",
+        source: "geo-filter",
+        paint: {
+          "line-color": MAP_COLORS.geoFilter,
+          "line-width": 2,
+          "line-opacity": 1,
+          "line-dasharray": [3, 2],
+        },
+      });
+      map.addLayer({
+        id: "geo-filter-center-layer",
+        type: "circle",
+        source: "geo-filter-center",
+        paint: {
+          "circle-radius": 3.5,
+          "circle-color": MAP_COLORS.geoFilter,
+          "circle-stroke-width": 1.5,
+          "circle-stroke-color": MAP_COLORS.paper,
+        },
+      });
+
       map.addSource("bus-stops", {
         type: "geojson",
-        data: {
-          type: "FeatureCollection",
-          features: Array.from(busStopsRef.current.values()).map((stop) => ({
-            type: "Feature" as const,
-            properties: {
-              BusStopCode: stop.BusStopCode,
-              Description: stop.Description,
-            },
-            geometry: {
-              type: "Point" as const,
-              coordinates: [stop.Longitude, stop.Latitude],
-            },
-          })),
-        },
+        data: buildBusStopGeoJson(busStopsRef.current.values()),
       });
 
       map.addLayer({
@@ -1005,6 +1178,7 @@ function useMapController({
           "text-halo-width": 1.2,
         },
       });
+      applyBusRouteFocus(map, initialBusRouteGeoJson.features.length > 0);
 
       layerListenerCleanups.push(
         registerLayerMouseListener(
@@ -1048,22 +1222,7 @@ function useMapController({
 
       map.addSource("flights", {
         type: "geojson",
-        data: {
-          type: "FeatureCollection",
-          features: Array.from(flightsRef.current.values()).map((flight) => ({
-            type: "Feature" as const,
-            properties: {
-              id: flight.id,
-              callsign: flight.callsign,
-              direction: flight.direction,
-              track: flight.track ?? 0,
-            },
-            geometry: {
-              type: "Point" as const,
-              coordinates: [flight.longitude, flight.latitude],
-            },
-          })),
-        },
+        data: buildFlightGeoJson(flightsRef.current.values()),
       });
 
       if (!map.hasImage("plane-icon")) {
@@ -1143,28 +1302,7 @@ function useMapController({
       // nodes without one DOM Marker per camera.
       map.addSource("cameras", {
         type: "geojson",
-        data: {
-          type: "FeatureCollection",
-          features: Array.from(camerasRef.current.values()).flatMap(
-            (camera) =>
-              Number.isFinite(camera.Latitude) &&
-              Number.isFinite(camera.Longitude)
-                ? [
-                    {
-                      type: "Feature" as const,
-                      properties: {
-                        CameraID: camera.CameraID,
-                        location: camera.location,
-                      },
-                      geometry: {
-                        type: "Point" as const,
-                        coordinates: [camera.Longitude, camera.Latitude],
-                      },
-                    },
-                  ]
-                : [],
-          ),
-        },
+        data: buildCameraGeoJson(camerasRef.current.values()),
         cluster: true,
         clusterMaxZoom: 13,
         clusterRadius: 40,
@@ -1352,7 +1490,7 @@ function useMapController({
         const initialRouteGeoJson = buildRouteGeoJson(
           geoJson,
           mrtRouteSegmentsRef.current,
-          MRT_LINE_STATIONS,
+          MRT_DISPLAY_LINE_STATIONS,
         );
 
         map.addSource("mrt-route", {
@@ -1394,120 +1532,87 @@ function useMapController({
 
         applyMrtRouteFocus(map, initialRouteGeoJson.features.length > 0);
 
-        const stationLabelSet = new Set<string>();
-        const stationFeatures = geoJson.features.flatMap((lineFeature) => {
-          const stationNames =
-            MRT_LINE_STATIONS[lineFeature.properties.name] ?? [];
-          const features = interpolateStations(
-            lineFeature.geometry.coordinates,
-            stationNames,
-            lineFeature.properties.name,
-            lineFeature.properties.color,
-          );
-
-          return features.map((feature) => {
-            const stationKey = feature.properties.name.toLowerCase();
-            if (stationLabelSet.has(stationKey)) {
-              return {
-                ...feature,
-                properties: {
-                  ...feature.properties,
-                  label: "",
-                },
-              };
-            }
-            stationLabelSet.add(stationKey);
-            return feature;
-          });
+        map.addSource("mrt-stations", {
+          type: "geojson",
+          data: filterMrtStations(MRT_STATION_GEOJSON, geoFilterRef.current),
         });
 
-        if (stationFeatures.length > 0) {
-          const stationsGeoJson: MRTStationGeoJson = {
-            type: "FeatureCollection",
-            features: stationFeatures,
-          };
+        // Interchanges keep their MRT colour on top of the LRT dot.
+        const isLrtStation: maplibregl.ExpressionSpecification = ["in", "LRT", ["get", "line"]];
+        map.addLayer({
+          id: "mrt-stations-layer",
+          type: "circle",
+          source: "mrt-stations",
+          layout: {
+            visibility: sensorVisibilityRef.current.mrt ? "visible" : "none",
+            "circle-sort-key": ["case", isLrtStation, 0, 1],
+          },
+          paint: {
+            "circle-radius": ["case", isLrtStation, 3.5, 4],
+            "circle-color": ["get", "color"],
+            "circle-opacity": ["case", ["get", "routeable"], 1, 0.35],
+            "circle-stroke-width": 1,
+            "circle-stroke-color": [
+              "case",
+              ["get", "routeable"],
+              MAP_COLORS.paper,
+              MAP_COLORS.muted,
+            ],
+          },
+        });
 
-          map.addSource("mrt-stations", {
-            type: "geojson",
-            data: stationsGeoJson,
-          });
+        map.addLayer({
+          id: "mrt-stations-label-layer",
+          type: "symbol",
+          source: "mrt-stations",
+          minzoom: 11.5,
+          layout: {
+            visibility: sensorVisibilityRef.current.mrt ? "visible" : "none",
+            "text-field": ["get", "label"],
+            "text-size": 10,
+            "text-anchor": "top",
+            "text-offset": [0, 1],
+          },
+          paint: {
+            "text-color": MAP_COLORS.ink,
+            "text-halo-color": MAP_COLORS.paper,
+            "text-halo-width": 1,
+          },
+        });
 
-          // Interchanges keep their MRT colour on top of the LRT dot.
-          const isLrtStation: maplibregl.ExpressionSpecification = ["in", "LRT", ["get", "line"]];
-          map.addLayer({
-            id: "mrt-stations-layer",
-            type: "circle",
-            source: "mrt-stations",
-            layout: {
-              visibility: sensorVisibilityRef.current.mrt ? "visible" : "none",
-              "circle-sort-key": ["case", isLrtStation, 0, 1],
-            },
-            paint: {
-              "circle-radius": ["case", isLrtStation, 3.5, 4],
-              "circle-color": ["get", "color"],
-              "circle-opacity": ["case", ["get", "routeable"], 1, 0.35],
-              "circle-stroke-width": 1,
-              "circle-stroke-color": [
-                "case",
-                ["get", "routeable"],
-                MAP_COLORS.paper,
-                MAP_COLORS.muted,
-              ],
-            },
-          });
+        layerListenerCleanups.push(
+          registerLayerMouseListener(
+            map,
+            "click",
+            "mrt-stations-layer",
+            handleMrtStationClick,
+          ),
+          registerLayerMouseListener(
+            map,
+            "mouseenter",
+            "mrt-stations-layer",
+            handleMrtStationEnter,
+          ),
+          registerLayerMouseListener(
+            map,
+            "mouseleave",
+            "mrt-stations-layer",
+            handleInteractiveLayerLeave,
+          ),
+        );
 
-          map.addLayer({
-            id: "mrt-stations-label-layer",
-            type: "symbol",
-            source: "mrt-stations",
-            minzoom: 11.5,
-            layout: {
-              visibility: sensorVisibilityRef.current.mrt ? "visible" : "none",
-              "text-field": ["get", "label"],
-              "text-size": 10,
-              "text-anchor": "top",
-              "text-offset": [0, 1],
-            },
-            paint: {
-              "text-color": MAP_COLORS.ink,
-              "text-halo-color": MAP_COLORS.paper,
-              "text-halo-width": 1,
-            },
-          });
-
-          layerListenerCleanups.push(
-            registerLayerMouseListener(
-              map,
-              "click",
-              "mrt-stations-layer",
-              handleMrtStationClick,
-            ),
-            registerLayerMouseListener(
-              map,
-              "mouseenter",
-              "mrt-stations-layer",
-              handleMrtStationEnter,
-            ),
-            registerLayerMouseListener(
-              map,
-              "mouseleave",
-              "mrt-stations-layer",
-              handleInteractiveLayerLeave,
-            ),
-          );
-        }
 
         // Recreation reads as three things: park areas (filled + outlined),
         // park connectors (solid island-wide paths) and trails (dashed paths
         // inside parks, from street zoom). Big parks are labelled first.
         const parksVisibility = sensorVisibilityRef.current.parks ? "visible" : "none";
-        map.addSource("parks-data", { type: "geojson", data: PARKS_GEOJSON });
+        map.addSource("parks-data", { type: "geojson", data: filterParks(geoFilterRef.current) });
         map.addLayer({ id: "parks-fill-layer", type: "fill", source: "parks-data", filter: ["==", ["get", "kind"], "park"], layout: { visibility: parksVisibility }, paint: { "fill-color": MAP_COLORS.park, "fill-opacity": ["interpolate", ["linear"], ["zoom"], 10, 0.24, 15, 0.14] } });
         map.addLayer({ id: "parks-outline-layer", type: "line", source: "parks-data", filter: ["==", ["get", "kind"], "park"], layout: { visibility: parksVisibility }, paint: { "line-color": MAP_COLORS.park, "line-width": 0.8, "line-opacity": 0.6 } });
         map.addLayer({ id: "trails-lines-layer", type: "line", source: "parks-data", minzoom: 12, filter: ["==", ["get", "kind"], "trail"], layout: { visibility: parksVisibility, "line-cap": "round", "line-join": "round" }, paint: { "line-color": MAP_COLORS.trail, "line-width": 1.2, "line-opacity": 0.85, "line-dasharray": [1.6, 1.4] } });
         map.addLayer({ id: "pcn-casing-layer", type: "line", source: "parks-data", filter: ["==", ["get", "kind"], "pcn"], layout: { visibility: parksVisibility, "line-cap": "round", "line-join": "round" }, paint: { "line-color": MAP_COLORS.paper, "line-width": ["interpolate", ["linear"], ["zoom"], 10, 3, 15, 5], "line-opacity": 0.7 } });
         map.addLayer({ id: "pcn-lines-layer", type: "line", source: "parks-data", filter: ["==", ["get", "kind"], "pcn"], layout: { visibility: parksVisibility, "line-cap": "round", "line-join": "round" }, paint: { "line-color": MAP_COLORS.parkConnector, "line-width": ["interpolate", ["linear"], ["zoom"], 10, 1.6, 15, 3] } });
-        map.addSource("park-labels", { type: "geojson", data: PARK_LABELS_GEOJSON });
+        map.addSource("park-labels", { type: "geojson", data: filterPointFeatures(PARK_LABELS_GEOJSON, geoFilterRef.current) });
         map.addLayer({ id: "parks-label-layer", type: "symbol", source: "park-labels", minzoom: 10.5, layout: {
           visibility: parksVisibility,
           // Only parks of 40 ha+ until street zoom, so the island view isn't a wall of names.
@@ -1549,7 +1654,7 @@ function useMapController({
           ["hawkers-data", "hawkers", sensorVisibilityRef.current.hawkers, ["match", ["get", "status"], "planned", MAP_COLORS.muted, MAP_COLORS.hawker], HAWKERS_GEOJSON, handleHawkerEnter, handleHawkerClick],
         ] as const) {
           const visibility = visible ? "visible" : "none";
-          map.addSource(sourceId, { type: "geojson", data });
+          map.addSource(sourceId, { type: "geojson", data: filterPointFeatures(data, geoFilterRef.current) });
           map.addLayer({ id: `${prefix}-point-layer`, type: "circle", source: sourceId, layout: { visibility }, paint: {
             "circle-color": color as maplibregl.DataDrivenPropertyValueSpecification<string>,
             "circle-radius": ["interpolate", ["linear"], ["zoom"], 10, 3.5, 15, 7],
@@ -1564,9 +1669,9 @@ function useMapController({
       }
 
       // Separate block so an MRT/sensor layer failure cannot silently drop the
-      // AQI overlay (and vice versa).
+      // air-quality overlay (and vice versa).
       try {
-        const aqiColorExpr: maplibregl.ExpressionSpecification = [
+        const airQualityColorExpr: maplibregl.ExpressionSpecification = [
           "match",
           ["get", "tone"],
           "success",
@@ -1577,14 +1682,14 @@ function useMapController({
           MAP_COLORS.danger,
           MAP_COLORS.muted,
         ];
-        map.addSource("aqi-regions", {
+        map.addSource("air-quality-regions", {
           type: "geojson",
-          data: buildAqiRegionsGeoJson(aqiRegionsRef.current),
+          data: buildAirQualityGeoJson(airQualityOverlayRef.current),
         });
         map.addLayer({
-          id: "aqi-regions-glow-layer",
+          id: "air-quality-regions-glow-layer",
           type: "circle",
-          source: "aqi-regions",
+          source: "air-quality-regions",
           paint: {
             "circle-radius": [
               "interpolate",
@@ -1595,27 +1700,27 @@ function useMapController({
               12,
               88,
             ],
-            "circle-color": aqiColorExpr,
+            "circle-color": airQualityColorExpr,
             "circle-blur": 0.85,
             "circle-opacity": 0.26,
           },
         });
         map.addLayer({
-          id: "aqi-regions-node-layer",
+          id: "air-quality-regions-node-layer",
           type: "circle",
-          source: "aqi-regions",
+          source: "air-quality-regions",
           paint: {
             "circle-radius": 18,
             "circle-color": MAP_COLORS.paper,
             "circle-opacity": 0.88,
             "circle-stroke-width": 1.5,
-            "circle-stroke-color": aqiColorExpr,
+            "circle-stroke-color": airQualityColorExpr,
           },
         });
         map.addLayer({
-          id: "aqi-regions-label-layer",
+          id: "air-quality-regions-label-layer",
           type: "symbol",
-          source: "aqi-regions",
+          source: "air-quality-regions",
           layout: {
             "text-field": ["get", "label"],
             "text-size": 10,
@@ -1623,22 +1728,25 @@ function useMapController({
             "text-ignore-placement": true,
           },
           paint: {
-            "text-color": aqiColorExpr,
+            "text-color": airQualityColorExpr,
             "text-halo-color": MAP_COLORS.paper,
             "text-halo-width": 1,
           },
         });
       } catch (error) {
-        console.warn("AQI overlay failed to initialize", error);
+        console.warn("Air quality overlay failed to initialize", error);
       }
     };
 
     const removeMapLoadListener = registerMapLoadListener(map, handleMapLoad);
+    map.on("click", handleMapClick);
+    if (geoFilterPickingRef.current) map.getCanvas().style.cursor = "crosshair";
 
     mapRef.current = map;
 
     return () => {
       removeMapLoadListener();
+      map.off("click", handleMapClick);
       for (const removeLayerListener of layerListenerCleanups) {
         removeLayerListener();
       }
@@ -1647,7 +1755,7 @@ function useMapController({
       map.remove();
       mapRef.current = null;
     };
-  }, [busStopsRef, camerasRef, carparksRef, evChargersRef, flightsRef, incidentsRef]);
+  }, [busStopsRef, busStopLookupRef, camerasRef, carparksRef, evChargersRef, flightsRef, incidentsRef]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -1656,32 +1764,18 @@ function useMapController({
     busStopsRef.current = new globalThis.Map(
       busStops.map((stop) => [stop.BusStopCode, stop]),
     );
+    busStopLookupRef.current = allBusStops
+      ? new globalThis.Map(allBusStops.map((stop) => [stop.BusStopCode, stop]))
+      : busStopsRef.current;
 
     const busStopSource = map.getSource("bus-stops") as
       maplibregl.GeoJSONSource | undefined;
     if (busStopSource) {
-      busStopSource.setData({
-        type: "FeatureCollection",
-        features: (sensorVisibility.busStops ? busStops : []).flatMap((stop) =>
-          Number.isFinite(stop.Latitude) && Number.isFinite(stop.Longitude)
-            ? [
-                {
-                  type: "Feature" as const,
-                  properties: {
-                    BusStopCode: stop.BusStopCode,
-                    Description: stop.Description,
-                  },
-                  geometry: {
-                    type: "Point" as const,
-                    coordinates: [stop.Longitude, stop.Latitude],
-                  },
-                },
-              ]
-            : [],
-        ),
-      });
+      busStopSource.setData(
+        buildBusStopGeoJson(sensorVisibility.busStops ? busStops : []),
+      );
     }
-  }, [busStops, busStopsRef, sensorVisibility.busStops]);
+  }, [allBusStops, busStopLookupRef, busStops, busStopsRef, sensorVisibility.busStops]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -1695,34 +1789,12 @@ function useMapController({
       maplibregl.GeoJSONSource | undefined;
     if (!flightsSource) return;
 
-    flightsSource.setData({
-      type: "FeatureCollection",
-      features: (sensorVisibility.flights ? flights : []).flatMap((flight) =>
-        Number.isFinite(flight.latitude) && Number.isFinite(flight.longitude)
-          ? [
-              {
-                type: "Feature" as const,
-                properties: {
-                  id: flight.id,
-                  callsign: flight.callsign,
-                  direction: flight.direction,
-                  track: flight.track ?? 0,
-                },
-                geometry: {
-                  type: "Point" as const,
-                  coordinates: [flight.longitude, flight.latitude],
-                },
-              },
-            ]
-          : [],
-      ),
-    });
+    flightsSource.setData(
+      buildFlightGeoJson(sensorVisibility.flights ? flights : []),
+    );
   }, [flights, flightsRef, sensorVisibility.flights]);
 
-  // Recolor operational MRT lines flagged as disrupted by the LTA
-  // TrainServiceAlerts feed. `mrt-lines` feature properties carry the
-  // display line name, so a `match` expression on `name` is enough — no
-  // source data update needed. Future (dashed) lines are never disrupted.
+  // Recolor disrupted operational lines by name; future lines stay unchanged.
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !map.getLayer("mrt-lines-layer")) return;
@@ -1753,26 +1825,9 @@ function useMapController({
       maplibregl.GeoJSONSource | undefined;
     if (!camerasSource) return;
 
-    camerasSource.setData({
-      type: "FeatureCollection",
-      features: (sensorVisibility.cameras ? cameras : []).flatMap((camera) =>
-        Number.isFinite(camera.Latitude) && Number.isFinite(camera.Longitude)
-          ? [
-              {
-                type: "Feature" as const,
-                properties: {
-                  CameraID: camera.CameraID,
-                  location: camera.location,
-                },
-                geometry: {
-                  type: "Point" as const,
-                  coordinates: [camera.Longitude, camera.Latitude],
-                },
-              },
-            ]
-          : [],
-      ),
-    });
+    camerasSource.setData(
+      buildCameraGeoJson(sensorVisibility.cameras ? cameras : []),
+    );
   }, [cameras, camerasRef, sensorVisibility.cameras]);
 
   useEffect(() => {
@@ -1807,14 +1862,14 @@ function useMapController({
   }, [evChargers, evChargersRef, sensorVisibility.evChargers]);
 
   useEffect(() => {
-    aqiRegionsRef.current = aqiRegions;
+    airQualityOverlayRef.current = airQualityOverlay;
     const map = mapRef.current;
     if (!map) return;
-    const source = map.getSource("aqi-regions") as
+    const source = map.getSource("air-quality-regions") as
       | maplibregl.GeoJSONSource
       | undefined;
-    source?.setData(buildAqiRegionsGeoJson(aqiRegions));
-  }, [aqiRegions]);
+    source?.setData(buildAirQualityGeoJson(airQualityOverlay));
+  }, [airQualityOverlay]);
 
   return { containerRef, mapInitError };
 }

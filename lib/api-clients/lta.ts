@@ -38,7 +38,7 @@ import { DEFAULT_TIMEOUT_MS, httpGetJson, withTimeout } from "./http";
 import { LTA_LINE_CODE_TO_DISPLAY_NAME } from "@/lib/mrt-network";
 
 const LTA_BASE_URL = "https://datamall2.mytransport.sg/ltaodataservice";
-const BUS_STOPS_TIMEOUT_MS = 35_000; // 35s aggregate timeout for multi-page fetch
+const BUS_STOPS_TIMEOUT_MS = 35_000;
 const BUS_STOPS_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 /** Camera images must come from one of the known LTA hosts. */
 const SAFE_CAMERA_IMAGE_URL_RE =
@@ -82,9 +82,8 @@ export const ltaGet = <A, I>(
 type LtaPage<T> = { readonly value: ReadonlyArray<T> } | null;
 
 /**
- * Page an LTA OData collection (in concurrent batches) until an end marker:
- * a short page or an empty/`null` page. If the page cap is reached without
- * an end marker, fail instead of returning a silently truncated dataset.
+ * Fetch concurrent OData pages until a short or empty page. Fail at the page
+ * cap rather than return a truncated dataset.
  */
 export const collectLtaPages = <A, E, R>(
   fetchPage: (skip: number) => Effect.Effect<LtaPage<A>, E, R>,
@@ -140,6 +139,25 @@ export const collectLtaPages = <A, E, R>(
     return allRows;
   });
 
+export const collectLtaEndpoint = <A, I>(
+  endpoint: string,
+  schema: Schema.Schema<{ readonly value: ReadonlyArray<A> }, I, never>,
+  options: {
+    readonly pageSize: number;
+    readonly maxPages: number;
+    readonly concurrency?: number;
+  },
+): Effect.Effect<A[], UpstreamError, HttpClient.HttpClient> =>
+  collectLtaPages(
+    (skip) =>
+      ltaGet(`${endpoint}?$skip=${skip}`, schema).pipe(
+        Effect.catchTag("ExternalApiError", (error) =>
+          error.status === 404 ? Effect.succeed(null) : Effect.fail(error),
+        ),
+      ),
+    { ...options, service: "lta" },
+  );
+
 export const getBusStops = (): Effect.Effect<
   BusStop[],
   UpstreamError,
@@ -153,27 +171,10 @@ export const getBusStops = (): Effect.Effect<
       // Aggregate timeout across the whole multi-page walk.
       withTimeout(
         "lta-bus-stops",
-        Effect.gen(function* () {
-          // Each page is already element-validated by LtaBusStopsResponseSchema;
-          // no second decode pass is needed over the accumulated array.
-          const pages = yield* collectLtaPages(
-            (skip) =>
-              ltaGet(
-                `/BusStops?$skip=${skip}`,
-                LtaBusStopsResponseSchema,
-              ).pipe(
-                Effect.catchTag("ExternalApiError", (e) =>
-                  e.status === 404 ? Effect.succeed(null) : Effect.fail(e),
-                ),
-              ),
-            {
-              pageSize: 500,
-              maxPages: 20,
-              service: "lta",
-              concurrency: 4,
-            },
-          );
-          return pages as BusStop[];
+        collectLtaEndpoint("/BusStops", LtaBusStopsResponseSchema, {
+          pageSize: 500,
+          maxPages: 20,
+          concurrency: 4,
         }),
         BUS_STOPS_TIMEOUT_MS,
       ),
@@ -288,11 +289,7 @@ const normalizeAlertMessage = (alert: LtaTrainServiceAlert): string => {
 const normalizeLineCode = (code: string): string =>
   LTA_LINE_CODE_TO_DISPLAY_NAME[code] ?? code;
 
-/**
- * Normalize an LTA TrainServiceAlerts payload (either wrapper shape) into
- * the client-facing `TrainServiceAlert[]`. Pure and side-effect free so it
- * is directly unit-testable.
- */
+/** Normalize either TrainServiceAlerts wrapper shape. */
 export const normalizeTrainServiceAlerts = (
   payload: LtaTrainServiceAlertsResponse,
 ): TrainServiceAlert[] => {

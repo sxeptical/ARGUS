@@ -13,7 +13,23 @@ type MrtRoutePanelProps = {
   mapPickTarget: "start" | "end";
   onMapPickTargetChange: (target: "start" | "end") => void;
   onReset: () => void;
+  /** Stations offered in the start/end lists. Defaults to every station. */
+  stations?: ReadonlyArray<string>;
+  /** Set while a radius filter limits `stations`, e.g. "2.5 km radius". */
+  stationScope?: string;
 };
+
+/** Keep selected stations listed even when outside the current scope. */
+function stationOptions(
+  stations: ReadonlyArray<string>,
+  selected: string,
+): Array<{ station: string; outside: boolean }> {
+  const options = stations.map((station) => ({ station, outside: false }));
+  if (selected && !stations.includes(selected)) {
+    options.unshift({ station: selected, outside: true });
+  }
+  return options;
+}
 
 export default function MrtRoutePanel({
   route,
@@ -24,8 +40,12 @@ export default function MrtRoutePanel({
   mapPickTarget,
   onMapPickTargetChange,
   onReset,
+  stations = MRT_STATION_NAMES,
+  stationScope,
 }: MrtRoutePanelProps) {
   const canSwap = startStation !== endStation;
+  const placeholder =
+    stationScope && stations.length === 0 ? "No stations in radius" : "Select station";
 
   return (
     <TerminalPanel title="MRT ROUTER" contentClassName="min-h-44 sm:min-h-56">
@@ -38,10 +58,10 @@ export default function MrtRoutePanel({
               onChange={(event) => onStartChange(event.target.value)}
               className="field-control text-xs normal-case tracking-normal"
             >
-              <option value="">Select station</option>
-              {MRT_STATION_NAMES.map((station) => (
+              <option value="">{placeholder}</option>
+              {stationOptions(stations, startStation).map(({ station, outside }) => (
                 <option key={`start-${station}`} value={station}>
-                  {station}
+                  {outside ? `${station} (outside radius)` : station}
                 </option>
               ))}
             </select>
@@ -53,15 +73,23 @@ export default function MrtRoutePanel({
               onChange={(event) => onEndChange(event.target.value)}
               className="field-control text-xs normal-case tracking-normal"
             >
-              <option value="">Select station</option>
-              {MRT_STATION_NAMES.map((station) => (
+              <option value="">{placeholder}</option>
+              {stationOptions(stations, endStation).map(({ station, outside }) => (
                 <option key={`end-${station}`} value={station}>
-                  {station}
+                  {outside ? `${station} (outside radius)` : station}
                 </option>
               ))}
             </select>
           </label>
         </div>
+
+        {stationScope ? (
+          <div className="text-[11px] text-muted">
+            {stations.length === 0
+              ? `No MRT stations within the ${stationScope}. Widen or clear the radius filter to plan a route.`
+              : `${stations.length} station${stations.length === 1 ? "" : "s"} within the ${stationScope}.`}
+          </div>
+        ) : null}
 
         <div className="flex flex-wrap gap-2">
           <button

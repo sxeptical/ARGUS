@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { CarparkAvailability, EvChargingLocation } from "@/types";
-import { carparkTone, describeCarpark, describeEvCharger, evChargerTone } from "./mobility";
+import { carparkTone, describeCarpark, describeEvCharger, evChargerTone } from "@/lib/mobility";
 
 const carpark = (overrides: Partial<CarparkAvailability> = {}): CarparkAvailability => ({
   id: "HDB:TPMN",

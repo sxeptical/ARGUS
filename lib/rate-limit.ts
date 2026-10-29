@@ -1,15 +1,7 @@
-/**
- * Per-IP sliding-window rate limiter exposed as an Effect `RateLimit` service.
- *
- * The implementation is a direct port of the pre-change
- * `checkGlobalRateLimit` function: a `Map<scope:ip, { count, windowStart }>`
- * with a 10,000-entry LRU cap. Calls are atomic at the `Ref.modify` boundary.
- *
- * The service is wrapped in a `Layer` so tests can substitute a fake.
- */
+/** Per-IP rate limiter with bounded window storage and atomic `Ref` updates. */
 import { Context, Effect, Layer, Ref } from "effect";
 
-const DEFAULT_WINDOW_MS = 60 * 1000; // 1 minute
+const DEFAULT_WINDOW_MS = 60 * 1000;
 const GLOBAL_MAX_REQUESTS = 300;
 const MAX_ENTRIES = 10_000;
 
@@ -43,9 +35,7 @@ interface WindowState {
   ipWindows: Map<string, WindowEntry>;
 }
 
-// Evict the oldest window when at capacity. The current caller's own entry is
-// never a candidate: evicting it mid-check would reset their count to 1 and
-// hand them a fresh limit window every time they happened to be oldest.
+// Never evict the current key: doing so would reset its request count.
 const evictOldestIfNeeded = (
   windows: Map<string, WindowEntry>,
   currentKey: string,
@@ -111,20 +101,11 @@ export const RateLimitLive: Layer.Layer<RateLimit, never, never> = Layer.effect(
 );
 
 /**
- * Extract the originating client IP from the request. Header priority:
- *
- * 1. When running on Vercel (`VERCEL=1`), `x-vercel-forwarded-for` — set and
- *    overwritten by Vercel's edge, so it cannot be spoofed by the client.
- * 2. When `ARGUS_TRUST_PROXY_HEADERS=true`, trust `x-real-ip` and
- *    `x-forwarded-for` (standard proxy headers). Use the first hop (leftmost
- *    value) which is the original client when behind a single trusted proxy.
- * 3. When trust flag is unset/false and not on Vercel, fall back to a single
- *    bucket key `"unknown"` so all untrusted-proxy traffic shares one rate-
- *    limit bucket (intentionally prevents spoofed per-client limits).
- * 4. Falls back to `127.0.0.1` for local/dev requests with no proxy header.
- *
- * `x-vercel-forwarded-for` is ignored unless `VERCEL=1`. On a self-hosted
- * deployment a client can supply that header themselves.
+ * Trust Vercel's forwarding header on Vercel, or standard proxy headers only
+ * when `ARGUS_TRUST_PROXY_HEADERS=true`. Otherwise share an `"unknown"` bucket
+ * to prevent clients spoofing separate rate limits. Trusted requests without
+ * headers fall back to localhost. `x-vercel-forwarded-for` is ignored off
+ * Vercel, where clients can set it themselves.
  */
 export function extractClientIp(request: Request): string {
   const onVercel = process.env.VERCEL === "1";
@@ -142,12 +123,10 @@ export function extractClientIp(request: Request): string {
     if (forwarded) return forwarded.split(",")[0].trim();
   }
 
-  // Self-hosted without the trust flag (or Vercel without its edge header):
-  // share one untrusted bucket so clients cannot mint a fresh IP per request.
+  // Untrusted clients share one bucket to prevent spoofed per-IP limits.
   if (!trustProxy) {
     return "unknown";
   }
 
-  // Trust-enabled but no header present — local/dev fallback.
   return "127.0.0.1";
 }

@@ -1,15 +1,6 @@
 /**
- * Effect Schema definitions for external API responses consumed by the server.
- *
- * These Schemas are the single source of truth for upstream payload shapes:
- * they validate and decode responses before those reach a route handler, and
- * the client-facing types in `@/types` are derived from them (via
- * `Schema.Schema.Type`) so the two can never drift.
- *
- * Schemas are intentionally permissive: required fields use their exact
- * type, optional fields use `Schema.optional`, nullable fields use
- * `Schema.NullOr`, and fields we do not consume are not declared. Extra
- * properties in the upstream JSON are ignored.
+ * External API schemas and their derived client contracts. Schemas validate
+ * only consumed fields and ignore extra upstream properties.
  */
 import { Schema } from "effect";
 
@@ -115,11 +106,7 @@ const TrafficImageCamerasEntrySchema = Schema.Struct({
   Cameras: Schema.Array(RawTrafficImageSchema),
 });
 
-/**
- * LTA returns one of two shapes for the Traffic-Imagesv2 endpoint depending
- * on the upstream wrapper version. Both shapes are accepted; the route
- * handler normalizes them into `TrafficCamera[]`.
- */
+/** Accept both Traffic-Imagesv2 wrapper shapes. */
 export const LtaTrafficImagesResponseSchema = Schema.Union(
   Schema.Struct({ value: Schema.Array(RawTrafficImageSchema) }),
   Schema.Struct({ value: Schema.Array(TrafficImageCamerasEntrySchema) }),
@@ -221,12 +208,7 @@ export type LtaTrainServiceAlert = Schema.Schema.Type<
   typeof LtaTrainServiceAlertSchema
 >;
 
-/**
- * LTA returns one of two shapes for the TrainServiceAlerts endpoint
- * depending on the upstream wrapper version: `value` as an array of
- * alerts, or `value` as a single alert object (seen on the all-clear
- * response). Both are accepted; the client normalizes to an array.
- */
+/** Accept `value` as either an alert array or a single all-clear alert. */
 export const LtaTrainServiceAlertsResponseSchema = Schema.Union(
   Schema.Struct({ value: Schema.Array(LtaTrainServiceAlertSchema) }),
   Schema.Struct({ value: LtaTrainServiceAlertSchema }),
@@ -258,7 +240,7 @@ const RegionalReadingSchema = Schema.Struct({
 });
 
 const PsiReadingSchema = Schema.Struct({
-  pm25_twenty_four_hourly: Schema.optional(RegionalReadingSchema),
+  psi_twenty_four_hourly: Schema.optional(RegionalReadingSchema),
 });
 
 const PsiItemSchema = Schema.Struct({
@@ -283,13 +265,7 @@ export const DataGovTemperatureResponseSchema = Schema.Struct({
   items: Schema.optional(Schema.Array(TemperatureItemSchema)),
 });
 
-/**
- * The relative-humidity endpoint is verified to return the same
- * `{ items: [{ timestamp?, update_timestamp?, readings: [{ value }] }] }`
- * shape as air-temperature. Aliased deliberately: if the humidity endpoint
- * ever diverges, split this into its own schema so the difference is
- * explicit rather than silently tolerated.
- */
+/** Relative humidity currently uses the air-temperature response shape. */
 export const DataGovHumidityResponseSchema = DataGovTemperatureResponseSchema;
 
 // ---------- Data.gov.sg v2 ----------
@@ -424,12 +400,7 @@ export const AviationStackResponseSchema = Schema.Struct({
 
 // ---------- OpenSky ----------
 
-/**
- * OpenSky state vectors are a positional 18-tuple. We declare every position
- * (0-17) so the decoder validates the array length; positions we don't read
- * are typed as `Schema.Unknown` so the decode is robust to upstream adding
- * or reordering columns.
- */
+/** OpenSky state vectors are fixed positional 18-tuples. */
 const OpenSkyNullableString = Schema.NullOr(Schema.String);
 const OpenSkyNullableNumber = Schema.NullOr(Schema.Number);
 const OpenSkyNullableBoolean = Schema.NullOr(Schema.Boolean);

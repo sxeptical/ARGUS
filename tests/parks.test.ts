@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { PARK_LABELS_GEOJSON, PARKS_GEOJSON } from "@/lib/parks-data";
-import { areaHectares, buildParkSearchResults, describeParkFeature, formatParkName, parkLabelPoint } from "./parks";
+import { areaHectares, buildParkSearchResults, describeParkFeature, formatParkName, parkLabelPoint } from "@/lib/parks";
 
 const texts = (lines: ReadonlyArray<{ text: string }>) => lines.map((line) => line.text);
 

@@ -1,7 +1,4 @@
-/**
- * Shared display formatters. Previously duplicated (under different names)
- * across app/page.tsx, FlightPanel, NewsPanel, and WeatherPanel.
- */
+/** Shared display formatters. */
 
 export function formatSgTime(iso: string): string {
   return new Date(iso).toLocaleTimeString("en-SG", {
