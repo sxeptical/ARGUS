@@ -15,6 +15,7 @@ import {
   type GeoFilter,
 } from "@/lib/geo-filter";
 import { MRT_DISPLAY_LINE_COUNT } from "@/lib/mrt-network";
+import { HAWKER_CENTRES, MALLS } from "@/lib/amenities-data";
 import { PARKS_GEOJSON } from "@/lib/parks-data";
 import {
   GEO_FILTER_CENTER_KEY,
@@ -25,10 +26,24 @@ import {
   SENSOR_VISIBILITY_KEY,
 } from "@/lib/ui-preferences";
 import type { ParkFeatureKind } from "@/types";
-import type { FlightState, TrafficCamera } from "@/types";
+import type {
+  FlightState,
+  HawkerCentre,
+  Mall,
+  TrafficCamera,
+} from "@/types";
 
 export type SensorKey =
-  "flights" | "cameras" | "busStops" | "mrt" | "parks" | "incidents";
+  | "flights"
+  | "cameras"
+  | "busStops"
+  | "mrt"
+  | "parks"
+  | "incidents"
+  | "carparks"
+  | "evChargers"
+  | "malls"
+  | "hawkers";
 
 export type SensorRow = {
   readonly key: SensorKey;
@@ -40,6 +55,14 @@ export type SensorRow = {
 
 export type SensorStatsRow = Omit<SensorRow, "key">;
 
+/** Which static amenity the map (or search) picked, by its bundle id. */
+export type AmenitySelectionTarget = { type: "mall" | "hawker"; id: string };
+
+/** A selected amenity resolved to its bundle record. */
+export type SelectedAmenity =
+  | { type: "mall"; mall: Mall }
+  | { type: "hawker"; hawker: HawkerCentre };
+
 const DEFAULT_SENSOR_VISIBILITY: Readonly<Record<SensorKey, boolean>> = {
   flights: true,
   cameras: true,
@@ -47,19 +70,18 @@ const DEFAULT_SENSOR_VISIBILITY: Readonly<Record<SensorKey, boolean>> = {
   mrt: true,
   parks: false,
   incidents: false,
+  carparks: false,
+  evChargers: false,
+  malls: false,
+  hawkers: false,
 };
 
 const parseStoredSensorVisibility = (stored: unknown) =>
   parseSensorVisibility(stored, DEFAULT_SENSOR_VISIBILITY);
 
 export function useDashboardState() {
-  const data = useDashboardSources();
-  const busRoute = useBusRoute();
-  const mrt = useMrtPlanner();
-  const weatherHistory = useWeatherHistory(data.weather);
-  const [selectedCameraId, setSelectedCameraId] = useState<string | null>(null);
-  const [selectedFlightId, setSelectedFlightId] = useState<string | null>(null);
-  const [selectedParkId, setSelectedParkId] = useState<string | null>(null);
+  // Declared before the sources: carparks and EV chargers only load while
+  // their layer is on.
   const [sensorVisibility, setSensorVisibility] = usePersistentState<
     Record<SensorKey, boolean>
   >(
@@ -67,6 +89,18 @@ export function useDashboardState() {
     DEFAULT_SENSOR_VISIBILITY,
     parseStoredSensorVisibility,
   );
+  const data = useDashboardSources({
+    carparks: sensorVisibility.carparks,
+    evChargers: sensorVisibility.evChargers,
+  });
+  const busRoute = useBusRoute();
+  const mrt = useMrtPlanner();
+  const weatherHistory = useWeatherHistory(data.weather);
+  const [selectedCameraId, setSelectedCameraId] = useState<string | null>(null);
+  const [selectedFlightId, setSelectedFlightId] = useState<string | null>(null);
+  const [selectedParkId, setSelectedParkId] = useState<string | null>(null);
+  const [selectedAmenityId, setSelectedAmenityId] =
+    useState<AmenitySelectionTarget | null>(null);
   // Keep the radius when clearing and re-picking the filter centre.
   const [geoFilterCenter, setGeoFilterCenter] = usePersistentState<
     readonly [number, number] | null
@@ -117,6 +151,22 @@ export function useDashboardState() {
       ).length,
     [geoFilter],
   );
+  const carparks = useMemo(
+    () => withinRadius(data.carparks, geoFilter, (c) => [c.lng, c.lat]),
+    [data.carparks, geoFilter],
+  );
+  const evChargers = useMemo(
+    () => withinRadius(data.evChargers, geoFilter, (e) => [e.lng, e.lat]),
+    [data.evChargers, geoFilter],
+  );
+  const mallCount = useMemo(
+    () => withinRadius(MALLS, geoFilter, (m) => [m.lng, m.lat]).length,
+    [geoFilter],
+  );
+  const hawkerCount = useMemo(
+    () => withinRadius(HAWKER_CENTRES, geoFilter, (h) => [h.lng, h.lat]).length,
+    [geoFilter],
+  );
 
   const selectedCamera = useMemo(
     () =>
@@ -134,6 +184,7 @@ export function useDashboardState() {
   );
   const selectFlight = useCallback((flight: FlightState) => {
     setSelectedParkId(null);
+    setSelectedAmenityId(null);
     setSelectedFlightId(flight.id);
   }, []);
   const selectedPark = useMemo(
@@ -154,10 +205,28 @@ export function useDashboardState() {
       cycle?: boolean;
     }) => {
       setSelectedFlightId(null);
+      setSelectedAmenityId(null);
       setSelectedParkId(`${feature.kind}:${feature.name}`);
     },
     [],
   );
+  const selectAmenity = useCallback((target: AmenitySelectionTarget) => {
+    setSelectedFlightId(null);
+    setSelectedParkId(null);
+    setSelectedAmenityId(target);
+  }, []);
+  const selectedAmenity = useMemo<SelectedAmenity | null>(() => {
+    if (!selectedAmenityId) return null;
+    if (selectedAmenityId.type === "mall") {
+      const mall =
+        MALLS.find((mall) => mall.id === selectedAmenityId.id) ?? null;
+      return mall ? { type: "mall", mall } : null;
+    }
+    const hawker =
+      HAWKER_CENTRES.find((hawker) => hawker.id === selectedAmenityId.id) ??
+      null;
+    return hawker ? { type: "hawker", hawker } : null;
+  }, [selectedAmenityId]);
   const flightSummary = useMemo(
     () => summarizeFlights(flights),
     [flights],
@@ -198,15 +267,15 @@ export function useDashboardState() {
     },
     {
       key: "mrt",
-      label: "MRT Network",
+      label: "MRT & LRT",
       note: "lines + stations",
       value: MRT_DISPLAY_LINE_COUNT,
       tone: "text-signal-mrt",
     },
     {
       key: "parks",
-      label: "Recreation",
-      note: "parks + trails",
+      label: "Parks & Trails",
+      note: "parks · connectors · trails",
       value: parkCount,
       tone: "text-signal-park",
     },
@@ -216,6 +285,34 @@ export function useDashboardState() {
       note: "live events",
       value: incidents.length,
       tone: "text-signal-incident",
+    },
+    {
+      key: "carparks",
+      label: "Carparks",
+      note: "live free lots",
+      value: carparks.length,
+      tone: "text-signal-carpark",
+    },
+    {
+      key: "evChargers",
+      label: "EV Charging",
+      note: "live chargers",
+      value: evChargers.length,
+      tone: "text-signal-ev",
+    },
+    {
+      key: "malls",
+      label: "Malls",
+      note: "shopping centres",
+      value: mallCount,
+      tone: "text-signal-mall",
+    },
+    {
+      key: "hawkers",
+      label: "Hawker Centres",
+      note: "food centres",
+      value: hawkerCount,
+      tone: "text-signal-hawker",
     },
   ];
   const sensorStatsRows: SensorStatsRow[] = [
@@ -278,6 +375,8 @@ export function useDashboardState() {
     busStops,
     cameras,
     incidents,
+    carparks,
+    evChargers,
     clearBusRoute: busRoute.clear,
     error: data.error,
     flights,
@@ -298,6 +397,7 @@ export function useDashboardState() {
     pickMrtStation: mrt.pickStation,
     resetMrtRoute: mrt.reset,
     selectBusRouteDirection: busRoute.selectDirection,
+    selectedAmenity,
     selectedCamera,
     selectedFlight,
     selectedPark,
@@ -311,6 +411,7 @@ export function useDashboardState() {
     setMrtMapPickTarget: mrt.setMapPickTarget,
     setMrtStartStation: mrt.setStart,
     setSelectedCamera: selectCamera,
+    setSelectedAmenity: selectAmenity,
     setSelectedFlight: selectFlight,
     setSelectedPark: selectPark,
     setSensorVisibility,

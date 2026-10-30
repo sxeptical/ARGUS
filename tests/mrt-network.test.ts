@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  LRT_LINE_STATIONS,
   MRT_DISPLAY_LINE_COUNT,
   MRT_DISPLAY_LINE_STATIONS,
   MRT_OPERATIONAL_LINE_COUNT,
@@ -36,5 +37,19 @@ describe("mrt-network single source of truth", () => {
     expect(MRT_DISPLAY_LINE_COUNT).toBeGreaterThan(
       MRT_OPERATIONAL_LINE_COUNT,
     );
+  });
+
+  test("LRT lines are routeable and loops close on their MRT interchange", () => {
+    for (const [line, stations] of Object.entries(LRT_LINE_STATIONS)) {
+      expect(MRT_OPERATIONAL_LINE_STATIONS[line]).toBe(stations);
+      for (const station of stations) expect(isRouteableMrtStation(station)).toBe(true);
+    }
+    for (const line of ["Sengkang LRT East Loop", "Sengkang LRT West Loop", "Punggol LRT East Loop", "Punggol LRT West Loop"]) {
+      const stations = LRT_LINE_STATIONS[line];
+      expect(stations[0]).toBe(stations[stations.length - 1]);
+    }
+    // Bukit Panjang LRT: branch out from Choa Chu Kang, loop from Bukit Panjang.
+    expect(LRT_LINE_STATIONS["Bukit Panjang LRT"][0]).toBe("Choa Chu Kang");
+    expect(LRT_LINE_STATIONS["Bukit Panjang LRT"].filter((s) => s === "Bukit Panjang")).toHaveLength(2);
   });
 });

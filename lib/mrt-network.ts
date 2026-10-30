@@ -3,6 +3,50 @@
  * extensions and shares operational line arrays with the routing network.
  */
 
+export const LRT_LINE_STATIONS: Record<string, string[]> = {
+  "Bukit Panjang LRT": [
+    "Choa Chu Kang",
+    "South View",
+    "Keat Hong",
+    "Teck Whye",
+    "Phoenix",
+    "Bukit Panjang",
+    "Petir",
+    "Pending",
+    "Bangkit",
+    "Fajar",
+    "Segar",
+    "Jelapang",
+    "Senja",
+    "Bukit Panjang",
+  ],
+  "Sengkang LRT East Loop": ["Sengkang", "Compassvale", "Rumbia", "Bakau", "Kangkar", "Ranggung", "Sengkang"],
+  "Sengkang LRT West Loop": [
+    "Sengkang",
+    "Cheng Lim",
+    "Farmway",
+    "Kupang",
+    "Thanggam",
+    "Fernvale",
+    "Layar",
+    "Tongkang",
+    "Renjong",
+    "Sengkang",
+  ],
+  "Punggol LRT East Loop": ["Punggol", "Cove", "Meridian", "Coral Edge", "Riviera", "Kadaloor", "Oasis", "Damai", "Punggol"],
+  "Punggol LRT West Loop": [
+    "Punggol",
+    "Sam Kee",
+    "Teck Lee",
+    "Punggol Point",
+    "Samudera",
+    "Nibong",
+    "Sumang",
+    "Soo Teck",
+    "Punggol",
+  ],
+};
+
 export const MRT_OPERATIONAL_LINE_STATIONS: Record<string, string[]> = {
   "North South Line": [
     "Jurong East",
@@ -191,6 +235,11 @@ export const MRT_OPERATIONAL_LINE_STATIONS: Record<string, string[]> = {
     "Siglap",
     "Bayshore",
   ],
+  // LRT. Loops start and end at their MRT interchange, which appears at both
+  // ends so the closing hop (e.g. Ranggung → Sengkang) is an edge like any
+  // other. Bukit Panjang LRT runs out to Bukit Panjang, round the Petir–Senja
+  // loop, and back, so Bukit Panjang appears twice.
+  ...LRT_LINE_STATIONS,
 };
 
 /** Future / non-routeable extensions shown on the map only. */
@@ -291,4 +340,9 @@ export const LTA_LINE_CODE_TO_DISPLAY_NAME: Record<string, string> = {
   TEL: "Thomson-East Coast Line",
   JRL: "Jurong Region Line",
   CRL: "Cross Island Line",
+  BPL: "Bukit Panjang LRT",
+  SEL: "Sengkang LRT East Loop",
+  SWL: "Sengkang LRT West Loop",
+  PEL: "Punggol LRT East Loop",
+  PWL: "Punggol LRT West Loop",
 };

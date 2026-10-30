@@ -375,17 +375,18 @@ export function buildRouteGeoJson(
     );
     if (stationFeatures.length !== stationNames.length) continue;
 
-    const fromIndex = stationNames.indexOf(segment.from);
-    const toIndex = stationNames.indexOf(segment.to);
-    if (fromIndex < 0 || toIndex < 0 || fromIndex === toIndex) continue;
-
-    const startIndex = Math.min(fromIndex, toIndex);
-    const endIndex = Math.max(fromIndex, toIndex);
-    const sliced = stationFeatures
-      .slice(startIndex, endIndex + 1)
-      .map((feature) => feature.geometry.coordinates);
-    const coordinates = fromIndex <= toIndex ? sliced : [...sliced].reverse();
-    if (coordinates.length < 2) continue;
+    // Follow the stations actually ridden: on a loop line the interchange is
+    // listed at both ends, so slicing between first indices can go the long
+    // way round (Ranggung → Sengkang would trace the whole loop).
+    const positions = new globalThis.Map(
+      stationFeatures.map((feature) => [feature.properties.name, feature.geometry.coordinates]),
+    );
+    const ridden = segment.stations.length >= 2 ? segment.stations : [segment.from, segment.to];
+    const coordinates = ridden.flatMap((station) => {
+      const position = positions.get(station);
+      return position ? [position] : [];
+    });
+    if (coordinates.length !== ridden.length || coordinates.length < 2) continue;
 
     features.push({
       type: "Feature",
