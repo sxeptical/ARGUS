@@ -854,11 +854,13 @@ function useMapController({
       if (hawker) showHoverPopup(event.lngLat, "HAWKER CENTRE", "text-signal-hawker", describeHawkerCentre(hawker), hawker.photos.map((photo, index) => ({ src: photo.thumb, alt: `${hawker.name} photo ${index + 1}` })));
     };
     const handleMallClick = (event: maplibregl.MapLayerMouseEvent) => {
+      if (geoFilterPickingRef.current) return;
       const id = event.features?.[0]?.properties?.id;
       if (typeof id !== "string") return;
       onAmenityClickRef.current?.({ type: "mall", id });
     };
     const handleHawkerClick = (event: maplibregl.MapLayerMouseEvent) => {
+      if (geoFilterPickingRef.current) return;
       const id = event.features?.[0]?.properties?.id;
       if (typeof id !== "string") return;
       onAmenityClickRef.current?.({ type: "hawker", id });
