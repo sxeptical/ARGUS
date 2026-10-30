@@ -15,6 +15,10 @@ const DOT_TONE: Record<SensorKey, string> = {
   mrt: "bg-signal-mrt",
   parks: "bg-signal-park",
   incidents: "bg-signal-incident",
+  carparks: "bg-signal-carpark",
+  evChargers: "bg-signal-ev",
+  malls: "bg-signal-mall",
+  hawkers: "bg-signal-hawker",
 };
 
 export function MobileLayersDrawer({

@@ -22,8 +22,10 @@ const securityHeaders = [
       `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ""}`,
       // Tailwind emits inline styles at runtime; runtime style injection.
       "style-src 'self' 'unsafe-inline'",
-      // Camera images (data.gov.sg, LTA S3) and OpenFreeMap raster assets.
-      "img-src 'self' data: blob: https://images.data.gov.sg https://datamall2.mytransport.sg https://dm-traffic-camera-itsc.s3.ap-southeast-1.amazonaws.com https://tiles.openfreemap.org",
+      // Camera images (data.gov.sg, LTA S3), OpenFreeMap raster assets,
+      // Wikimedia Commons place photos (thumb./upload.wikimedia.org), and
+      // NEA's hawker centre photos.
+      "img-src 'self' data: blob: https://images.data.gov.sg https://datamall2.mytransport.sg https://dm-traffic-camera-itsc.s3.ap-southeast-1.amazonaws.com https://tiles.openfreemap.org https://thumb.wikimedia.org https://upload.wikimedia.org https://www.nea.gov.sg",
       // OpenFreeMap style, vector/raster tiles, sprites, and glyphs.
       "connect-src 'self' https://tiles.openfreemap.org",
       // Google Fonts (loaded via stylesheet) and self-hosted font data URIs.
@@ -71,6 +73,10 @@ const nextConfig: NextConfig = {
         protocol: "https",
         hostname: "dm-traffic-camera-itsc.s3.ap-southeast-1.amazonaws.com",
       },
+      // Mall / hawker centre photos (Wikimedia Commons, NEA).
+      { protocol: "https", hostname: "thumb.wikimedia.org" },
+      { protocol: "https", hostname: "upload.wikimedia.org" },
+      { protocol: "https", hostname: "www.nea.gov.sg" },
     ],
   },
   async headers() {

@@ -85,6 +85,42 @@ export interface TrafficIncident {
 }
 
 /**
+ * One LTA carpark with its live free lots per vehicle class, merged from the
+ * per-lot-type DataMall rows. A class the carpark doesn't serve is `null`.
+ */
+export interface CarparkAvailability {
+  id: string;
+  name: string;
+  area: string;
+  agency: string;
+  lat: number;
+  lng: number;
+  carLots: number | null;
+  motorcycleLots: number | null;
+  heavyLots: number | null;
+}
+
+/**
+ * One EV charging location, with live connector counts summed across all of
+ * its charging points. Connectors that are neither available nor occupied
+ * (status unknown or offline) count towards `total` only.
+ */
+export interface EvChargingLocation {
+  id: string;
+  name: string;
+  address: string;
+  lat: number;
+  lng: number;
+  available: number;
+  occupied: number;
+  total: number;
+  maxPowerKw: number | null;
+  hasDc: boolean;
+  operators: string[];
+  plugTypes: string[];
+}
+
+/**
  * Normalized LTA alert with display line names where known. Times are
  * LTA-supplied strings in Singapore local time.
  */
@@ -123,6 +159,8 @@ export interface MRTGeoJson {
       name: string;
       color: string;
       status?: "operational" | "future";
+      /** LRT lines are drawn thinner than MRT. */
+      mode?: "mrt" | "lrt";
     };
     geometry: {
       type: "LineString";
@@ -146,11 +184,64 @@ export interface ParksGeoJson {
       park?: string;
       type?: string;
       cycle?: boolean;
+      /** Park areas only, derived at load from the polygon. */
+      areaHa?: number;
     };
   }>;
 }
 
-export type SearchResultType = "bus-stop" | "mrt" | "park";
+/**
+ * NEA hawker centre from the static amenities bundle. `planned` centres are
+ * under construction; `expectedYear` is NEA's estimated completion year.
+ */
+export interface HawkerCentre {
+  id: string;
+  name: string;
+  address: string | null;
+  lat: number;
+  lng: number;
+  stalls: number | null;
+  status: "open" | "planned";
+  expectedYear: number | null;
+  photos: PlacePhoto[];
+}
+
+/**
+ * A place photo with the credit it requires: a freely licensed Wikimedia
+ * Commons file (`license` set), or NEA's own hawker centre photo.
+ */
+export interface PlacePhoto {
+  thumb: string;
+  page: string | null;
+  author: string;
+  license: string | null;
+  source: "commons" | "nea";
+}
+
+/**
+ * Shopping mall from the static amenities bundle (OpenStreetMap location).
+ * `stores`, `fnb`, and `nearestMrt` come from the curated mall dataset and
+ * are `null` for malls it doesn't cover.
+ */
+export interface Mall {
+  id: string;
+  name: string;
+  address: string | null;
+  lat: number;
+  lng: number;
+  openingHours: string | null;
+  stores: number | null;
+  fnb: number | null;
+  nearestMrt: string | null;
+  photos: PlacePhoto[];
+}
+
+export interface AmenitiesBundle {
+  hawkers: HawkerCentre[];
+  malls: Mall[];
+}
+
+export type SearchResultType = "bus-stop" | "mrt" | "park" | "mall" | "hawker";
 
 export interface MapSearchResult {
   id: string;

@@ -1,6 +1,6 @@
 /**
- * LTA DataMall clients: bus stops, bus arrivals, traffic cameras, and
- * train service alerts.
+ * LTA DataMall clients: bus stops, bus arrivals, traffic cameras, train
+ * service alerts, carpark availability, and EV charging points.
  */
 import { HttpClient } from "@effect/platform";
 import { createHash } from "node:crypto";
@@ -10,17 +10,30 @@ import { ExternalApiError, type UpstreamError } from "@/lib/errors";
 import {
   LtaBusArrivalsResponseSchema,
   LtaBusStopsResponseSchema,
+  LtaCarparkAvailabilityResponseSchema,
+  LtaEvBatchFileSchema,
+  LtaEvcBatchResponseSchema,
   LtaTrafficImagesResponseSchema,
   LtaTrafficIncidentsResponseSchema,
   LtaTrainServiceAlertsResponseSchema,
 } from "@/types/schemas";
 import type {
   LtaTrainServiceAlert,
+  RawCarparkAvailability,
+  RawEvLocation,
   LtaTrainServiceAlertsResponse,
   RawTrafficImage,
   RawTrafficIncident,
 } from "@/types/schemas";
-import type { BusArrival, BusStop, TrafficCamera, TrafficIncident, TrainServiceAlert } from "@/types";
+import type {
+  BusArrival,
+  BusStop,
+  CarparkAvailability,
+  EvChargingLocation,
+  TrafficCamera,
+  TrafficIncident,
+  TrainServiceAlert,
+} from "@/types";
 import { DEFAULT_TIMEOUT_MS, httpGetJson, withTimeout } from "./http";
 import { LTA_LINE_CODE_TO_DISPLAY_NAME } from "@/lib/mrt-network";
 
@@ -30,6 +43,9 @@ const BUS_STOPS_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 /** Camera images must come from one of the known LTA hosts. */
 const SAFE_CAMERA_IMAGE_URL_RE =
   /^https:\/\/(?:images\.data\.gov\.sg|datamall2\.mytransport\.sg|dm-traffic-camera-itsc\.s3\.ap-southeast-1\.amazonaws\.com)\//i;
+/** The EV batch link must point at LTA's dataset bucket before we follow it. */
+const SAFE_EV_BATCH_URL_RE =
+  /^https:\/\/dmprod-datasets\.s3\.ap-southeast-1\.amazonaws\.com\//i;
 
 const getLtaApiKey = (): Effect.Effect<string, ExternalApiError> =>
   Effect.gen(function* () {
@@ -329,6 +345,170 @@ export const getTrainServiceAlerts = (): Effect.Effect<
           LtaTrainServiceAlertsResponseSchema,
         );
         return normalizeTrainServiceAlerts(payload);
+      }),
+    );
+  });
+
+// LTA refreshes carpark availability every minute.
+const CARPARKS_CACHE_TTL_MS = 60 * 1000;
+const CARPARKS_TIMEOUT_MS = 30_000;
+
+/**
+ * Merge the per-lot-type DataMall rows into one entry per carpark. Rows with
+ * an unparseable `Location` are dropped; lot types other than car (C),
+ * motorcycle (Y), and heavy vehicle (H) are ignored.
+ */
+export const normalizeCarparkAvailability = (
+  rows: ReadonlyArray<RawCarparkAvailability>,
+): CarparkAvailability[] => {
+  const byId = new globalThis.Map<string, CarparkAvailability>();
+  for (const row of rows) {
+    const [lat, lng] = row.Location.trim().split(/\s+/).map(Number);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
+    const id = `${row.Agency}:${row.CarParkID}`;
+    let carpark = byId.get(id);
+    if (!carpark) {
+      carpark = {
+        id,
+        name: row.Development.trim() || `Carpark ${row.CarParkID}`,
+        area: row.Area.trim(),
+        agency: row.Agency,
+        lat,
+        lng,
+        carLots: null,
+        motorcycleLots: null,
+        heavyLots: null,
+      };
+      byId.set(id, carpark);
+    }
+    if (row.LotType === "C") carpark.carLots = row.AvailableLots;
+    else if (row.LotType === "Y") carpark.motorcycleLots = row.AvailableLots;
+    else if (row.LotType === "H") carpark.heavyLots = row.AvailableLots;
+  }
+  return [...byId.values()];
+};
+
+export const getCarparkAvailability = (): Effect.Effect<
+  CarparkAvailability[],
+  UpstreamError,
+  Cache | HttpClient.HttpClient
+> =>
+  Effect.gen(function* () {
+    const cache = yield* Cache;
+    return yield* cache.get(
+      "carpark-availability",
+      CARPARKS_CACHE_TTL_MS,
+      withTimeout(
+        "lta-carparks",
+        Effect.gen(function* () {
+          const rows = yield* collectLtaPages(
+            (skip) =>
+              ltaGet(
+                `/CarParkAvailabilityv2?$skip=${skip}`,
+                LtaCarparkAvailabilityResponseSchema,
+              ),
+            {
+              pageSize: 500,
+              maxPages: 12,
+              service: "lta",
+              concurrency: 3,
+            },
+          );
+          return normalizeCarparkAvailability(rows);
+        }),
+        CARPARKS_TIMEOUT_MS,
+      ),
+    );
+  });
+
+// LTA regenerates the EV batch snapshot every five minutes.
+const EV_CHARGERS_CACHE_TTL_MS = 5 * 60 * 1000;
+const EV_BATCH_FILE_TIMEOUT_MS = 30_000;
+
+/** Connector status codes in the EV batch file. */
+const EV_AVAILABLE = "1";
+const EV_OCCUPIED = "0";
+
+/**
+ * Summarize each EV location's charging points into connector counts, peak
+ * power, and operator/plug lists. Pure, so it is directly unit-testable.
+ */
+export const normalizeEvChargingLocations = (
+  rows: ReadonlyArray<RawEvLocation>,
+): EvChargingLocation[] =>
+  rows.flatMap((row) => {
+    const lat = row.latitude;
+    const lng = row.longtitude ?? row.longitude;
+    if (typeof lat !== "number" || typeof lng !== "number" || !Number.isFinite(lat) || !Number.isFinite(lng)) return [];
+    let available = 0;
+    let occupied = 0;
+    let total = 0;
+    let maxPowerKw: number | null = null;
+    let hasDc = false;
+    const operators = new Set<string>();
+    const plugTypes = new Set<string>();
+    for (const point of row.chargingPoints) {
+      if (point.operator?.trim()) operators.add(point.operator.trim());
+      for (const plug of point.plugTypes) {
+        if (plug.plugType?.trim()) plugTypes.add(plug.plugType.trim());
+        if (plug.current?.toUpperCase() === "DC") hasDc = true;
+        const power = Number(plug.powerRating);
+        if (plug.powerRating && Number.isFinite(power) && power > (maxPowerKw ?? 0)) maxPowerKw = power;
+        for (const charger of plug.evIds) {
+          total += 1;
+          if (charger.status === EV_AVAILABLE) available += 1;
+          else if (charger.status === EV_OCCUPIED) occupied += 1;
+        }
+      }
+    }
+    const id = createHash("sha256").update(`${row.name}|${row.address}|${lat}|${lng}`).digest("hex").slice(0, 16);
+    return [{
+      id,
+      name: row.name.trim(),
+      address: row.address.trim(),
+      lat,
+      lng,
+      available,
+      occupied,
+      total,
+      maxPowerKw,
+      hasDc,
+      operators: [...operators],
+      plugTypes: [...plugTypes],
+    }];
+  });
+
+export const getEvChargingLocations = (): Effect.Effect<
+  EvChargingLocation[],
+  UpstreamError,
+  Cache | HttpClient.HttpClient
+> =>
+  Effect.gen(function* () {
+    const cache = yield* Cache;
+    return yield* cache.get(
+      "ev-charging-locations",
+      EV_CHARGERS_CACHE_TTL_MS,
+      Effect.gen(function* () {
+        const batch = yield* ltaGet("/EVCBatch", LtaEvcBatchResponseSchema);
+        const link = batch.value[0]?.Link;
+        if (!link || !SAFE_EV_BATCH_URL_RE.test(link)) {
+          return yield* Effect.fail(
+            new ExternalApiError({
+              service: "lta",
+              status: 502,
+              message: "EVCBatch did not return a trusted snapshot link",
+            }),
+          );
+        }
+        // The presigned link carries its own auth; never forward AccountKey.
+        const file = yield* httpGetJson(
+          "lta-ev-batch",
+          link,
+          { Accept: "application/json" },
+          LtaEvBatchFileSchema,
+          EV_BATCH_FILE_TIMEOUT_MS,
+        );
+        return normalizeEvChargingLocations(file.evLocationsData);
       }),
     );
   });

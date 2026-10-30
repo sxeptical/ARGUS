@@ -124,6 +124,58 @@ export const LtaTrafficIncidentsResponseSchema = Schema.Struct({
 });
 export type LtaTrafficIncidentsResponse = Schema.Schema.Type<typeof LtaTrafficIncidentsResponseSchema>;
 
+// ---------- LTA Carpark Availability ----------
+
+/** One row per (carpark, lot type); `Location` is a "lat lng" string. */
+export const RawCarparkAvailabilitySchema = Schema.Struct({
+  CarParkID: Schema.String,
+  Area: Schema.String,
+  Development: Schema.String,
+  Location: Schema.String,
+  AvailableLots: Schema.Number,
+  LotType: Schema.String,
+  Agency: Schema.String,
+});
+export type RawCarparkAvailability = Schema.Schema.Type<typeof RawCarparkAvailabilitySchema>;
+export const LtaCarparkAvailabilityResponseSchema = Schema.Struct({
+  value: Schema.Array(RawCarparkAvailabilitySchema),
+});
+
+// ---------- LTA EV Charging Points (batch) ----------
+
+/** `/EVCBatch` returns a short-lived presigned link to the full snapshot. */
+export const LtaEvcBatchResponseSchema = Schema.Struct({
+  value: Schema.Array(Schema.Struct({ Link: Schema.String })),
+});
+
+const EvChargerIdSchema = Schema.Struct({
+  status: Schema.optional(Schema.String),
+});
+const EvPlugTypeSchema = Schema.Struct({
+  plugType: Schema.optional(Schema.String),
+  current: Schema.optional(Schema.String),
+  powerRating: Schema.optional(Schema.String),
+  evIds: Schema.Array(EvChargerIdSchema),
+});
+const EvChargingPointSchema = Schema.Struct({
+  operator: Schema.optional(Schema.String),
+  plugTypes: Schema.Array(EvPlugTypeSchema),
+});
+/** The batch file spells longitude as `longtitude`; accept either. */
+export const RawEvLocationSchema = Schema.Struct({
+  name: Schema.String,
+  address: Schema.String,
+  latitude: Schema.optional(Schema.NullOr(Schema.Number)),
+  longtitude: Schema.optional(Schema.NullOr(Schema.Number)),
+  longitude: Schema.optional(Schema.NullOr(Schema.Number)),
+  postalCode: Schema.optional(Schema.String),
+  chargingPoints: Schema.Array(EvChargingPointSchema),
+});
+export type RawEvLocation = Schema.Schema.Type<typeof RawEvLocationSchema>;
+export const LtaEvBatchFileSchema = Schema.Struct({
+  evLocationsData: Schema.Array(RawEvLocationSchema),
+});
+
 // ---------- LTA Train Service Alerts ----------
 
 const TrainAlertMessageSchema = Schema.Struct({
