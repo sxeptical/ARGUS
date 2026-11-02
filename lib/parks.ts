@@ -2,8 +2,9 @@
  * Display helpers for the NParks recreation layer: readable names, park
  * sizes, popup copy, and search entries. Pure so the map and tests share them.
  */
+import { photoCredit } from "@/lib/amenities";
 import type { PopupLine } from "@/lib/mobility";
-import type { MapSearchResult, ParkFeatureKind, ParksGeoJson } from "@/types";
+import type { MapSearchResult, ParkFeatureKind, ParksGeoJson, PlacePhoto } from "@/types";
 
 // NParks abbreviations, expanded wherever they appear.
 const ABBREVIATIONS: Record<string, string> = {
@@ -49,7 +50,7 @@ export function formatParkName(raw: string): string {
     // Vowel-less bracketed codes are abbreviations: "(FCP)", "(AMK ...)".
     if (ACRONYMS.has(upper) || (depth > 0 && token.length <= 3 && !/[AEIOU]/.test(upper))) return upper;
     return titleCase(token);
-  }).trim();
+  }).replace(/'S\b/g, "'s").trim();
 }
 
 type Ring = number[][];
@@ -95,6 +96,7 @@ export type ParkFeatureDetails = {
   type?: string;
   cycle?: boolean;
   areaHa?: number;
+  photos?: ReadonlyArray<PlacePhoto>;
 };
 
 /** Plain-language popup lines explaining what the hovered feature is. */
@@ -111,6 +113,8 @@ export function describeParkFeature(feature: ParkFeatureDetails): PopupLine[] {
     if (feature.type) lines.push({ text: feature.type, kind: "count" });
     if (feature.park && feature.park !== feature.name) lines.push({ text: `In ${feature.park}`, kind: "detail" });
   }
+  const credit = feature.photos ? photoCredit(feature.photos) : null;
+  if (credit) lines.push({ text: credit, kind: "hint" });
   lines.push({ text: "Source: NParks via data.gov.sg", kind: "hint" });
   return lines;
 }
