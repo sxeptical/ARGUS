@@ -16,7 +16,7 @@ const isPhoto = (photo: unknown) => {
   if (p.source === "commons") return WIKIMEDIA_MEDIA_URL_RE.test(p.thumb) && typeof p.license === "string" && p.license.length > 0;
   return p.source === "nea" && NEA_MEDIA_URL_RE.test(p.thumb);
 };
-const isPhotoList = (value: unknown) => Array.isArray(value) && value.every(isPhoto);
+export const isPhotoList = (value: unknown) => Array.isArray(value) && value.every(isPhoto);
 
 export function validateAmenitiesBundle(value: unknown): value is AmenitiesBundle {
   if (!value || typeof value !== "object") return false;
