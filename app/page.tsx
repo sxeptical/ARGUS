@@ -29,6 +29,7 @@ import { buildParkSearchResults, PARK_KIND_TITLE } from "@/lib/parks";
 import { PARKS_GEOJSON } from "@/lib/parks-data";
 import { formatRadius, withinRadius } from "@/lib/geo-filter";
 import { buildBusStopSearchResults, MRT_STATION_SEARCH_RESULTS } from "@/lib/map-search";
+import { LAYER_BY_KEY } from "@/lib/layers";
 import { MRT_STATION_NAMES } from "@/lib/mrt-routing";
 import { buildSignalDigest } from "@/lib/signals";
 import type { AirQualityOverlay } from "@/types";
@@ -257,20 +258,28 @@ export default function Home() {
               </div>
             ) : null}
             <div className="absolute bottom-2 left-2 right-2 flex flex-nowrap gap-x-3 gap-y-1 overflow-x-auto whitespace-nowrap sm:pointer-events-none sm:flex-wrap sm:overflow-visible border border-line bg-overlay px-2.5 py-1.5 text-[10px] uppercase tracking-[0.1em] text-muted sm:right-auto sm:max-w-[calc(100%-27rem)] sm:text-[9px]">
-              {sensorVisibility.flights ? <LegendDot tone="bg-signal-inbound" label="Inbound" /> : null}
-              {sensorVisibility.flights ? <LegendDot tone="bg-signal-outbound" label="Outbound" /> : null}
-              {sensorVisibility.flights ? <LegendDot tone="bg-signal-transit" label="Transit" /> : null}
-              {sensorVisibility.busStops ? <LegendDot tone="bg-signal-bus" label="Bus" /> : null}
-              {sensorVisibility.cameras ? <LegendDot tone="bg-signal-camera" label="Cameras" /> : null}
-              {sensorVisibility.mrt ? <LegendDot tone="bg-signal-mrt" label="MRT" /> : null}
-              {sensorVisibility.parks ? <LegendSwatch shape="area" tone="border-signal-park bg-signal-park/30" label="Parks" /> : null}
-              {sensorVisibility.parks ? <LegendSwatch shape="line" tone="bg-signal-park" label="Park connectors" /> : null}
-              {sensorVisibility.parks ? <LegendSwatch shape="dashed" tone="border-signal-park" label="Trails" /> : null}
-              {sensorVisibility.incidents ? <LegendDot tone="bg-signal-incident" label="Incidents" /> : null}
-              {sensorVisibility.carparks ? <LegendDot tone="bg-signal-carpark" label="Carparks" /> : null}
-              {sensorVisibility.evChargers ? <LegendDot tone="bg-signal-ev" label="EV" /> : null}
-              {sensorVisibility.malls ? <LegendDot tone="bg-signal-mall" label="Malls" /> : null}
-              {sensorVisibility.hawkers ? <LegendDot tone="bg-signal-hawker" label="Hawkers" /> : null}
+              {/* Legend entries come from the layer registry so a new layer's
+                  legend appears here without further edits. */}
+              {sensorRows.flatMap((row) => {
+                if (!sensorVisibility[row.key]) return [];
+                const legend = LAYER_BY_KEY.get(row.key)?.legend ?? [];
+                return legend.map((item) =>
+                  item.kind === "dot" ? (
+                    <LegendDot
+                      key={`${row.key}-${item.label}`}
+                      tone={item.tone}
+                      label={item.label}
+                    />
+                  ) : (
+                    <LegendSwatch
+                      key={`${row.key}-${item.label}`}
+                      shape={item.shape}
+                      tone={item.tone}
+                      label={item.label}
+                    />
+                  ),
+                );
+              })}
             </div>
           </section>
 

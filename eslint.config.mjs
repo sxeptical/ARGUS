@@ -14,6 +14,9 @@ const eslintConfig = defineConfig([
     "next-env.d.ts",
     // Generated maplibre-gl v6 worker bundles (scripts/copy-maplibre-worker.mjs).
     "public/maplibre/**",
+    // Local agent-tool scratch space; already in .gitignore, but ESLint
+    // does not read .gitignore and fails `bun run lint` on these temp files.
+    ".ua/**",
   ]),
 ]);
 

@@ -14,6 +14,12 @@ import {
   withinRadius,
   type GeoFilter,
 } from "@/lib/geo-filter";
+import {
+  LAYERS,
+  DEFAULT_SENSOR_VISIBILITY,
+  SensorKey,
+  coerceSensorVisibility,
+} from "@/lib/layers";
 import { MRT_DISPLAY_LINE_COUNT } from "@/lib/mrt-network";
 import { HAWKER_CENTRES, MALLS } from "@/lib/amenities-data";
 import { PARKS_GEOJSON } from "@/lib/parks-data";
@@ -22,7 +28,6 @@ import {
   GEO_FILTER_RADIUS_KEY,
   parseGeoFilterCenter,
   parseGeoFilterRadius,
-  parseSensorVisibility,
   SENSOR_VISIBILITY_KEY,
 } from "@/lib/ui-preferences";
 import type { ParkFeatureKind } from "@/types";
@@ -33,27 +38,17 @@ import type {
   TrafficCamera,
 } from "@/types";
 
-export type SensorKey =
-  | "flights"
-  | "cameras"
-  | "busStops"
-  | "mrt"
-  | "parks"
-  | "incidents"
-  | "carparks"
-  | "evChargers"
-  | "malls"
-  | "hawkers";
-
 export type SensorRow = {
   readonly key: SensorKey;
   readonly label: string;
   readonly note: string;
   readonly value: number;
   readonly tone: string;
+  /** Background tone class for the layer dot in the mobile drawer. */
+  readonly dot: string;
 };
 
-export type SensorStatsRow = Omit<SensorRow, "key">;
+export type SensorStatsRow = Omit<SensorRow, "key" | "dot">;
 
 /** Which static amenity the map (or search) picked, by its bundle id. */
 export type AmenitySelectionTarget = { type: "mall" | "hawker"; id: string };
@@ -63,22 +58,6 @@ export type SelectedAmenity =
   | { type: "mall"; mall: Mall }
   | { type: "hawker"; hawker: HawkerCentre };
 
-const DEFAULT_SENSOR_VISIBILITY: Readonly<Record<SensorKey, boolean>> = {
-  flights: true,
-  cameras: true,
-  busStops: true,
-  mrt: true,
-  parks: false,
-  incidents: false,
-  carparks: false,
-  evChargers: false,
-  malls: false,
-  hawkers: false,
-};
-
-const parseStoredSensorVisibility = (stored: unknown) =>
-  parseSensorVisibility(stored, DEFAULT_SENSOR_VISIBILITY);
-
 export function useDashboardState() {
   // Declared before the sources: carparks and EV chargers only load while
   // their layer is on.
@@ -87,7 +66,7 @@ export function useDashboardState() {
   >(
     SENSOR_VISIBILITY_KEY,
     DEFAULT_SENSOR_VISIBILITY,
-    parseStoredSensorVisibility,
+    coerceSensorVisibility,
   );
   const data = useDashboardSources({
     carparks: sensorVisibility.carparks,
@@ -243,78 +222,28 @@ export function useDashboardState() {
     [disruptedAlerts],
   );
 
-  const sensorRows: SensorRow[] = [
-    {
-      key: "flights",
-      label: "Air Activity",
-      note: "live tracks",
-      value: flights.length,
-      tone: "text-signal-inbound",
-    },
-    {
-      key: "cameras",
-      label: "Road Cameras",
-      note: "stream nodes",
-      value: cameras.length,
-      tone: "text-signal-camera",
-    },
-    {
-      key: "busStops",
-      label: "Bus Stops",
-      note: "monitor points",
-      value: busStops.length,
-      tone: "text-signal-bus",
-    },
-    {
-      key: "mrt",
-      label: "MRT & LRT",
-      note: "lines + stations",
-      value: MRT_DISPLAY_LINE_COUNT,
-      tone: "text-signal-mrt",
-    },
-    {
-      key: "parks",
-      label: "Parks & Trails",
-      note: "parks · connectors · trails",
-      value: parkCount,
-      tone: "text-signal-park",
-    },
-    {
-      key: "incidents",
-      label: "Road Incidents",
-      note: "live events",
-      value: incidents.length,
-      tone: "text-signal-incident",
-    },
-    {
-      key: "carparks",
-      label: "Carparks",
-      note: "live free lots",
-      value: carparks.length,
-      tone: "text-signal-carpark",
-    },
-    {
-      key: "evChargers",
-      label: "EV Charging",
-      note: "live chargers",
-      value: evChargers.length,
-      tone: "text-signal-ev",
-    },
-    {
-      key: "malls",
-      label: "Malls",
-      note: "shopping centres",
-      value: mallCount,
-      tone: "text-signal-mall",
-    },
-    {
-      key: "hawkers",
-      label: "Hawker Centres",
-      note: "food centres",
-      value: hawkerCount,
-      tone: "text-signal-hawker",
-    },
-  ];
+  // Exhaustive by design: a new registry layer without a count here is a
+  // type error, not a silently empty panel.
+  const layerCounts: Record<SensorKey, number> = {
+    flights: flights.length,
+    cameras: cameras.length,
+    busStops: busStops.length,
+    mrt: MRT_DISPLAY_LINE_COUNT,
+    parks: parkCount,
+    incidents: incidents.length,
+    carparks: carparks.length,
+    evChargers: evChargers.length,
+    malls: mallCount,
+    hawkers: hawkerCount,
+  };
+  const sensorRows: SensorRow[] = LAYERS.map((layer) => ({
+    key: layer.key,
+    label: layer.label,
+    note: layer.note,
+    tone: layer.tone,
+    dot: layer.dot,
+    value: layerCounts[layer.key],
+  }));
   const sensorStatsRows: SensorStatsRow[] = [
     {
       label: "Inbound Flights",

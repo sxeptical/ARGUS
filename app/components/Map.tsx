@@ -44,6 +44,7 @@ import { describeHawkerCentre, describeMall } from "@/lib/amenities";
 import { HAWKER_CENTRES, MALLS } from "@/lib/amenities-data";
 import { PARK_LABELS_GEOJSON, PARKS_GEOJSON } from "@/lib/parks-data";
 import { describeParkFeature, PARK_KIND_TITLE } from "@/lib/parks";
+import type { SensorKey } from "@/lib/layers";
 import type {
   AirRegionKey,
   BusStop,
@@ -80,18 +81,8 @@ type MapProps = {
   airQualityOverlay?: AirQualityOverlay | null;
   /** Display names of MRT lines currently flagged as disrupted by LTA. */
   disruptedMrtLines?: ReadonlyArray<string>;
-  sensorVisibility: {
-    busStops: boolean;
-    cameras: boolean;
-    flights: boolean;
-    mrt: boolean;
-    parks: boolean;
-    incidents: boolean;
-    carparks: boolean;
-    evChargers: boolean;
-    malls: boolean;
-    hawkers: boolean;
-  };
+  /** On/off state per map layer; keys are defined in the layer registry. */
+  sensorVisibility: Record<SensorKey, boolean>;
   searchTarget?: MapSearchTarget | null;
   onStopClick: (stop: BusStop) => void;
   onCameraClick: (camera: TrafficCamera) => void;
