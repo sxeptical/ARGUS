@@ -1,5 +1,6 @@
 import TerminalPanel from "@/app/components/TerminalPanel";
 import { MiniTrend, summarizeValues } from "@/app/components/trend";
+import { usePersistentState } from "@/app/hooks/use-persistent-state";
 import {
   PM25_BANDS,
   PSI_BANDS,
@@ -9,6 +10,11 @@ import {
   psiTone,
 } from "@/lib/air-quality";
 import { formatSgDateTime, formatSgTime } from "@/lib/formatters";
+import {
+  AIR_SECTION_PINNED_KEY,
+  parseStoredBoolean,
+  prefKey,
+} from "@/lib/ui-preferences";
 import type {
   AirQualityOverlay,
   AirQualityTone,
@@ -19,7 +25,7 @@ import type {
   WeatherData,
   WeatherHistoryPoint,
 } from "@/types";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 
 function formatMetric(value: number | null, unit: string): string {
   return value === null ? "—" : `${value}${unit}`;
@@ -91,8 +97,12 @@ export default function WeatherPanel({
   onAirQualityOverlayChange,
 }: WeatherPanelProps) {
   const [airWindow, setAirWindow] = useState<AirWindow>("1h");
+  const [airPinned, setAirPinned] = usePersistentState(
+    AIR_SECTION_PINNED_KEY,
+    false,
+    parseStoredBoolean,
+  );
   const [airExpanded, setAirExpanded] = useState(false);
-  const [airPinned, setAirPinned] = useState(false);
 
   const isDaily = airWindow === "24h";
   const airTone = isDaily
@@ -202,21 +212,31 @@ function ExpandableRow({
   label: string;
   value: string;
   valueClass?: string;
+  /** Reports expansion changes, including hydrated-from-storage updates. */
   onExpandedChange?: (expanded: boolean) => void;
   children: ReactNode;
 }) {
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = usePersistentState(
+    prefKey("weather-section", label),
+    false,
+    parseStoredBoolean,
+  );
+  const onExpandedChangeRef = useRef(onExpandedChange);
+
+  useEffect(() => {
+    onExpandedChangeRef.current = onExpandedChange;
+  });
+
+  useEffect(() => {
+    onExpandedChangeRef.current?.(expanded);
+  }, [expanded]);
 
   return (
     <div className="overflow-hidden border border-line">
       <button
         type="button"
         className="flex w-full items-center justify-between gap-3 px-2.5 py-2 text-left transition-colors duration-150 hover:bg-surface-hover"
-        onClick={() => {
-          const next = !expanded;
-          setExpanded(next);
-          onExpandedChange?.(next);
-        }}
+        onClick={() => setExpanded((prev) => !prev)}
         aria-expanded={expanded}
       >
         <span className="text-muted">{label}</span>

@@ -184,13 +184,16 @@ const TrainAlertMessageSchema = Schema.Struct({
 
 /**
  * One affected segment of a disrupted line. `Line` is an LTA code
- * (e.g. "EWL", "CCL"); `Stations` are station codes (e.g. "EW23").
+ * (e.g. "EWL", "CCL"); `Stations` are station codes, documented by LTA as a
+ * comma-separated string (e.g. "NE9,NE8") and also accepted as an array.
  * `Direction` and `Stations` have been observed absent on some alerts.
  */
 const TrainAlertSegmentSchema = Schema.Struct({
   Line: Schema.optional(Schema.NullOr(Schema.String)),
   Direction: Schema.optional(Schema.NullOr(Schema.String)),
-  Stations: Schema.optional(Schema.NullOr(Schema.Array(Schema.String))),
+  Stations: Schema.optional(
+    Schema.NullOr(Schema.Union(Schema.String, Schema.Array(Schema.String))),
+  ),
 });
 
 export const LtaTrainServiceAlertSchema = Schema.Struct({

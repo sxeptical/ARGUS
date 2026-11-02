@@ -7,6 +7,7 @@ import {
   GEO_FILTER_MAX_RADIUS_M,
   GEO_FILTER_MIN_RADIUS_M,
 } from "@/lib/geo-filter";
+import { isRouteableMrtStation } from "@/lib/mrt-routing";
 
 export const SENSOR_VISIBILITY_KEY = "argus.prefs.sensors.v1";
 export const GEO_FILTER_CENTER_KEY = "argus.prefs.geo-filter.center.v1";
@@ -59,4 +60,36 @@ export function parseGeoFilterRadius(stored: unknown): number | undefined {
     GEO_FILTER_MAX_RADIUS_M,
     Math.max(GEO_FILTER_MIN_RADIUS_M, stored),
   );
+}
+
+// ---------- MRT route planner ----------
+
+export const MRT_START_KEY = "argus.prefs.mrt.start.v1";
+export const MRT_END_KEY = "argus.prefs.mrt.end.v1";
+
+/** Accept only stations the router knows, so a stale name cannot strand a plan. */
+export function parseMrtStation(stored: unknown): string | undefined {
+  if (typeof stored !== "string" || stored.length === 0) return undefined;
+  return isRouteableMrtStation(stored) ? stored : undefined;
+}
+
+// ---------- Boolean flags and derived keys ----------
+
+export const AIR_SECTION_PINNED_KEY = "argus.prefs.air.section.pinned.v1";
+
+export function parseStoredBoolean(stored: unknown): boolean | undefined {
+  return typeof stored === "boolean" ? stored : undefined;
+}
+
+/**
+ * Namespaced key for a pref derived from text, so every storage key stays
+ * discoverable in this file. `prefKey("panel-expanded", "NEWS")` becomes
+ * `argus.prefs.panel-expanded.v1:news`.
+ */
+export function prefKey(namespace: string, slug: string): string {
+  const normalized = slug
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return `argus.prefs.${namespace}.v1:${normalized}`;
 }
