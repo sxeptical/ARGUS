@@ -4,7 +4,10 @@ import { Effect } from "effect";
 import { Schema } from "effect";
 import { CacheLive } from "@/lib/cache";
 import { ExternalApiError } from "@/lib/errors";
-import { LtaTrafficIncidentsResponseSchema } from "@/types/schemas";
+import {
+  LtaTrafficIncidentsResponseSchema,
+  LtaTrainServiceAlertsResponseSchema,
+} from "@/types/schemas";
 import {
   collectLtaPages,
   getCarparkAvailability,
@@ -402,5 +405,48 @@ describe("normalizeTrainServiceAlerts", () => {
       value: [{ Message: [{ Content: "Train service is running normally." }] }],
     });
     expect(noStatus[0].status).toBe("normal");
+  });
+
+  test("decodes the comma-separated Stations string from LTA's documented sample", () => {
+    // API User Guide v6.11, Annex C, Sample Scenario #1.
+    const payload = Schema.decodeUnknownSync(LtaTrainServiceAlertsResponseSchema)({
+      value: {
+        Status: 2,
+        AffectedSegments: [
+          {
+            Line: "NEL",
+            Direction: "HarbourFront",
+            Stations: "NE9,NE8,NE7,NE6",
+            FreePublicBus: "",
+            FreeMRTShuttle: "",
+            MRTShuttleDirection: "",
+          },
+        ],
+        Message: [],
+      },
+    });
+
+    const alerts = normalizeTrainServiceAlerts(payload);
+    expect(alerts[0].status).toBe("disrupted");
+    expect(alerts[0].affectedLines).toEqual(["North East Line"]);
+    expect(alerts[0].affectedStations).toEqual(["NE9", "NE8", "NE7", "NE6"]);
+  });
+
+  test("cleans station codes and dedupes them across string and array segments", () => {
+    const alerts = normalizeTrainServiceAlerts({
+      value: [
+        {
+          Status: 2,
+          AffectedSegments: [
+            { Line: "EWL", Stations: " EW21, EW22 ,,EW23 " },
+            { Line: "CCL", Stations: ["EW21", " CC22 ", ""] },
+            { Line: "NSL", Stations: "" },
+            { Line: "DTL", Stations: null },
+          ],
+        },
+      ],
+    });
+
+    expect(alerts[0].affectedStations).toEqual(["EW21", "EW22", "EW23", "CC22"]);
   });
 });

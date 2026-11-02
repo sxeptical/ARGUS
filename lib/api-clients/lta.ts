@@ -289,6 +289,14 @@ const normalizeAlertMessage = (alert: LtaTrainServiceAlert): string => {
 const normalizeLineCode = (code: string): string =>
   LTA_LINE_CODE_TO_DISPLAY_NAME[code] ?? code;
 
+/** LTA documents `Stations` as "NE9,NE8"; arrays are accepted as well. */
+const parseStationCodes = (
+  stations: string | readonly string[] | null | undefined,
+): string[] =>
+  (typeof stations === "string" ? stations.split(",") : (stations ?? []))
+    .map((code) => code.trim())
+    .filter(Boolean);
+
 /** Normalize either TrainServiceAlerts wrapper shape. */
 export const normalizeTrainServiceAlerts = (
   payload: LtaTrainServiceAlertsResponse,
@@ -312,9 +320,7 @@ export const normalizeTrainServiceAlerts = (
     ].sort((a, b) => a.localeCompare(b, "en-SG"));
     const stations = [
       ...new Set(
-        segments.flatMap((segment) =>
-          (segment.Stations ?? []).filter((code) => code.trim() !== ""),
-        ),
+        segments.flatMap((segment) => parseStationCodes(segment.Stations)),
       ),
     ];
 
