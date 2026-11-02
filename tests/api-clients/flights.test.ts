@@ -3,7 +3,7 @@ import { FetchHttpClient } from "@effect/platform";
 import { Effect } from "effect";
 import { Cache, CacheLive } from "@/lib/cache";
 import { SchemaParseError } from "@/lib/errors";
-import { getFlights } from "./flights";
+import { getFlights } from "@/lib/api-clients/flights";
 import type { FlightState } from "@/types";
 
 type FetchImpl = (input: string | URL | Request) => Promise<Response>;
@@ -217,9 +217,9 @@ describe("getFlights fallback chain", () => {
     expect(exit._tag).toBe("Success");
     if (exit._tag !== "Success") return;
     expect(exit.value.first).toHaveLength(1);
-    // An outage returns the snapshot, not an empty array...
+    // An outage returns the last-good snapshot.
     expect(exit.value.second).toEqual(exit.value.first);
-    // ...and the snapshot survives further outages (peek never writes).
+    // Further outages leave the snapshot intact.
     expect(exit.value.third).toEqual(exit.value.first);
   });
 

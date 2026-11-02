@@ -1,14 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import { FetchHttpClient } from "@effect/platform";
 import { Effect } from "effect";
-import { getAqiStatus, pm25ToAqi } from "@/lib/aqi";
+import { getPm25Band, getPsiStatus } from "@/lib/air-quality";
 import { CacheLive } from "@/lib/cache";
 import { ExternalApiError } from "@/lib/errors";
 import {
   extractLatestUv,
   getUvStatus,
   getWeather,
-} from "./weather";
+} from "@/lib/api-clients/weather";
 
 const runWithFetch = (
   fetchImpl: (input: string | URL | Request) => Promise<Response>,
@@ -25,52 +25,25 @@ const runWithFetch = (
   );
 
 describe("getWeather", () => {
-  test("converts PM2.5 to US EPA AQI", () => {
-    expect(pm25ToAqi(null)).toBeNull();
-    expect(pm25ToAqi(9)).toBe(50);
-    expect(pm25ToAqi(35.4)).toBe(100);
-    expect(pm25ToAqi(55.4)).toBe(150);
-    expect(pm25ToAqi(125.4)).toBe(200);
-    expect(pm25ToAqi(225.4)).toBe(300);
-    expect(pm25ToAqi(1000)).toBe(500);
+  test("classifies NEA PSI descriptors", () => {
+    expect(getPsiStatus(null)).toBe("Unknown");
+    expect(getPsiStatus(50)).toBe("Good");
+    expect(getPsiStatus(100)).toBe("Moderate");
+    expect(getPsiStatus(200)).toBe("Unhealthy");
+    expect(getPsiStatus(300)).toBe("Very Unhealthy");
+    expect(getPsiStatus(301)).toBe("Hazardous");
   });
 
-  test("classifies US AQI bands", () => {
-    expect(getAqiStatus(null)).toBe("Unknown");
-    expect(getAqiStatus(50)).toBe("Good");
-    expect(getAqiStatus(100)).toBe("Moderate");
-    expect(getAqiStatus(150)).toBe("Unhealthy for Sensitive Groups");
-    expect(getAqiStatus(200)).toBe("Unhealthy");
-    expect(getAqiStatus(300)).toBe("Very Unhealthy");
-    expect(getAqiStatus(301)).toBe("Hazardous");
+  test("classifies NEA 1-hr PM2.5 bands", () => {
+    expect(getPm25Band(null)).toBe("Unknown");
+    expect(getPm25Band(55)).toBe("Normal");
+    expect(getPm25Band(56)).toBe("Elevated");
+    expect(getPm25Band(150)).toBe("Elevated");
+    expect(getPm25Band(250)).toBe("High");
+    expect(getPm25Band(251)).toBe("Very High");
   });
 
-  test("leaves regions without PM2.5 empty instead of mixing in PSI", async () => {
-    const exit = await runWithFetch(async (input) => {
-      const url = String(input);
-      if (url.includes("/psi")) {
-        return Response.json({
-          items: [
-            {
-              readings: {
-                psi_twenty_four_hourly: { north: 300, south: 300 },
-                pm25_twenty_four_hourly: { south: 9 },
-              },
-            },
-          ],
-        });
-      }
-      return new Response("unavailable", { status: 503 });
-    });
-
-    expect(exit._tag).toBe("Success");
-    if (exit._tag !== "Success") return;
-    expect(exit.value.aqiRegions.north).toBeNull();
-    expect(exit.value.aqiRegions.south).toBe(50);
-    expect(exit.value.aqi).toBe(50);
-  });
-
-  test("derives regional US AQI for 24-hr and 1-hr windows using the worst region", async () => {
+  test("reports NEA 24-hr PSI and 1-hr PM2.5 by region, headlining the worst", async () => {
     const exit = await runWithFetch(async (input) => {
       const url = String(input);
       if (url.includes("/psi")) {
@@ -79,13 +52,15 @@ describe("getWeather", () => {
             {
               timestamp: "2026-01-01T00:00:00+08:00",
               readings: {
-                pm25_twenty_four_hourly: {
-                  north: 9,
-                  south: 9,
-                  east: 9,
-                  west: 35.4,
-                  central: 9,
+                psi_twenty_four_hourly: {
+                  north: 107,
+                  south: 131,
+                  east: 145,
+                  west: 146,
+                  central: 144,
                 },
+                // Must be ignored: PSI comes from NEA's own index, not PM2.5.
+                pm25_twenty_four_hourly: { north: 500 },
               },
             },
           ],
@@ -99,11 +74,10 @@ describe("getWeather", () => {
                 timestamp: "2026-01-01T00:00:00+08:00",
                 readings: {
                   pm25_one_hourly: {
-                    north: 9,
-                    south: 35.4,
-                    east: 55.4,
-                    west: 125.4,
-                    central: 35.4,
+                    north: 88,
+                    south: 173,
+                    east: 160,
+                    west: 195,
                   },
                 },
               },
@@ -116,23 +90,23 @@ describe("getWeather", () => {
 
     expect(exit._tag).toBe("Success");
     if (exit._tag !== "Success") return;
-    expect(exit.value.aqi).toBe(100);
-    expect(exit.value.aqiStatus).toBe("Moderate");
-    expect(exit.value.aqiRegions).toEqual({
-      north: 50,
-      south: 50,
-      east: 50,
-      west: 100,
-      central: 50,
+    expect(exit.value.psi).toBe(146);
+    expect(exit.value.psiStatus).toBe("Unhealthy");
+    expect(exit.value.psiRegions).toEqual({
+      north: 107,
+      south: 131,
+      east: 145,
+      west: 146,
+      central: 144,
     });
-    expect(exit.value.aqiOneHour).toBe(200);
-    expect(exit.value.aqiOneHourStatus).toBe("Unhealthy");
-    expect(exit.value.aqiOneHourRegions).toEqual({
-      north: 50,
-      south: 100,
-      east: 150,
-      west: 200,
-      central: 100,
+    expect(exit.value.pm25OneHour).toBe(195);
+    expect(exit.value.pm25OneHourBand).toBe("High");
+    expect(exit.value.pm25OneHourRegions).toEqual({
+      north: 88,
+      south: 173,
+      east: 160,
+      west: 195,
+      central: null,
     });
   });
 
@@ -188,10 +162,10 @@ describe("getWeather", () => {
     expect(exit.value.forecast).toBe("Island-wide: Cloudy");
     expect(exit.value.temperature).toBeNull();
     expect(exit.value.humidity).toBeNull();
-    expect(exit.value.aqi).toBeNull();
-    expect(exit.value.aqiStatus).toBe("Unknown");
-    expect(exit.value.aqiOneHour).toBeNull();
-    expect(exit.value.aqiOneHourStatus).toBe("Unknown");
+    expect(exit.value.psi).toBeNull();
+    expect(exit.value.psiStatus).toBe("Unknown");
+    expect(exit.value.pm25OneHour).toBeNull();
+    expect(exit.value.pm25OneHourBand).toBe("Unknown");
     expect(exit.value.uv).toBeNull();
     expect(exit.value.fourDay).toEqual([]);
   });

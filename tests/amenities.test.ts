@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { HAWKER_CENTRES, MALLS, validateAmenitiesBundle } from "@/lib/amenities-data";
 import type { HawkerCentre, Mall, PlacePhoto } from "@/types";
-import { buildHawkerSearchResults, buildMallSearchResults, describeHawkerCentre, describeMall, formatOpeningHours } from "./amenities";
+import { buildHawkerSearchResults, buildMallSearchResults, describeHawkerCentre, describeMall, formatOpeningHours } from "@/lib/amenities";
 
 const commonsPhoto = (overrides: Partial<PlacePhoto> = {}): PlacePhoto => ({
   thumb: "https://thumb.wikimedia.org/a.jpg",

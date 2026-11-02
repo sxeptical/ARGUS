@@ -1,18 +1,6 @@
 /**
- * Smoke test for the `Cache` and `RateLimit` Effect services.
- *
- * Run with: `bun --experimental-strip-types scripts/smoke-services.ts`
- *
- * Confirms that the post-change services produce the same observable
- * behavior as the pre-change `cachedFetch` / `checkGlobalRateLimit`:
- *  - Cache miss triggers the producer, hit returns the cached value.
- *  - Concurrent calls for the same key share one producer run.
- *  - Rate limit allows up to `maxRequests` per window, then blocks.
- *  - The rate limit window rolls over after `windowMs`.
- *
- * NOTE: Cache failure-retry and TTL-expiry regression tests live in
- * `lib/cache.test.ts` (run with `bun test`). This smoke script focuses
- * on quick sanity checks for the happy paths.
+ * Smoke tests cache and rate-limit happy paths.
+ * Run: `bun --experimental-strip-types scripts/smoke-services.ts`
  */
 import { Console, Effect, Layer } from "effect";
 import { Cache, CacheLive } from "../lib/cache.ts";
@@ -51,7 +39,6 @@ const program = Effect.gen(function* () {
   yield* Console.log("  ok: set + get round-trips");
 
   yield* Console.log("Cache: concurrent calls share one producer run");
-  // Use a fresh key so we are not hitting the cached value from above.
   let concurrentCalls = 0;
   const slowProducer = Effect.gen(function* () {
     concurrentCalls += 1;

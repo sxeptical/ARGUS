@@ -9,9 +9,7 @@ export function LoadingScreen({
   sources: ReadonlyArray<SourceState>;
 }) {
   const [bootTime] = useState(() => new Date());
-  // Latch after 8s so partial-failure help text shows even when the rest
-  // of the screen content is otherwise static. Single timeout, no interval,
-  // so we only re-render once.
+  // Reveal partial-failure help after 8s with a single re-render.
   const [helpReady, setHelpReady] = useState(false);
   useEffect(() => {
     const timer = setTimeout(() => setHelpReady(true), 8000);

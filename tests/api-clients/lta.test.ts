@@ -4,7 +4,10 @@ import { Effect } from "effect";
 import { Schema } from "effect";
 import { CacheLive } from "@/lib/cache";
 import { ExternalApiError } from "@/lib/errors";
-import { LtaTrafficIncidentsResponseSchema } from "@/types/schemas";
+import {
+  LtaTrafficIncidentsResponseSchema,
+  LtaTrainServiceAlertsResponseSchema,
+} from "@/types/schemas";
 import {
   collectLtaPages,
   getCarparkAvailability,
@@ -14,7 +17,8 @@ import {
   normalizeCarparkAvailability,
   normalizeEvChargingLocations,
   normalizeTrafficIncidents,
-} from "./lta";
+  normalizeTrainServiceAlerts,
+} from "@/lib/api-clients/lta";
 
 const rows = (count: number) =>
   Array.from({ length: count }, (_, i) => ({ id: i }));
@@ -339,5 +343,110 @@ describe("getEvChargingLocations", () => {
     });
     expect(exit._tag).toBe("Failure");
     expect(calls).toBe(1);
+  });
+});
+
+describe("normalizeTrainServiceAlerts", () => {
+  test("maps line codes to display names, dedupes lines, and marks disruptions", () => {
+    const alerts = normalizeTrainServiceAlerts({
+      value: [
+        {
+          Status: 2,
+          StatusDescription: "Disrupted",
+          Message: [{ Content: "No train service between Buona Vista" }],
+          AffectedSegments: [
+            { Line: "EWL", Direction: "Both", Stations: ["EW21", "EW22"] },
+            { Line: "NEL", Stations: ["NE1"] },
+            { Line: "NEL", Stations: ["NE7"] },
+            { Line: "PEL", Stations: ["PE1"] },
+            { Line: "XYZ", Stations: ["XY1"] },
+          ],
+          Start_time: "2026-09-09T08:15:00",
+          End_time: null,
+        },
+      ],
+    });
+
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0].status).toBe("disrupted");
+    expect(alerts[0].affectedLines).toEqual([
+      "East West Line",
+      "North East Line",
+      "Punggol LRT East Loop",
+      "XYZ",
+    ]);
+    expect(alerts[0].affectedStations).toEqual([
+      "EW21",
+      "EW22",
+      "NE1",
+      "NE7",
+      "PE1",
+      "XY1",
+    ]);
+    expect(alerts[0].startTime).toBe("2026-09-09T08:15:00");
+    expect(alerts[0].endTime).toBe(null);
+  });
+
+  test("tolerates the all-clear wrapper, string statuses, and a missing Status", () => {
+    const allClear = normalizeTrainServiceAlerts({
+      value: { Status: 1, Message: [{ Content: "Normal service" }] },
+    });
+    expect(allClear[0].status).toBe("normal");
+    expect(allClear[0].affectedLines).toEqual([]);
+    expect(allClear[0].message).toBe("Normal service");
+
+    const stringStatus = normalizeTrainServiceAlerts({
+      value: [{ Status: "2", AffectedSegments: [{ Line: "CCL" }] }],
+    });
+    expect(stringStatus[0].status).toBe("disrupted");
+    expect(stringStatus[0].affectedLines).toEqual(["Circle Line"]);
+
+    const noStatus = normalizeTrainServiceAlerts({
+      value: [{ Message: [{ Content: "Train service is running normally." }] }],
+    });
+    expect(noStatus[0].status).toBe("normal");
+  });
+
+  test("decodes the comma-separated Stations string from LTA's documented sample", () => {
+    // API User Guide v6.11, Annex C, Sample Scenario #1.
+    const payload = Schema.decodeUnknownSync(LtaTrainServiceAlertsResponseSchema)({
+      value: {
+        Status: 2,
+        AffectedSegments: [
+          {
+            Line: "NEL",
+            Direction: "HarbourFront",
+            Stations: "NE9,NE8,NE7,NE6",
+            FreePublicBus: "",
+            FreeMRTShuttle: "",
+            MRTShuttleDirection: "",
+          },
+        ],
+        Message: [],
+      },
+    });
+
+    const alerts = normalizeTrainServiceAlerts(payload);
+    expect(alerts[0].status).toBe("disrupted");
+    expect(alerts[0].affectedLines).toEqual(["North East Line"]);
+    expect(alerts[0].affectedStations).toEqual(["NE9", "NE8", "NE7", "NE6"]);
+  });
+
+  test("cleans station codes and dedupes them across string and array segments", () => {
+    const alerts = normalizeTrainServiceAlerts({
+      value: [
+        {
+          Status: 2,
+          AffectedSegments: [
+            { Line: "EWL", Stations: " EW21, EW22 ,,EW23 " },
+            { Line: "CCL", Stations: ["EW21", " CC22 ", ""] },
+            { Line: "NSL", Stations: "" },
+            { Line: "DTL", Stations: null },
+          ],
+        },
+      ],
+    });
+
+    expect(alerts[0].affectedStations).toEqual(["EW21", "EW22", "EW23", "CC22"]);
   });
 });

@@ -1,11 +1,6 @@
 /**
- * Typed client-side fetch for the internal JSON API.
- *
- * Every route returns `{ error }` on failure; this unwraps that envelope
- * into a thrown Error so SWR (and other callers) see one consistent shape.
- *
- * A client-side timeout guards the boot screen: without it a hung API route
- * (e.g. the multi-page LTA walk) leaves `bootComplete` false forever.
+ * Fetches internal JSON APIs, converting error envelopes to thrown errors.
+ * The timeout prevents hung routes from blocking dashboard startup.
  */
 
 const DEFAULT_CLIENT_TIMEOUT_MS = 15_000;
