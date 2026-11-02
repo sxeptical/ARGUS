@@ -6,7 +6,10 @@ import {
 import {
   parseGeoFilterCenter,
   parseGeoFilterRadius,
+  parseMrtStation,
   parseSensorVisibility,
+  parseStoredBoolean,
+  prefKey,
 } from "@/lib/ui-preferences";
 
 describe("ui preference parsing", () => {
@@ -44,5 +47,32 @@ describe("ui preference parsing", () => {
     expect(parseGeoFilterRadius(1e9)).toBe(GEO_FILTER_MAX_RADIUS_M);
     expect(parseGeoFilterRadius(Number.NaN)).toBeUndefined();
     expect(parseGeoFilterRadius("1000")).toBeUndefined();
+  });
+
+  test("accepts only stations the router knows", () => {
+    expect(parseMrtStation("Raffles Place")).toBe("Raffles Place");
+    expect(parseMrtStation("")).toBeUndefined();
+    expect(parseMrtStation(null)).toBeUndefined();
+    expect(parseMrtStation(42)).toBeUndefined();
+  });
+
+  test("accepts real booleans only", () => {
+    expect(parseStoredBoolean(true)).toBe(true);
+    expect(parseStoredBoolean(false)).toBe(false);
+    expect(parseStoredBoolean("true")).toBeUndefined();
+    expect(parseStoredBoolean(0)).toBeUndefined();
+    expect(parseStoredBoolean(null)).toBeUndefined();
+  });
+
+  test("derives stable slugged keys from text", () => {
+    expect(prefKey("panel-expanded", "MRT ROUTER")).toBe(
+      "argus.prefs.panel-expanded.v1:mrt-router",
+    );
+    expect(prefKey("weather-section", "4-Day Outlook")).toBe(
+      "argus.prefs.weather-section.v1:4-day-outlook",
+    );
+    expect(prefKey("panel-expanded", "Radius Filter")).toBe(
+      prefKey("panel-expanded", " radius  filter "),
+    );
   });
 });
