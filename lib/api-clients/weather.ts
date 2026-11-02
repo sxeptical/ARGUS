@@ -1,13 +1,7 @@
 /**
- * Data.gov.sg weather client: 2-hour forecast, 24-hr PM2.5 (from the PSI
- * feed), air temperature, relative humidity, UV, 1-hr PM2.5, and four-day
- * outlook, aggregated into a single `WeatherData`. Air quality is reported
- * as US EPA AQI derived from PM2.5.
- *
- * The seven endpoints are independent: when some fail, the rest still produce
- * a usable (partially nulled) reading. The whole source fails only when
- * every endpoint fails, so a single flaky sub-feed no longer blanks the
- * weather panel.
+ * Aggregates Data.gov.sg weather feeds, including NEA's 24-hr PSI and 1-hr
+ * PM2.5 readings.
+ * Endpoints fail independently; the source fails only when all feeds fail.
  */
 import { HttpClient } from "@effect/platform";
 import { Effect, Either, Schema } from "effect";
@@ -22,8 +16,8 @@ import {
   DataGovTemperatureResponseSchema,
   DataGovUvResponseSchema,
 } from "@/types/schemas";
-import type { AqiRegionKey, RegionalAqiReadings, WeatherData } from "@/types";
-import { getAqiStatus, pm25ToAqi } from "@/lib/aqi";
+import type { AirRegionKey, RegionalAirReadings, WeatherData } from "@/types";
+import { getPm25Band, getPsiStatus } from "@/lib/air-quality";
 import { DEFAULT_TIMEOUT_MS, httpGetJson } from "./http";
 
 const DATA_GOV_BASE_URL = "https://api.data.gov.sg/v1/environment";
@@ -32,22 +26,11 @@ const DATA_GOV_V2_BASE_URL = "https://api-open.data.gov.sg/v2/real-time/api";
 const dataGovGet = <A, I>(
   endpoint: string,
   schema: Schema.Schema<A, I, never>,
+  baseUrl: string = DATA_GOV_BASE_URL,
 ): Effect.Effect<A, UpstreamError, HttpClient.HttpClient> =>
   httpGetJson(
     "data.gov.sg",
-    `${DATA_GOV_BASE_URL}${endpoint}`,
-    { Accept: "application/json" },
-    schema,
-    DEFAULT_TIMEOUT_MS,
-  );
-
-const dataGovV2Get = <A, I>(
-  endpoint: string,
-  schema: Schema.Schema<A, I, never>,
-): Effect.Effect<A, UpstreamError, HttpClient.HttpClient> =>
-  httpGetJson(
-    "data.gov.sg",
-    `${DATA_GOV_V2_BASE_URL}${endpoint}`,
+    `${baseUrl}${endpoint}`,
     { Accept: "application/json" },
     schema,
     DEFAULT_TIMEOUT_MS,
@@ -100,7 +83,7 @@ type RegionalReading = Partial<
   Record<"national" | "north" | "east" | "west" | "central" | "south", number>
 >;
 
-const AQI_REGION_KEYS: ReadonlyArray<AqiRegionKey> = [
+const AIR_REGION_KEYS: ReadonlyArray<AirRegionKey> = [
   "north",
   "south",
   "east",
@@ -108,29 +91,30 @@ const AQI_REGION_KEYS: ReadonlyArray<AqiRegionKey> = [
   "central",
 ];
 
-// Regions without a PM2.5 reading stay null rather than falling back to PSI,
-// so every value in the result is on the US AQI scale.
-const buildRegionalAqi = (
-  pm25Readings: RegionalReading | undefined,
-): RegionalAqiReadings => {
-  const result = {} as RegionalAqiReadings;
-  for (const key of AQI_REGION_KEYS) {
-    result[key] = pm25ToAqi(pm25Readings?.[key] ?? null);
+const finiteOrNull = (value: number | undefined): number | null =>
+  typeof value === "number" && Number.isFinite(value) ? value : null;
+
+const buildRegional = (
+  readings: RegionalReading | undefined,
+): RegionalAirReadings => {
+  const result = {} as RegionalAirReadings;
+  for (const key of AIR_REGION_KEYS) {
+    result[key] = finiteOrNull(readings?.[key]);
   }
   return result;
 };
 
-// The headline is the worst region (as US AQI apps report), falling back to a
-// national PM2.5 reading when no regional values exist.
+// NEA reports these readings per region; the headline is the worst region,
+// falling back to a national reading when no regional values exist.
 const worstRegionalOrNational = (
-  regions: RegionalAqiReadings,
-  pm25Readings: RegionalReading | undefined,
+  regions: RegionalAirReadings,
+  readings: RegionalReading | undefined,
 ): number | null => {
-  const finite = AQI_REGION_KEYS.map((key) => regions[key]).filter(
+  const finite = AIR_REGION_KEYS.map((key) => regions[key]).filter(
     (value): value is number => value !== null,
   );
   if (finite.length > 0) return Math.max(...finite);
-  return pm25ToAqi(pm25Readings?.national ?? null);
+  return finiteOrNull(readings?.national);
 };
 
 const latestIsoTimestamp = (values: Array<string | undefined>): string => {
@@ -178,12 +162,17 @@ export const getWeather = (): Effect.Effect<
                 DataGovHumidityResponseSchema,
               ),
             ),
-            Effect.either(dataGovV2Get("/uv", DataGovUvResponseSchema)),
-            Effect.either(dataGovV2Get("/pm25", DataGovPm25ResponseSchema)),
             Effect.either(
-              dataGovV2Get(
+              dataGovGet("/uv", DataGovUvResponseSchema, DATA_GOV_V2_BASE_URL),
+            ),
+            Effect.either(
+              dataGovGet("/pm25", DataGovPm25ResponseSchema, DATA_GOV_V2_BASE_URL),
+            ),
+            Effect.either(
+              dataGovGet(
                 "/four-day-outlook",
                 DataGovFourDayResponseSchema,
+                DATA_GOV_V2_BASE_URL,
               ),
             ),
           ] as const,
@@ -209,10 +198,7 @@ export const getWeather = (): Effect.Effect<
         const pm25Response = right(pm25R);
         const fourDayResponse = right(fourDayR);
 
-        // Use a majority-aggregate across all areas instead of picking a
-        // single area (which could be "Ang Mo Kio") and labelling it as
-        // "Singapore". The data.gov.sg 2-hour forecast has no national
-        // field, so we find the most common forecast text.
+        // The forecast has no national field, so use the most common area value.
         const forecasts = forecast?.items?.[0]?.forecasts ?? [];
         let forecastText: string;
         if (forecasts.length === 0) {
@@ -233,19 +219,19 @@ export const getWeather = (): Effect.Effect<
           forecastText = `Island-wide: ${majority}`;
         }
 
-        const pm25TwentyFourHourly =
-          psi?.items?.[0]?.readings?.pm25_twenty_four_hourly;
+        const psiTwentyFourHourly =
+          psi?.items?.[0]?.readings?.psi_twenty_four_hourly;
         const pm25OneHourly =
           pm25Response?.data.items[0]?.readings.pm25_one_hourly;
 
-        const aqiRegions = buildRegionalAqi(pm25TwentyFourHourly);
-        const aqiOneHourRegions = buildRegionalAqi(pm25OneHourly);
-        const aqiValue = worstRegionalOrNational(
-          aqiRegions,
-          pm25TwentyFourHourly,
+        const psiRegions = buildRegional(psiTwentyFourHourly);
+        const pm25OneHourRegions = buildRegional(pm25OneHourly);
+        const psiValue = worstRegionalOrNational(
+          psiRegions,
+          psiTwentyFourHourly,
         );
-        const aqiOneHourValue = worstRegionalOrNational(
-          aqiOneHourRegions,
+        const pm25OneHourValue = worstRegionalOrNational(
+          pm25OneHourRegions,
           pm25OneHourly,
         );
         const uvValue = uvResponse ? extractLatestUv(uvResponse) : null;
@@ -271,12 +257,12 @@ export const getWeather = (): Effect.Effect<
         return {
           temperature: average(temperatureReadings),
           humidity: average(humidityReadings),
-          aqi: aqiValue,
-          aqiStatus: getAqiStatus(aqiValue),
-          aqiOneHour: aqiOneHourValue,
-          aqiOneHourStatus: getAqiStatus(aqiOneHourValue),
-          aqiRegions,
-          aqiOneHourRegions,
+          psi: psiValue,
+          psiStatus: getPsiStatus(psiValue),
+          psiRegions,
+          pm25OneHour: pm25OneHourValue,
+          pm25OneHourBand: getPm25Band(pm25OneHourValue),
+          pm25OneHourRegions,
           uv: uvValue,
           uvStatus: getUvStatus(uvValue),
           fourDay,

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import useSWR from "swr";
 import TerminalPanel from "@/app/components/TerminalPanel";
+import { MiniTrend, summarizeValues } from "@/app/components/trend";
 import {
   IDLE_BUS_ROUTE_STATE,
   type BusRouteUiState,
@@ -21,6 +22,8 @@ type BusPanelProps = {
   onShowRoute?: (serviceNo: string) => void;
   onClearRoute?: () => void;
   onSelectRouteDirection?: (direction: number) => void;
+  /** Set while a radius filter limits `busStops`, e.g. "2.5 km radius". */
+  searchScope?: string;
 };
 
 type BusArrivalHistoryPoint = {
@@ -112,6 +115,7 @@ export default function BusPanel({
   onShowRoute,
   onClearRoute,
   onSelectRouteDirection,
+  searchScope,
 }: BusPanelProps) {
   const [search, setSearch] = useState("");
   const [expandedService, setExpandedService] = useState<{
@@ -144,8 +148,7 @@ export default function BusPanel({
       if (!stopCode || nextArrivals.length === 0) return;
 
       setArrivalHistory((previous) => {
-        // Merge storage at write time so an early SWR callback cannot replace
-        // history before the hydration timer runs.
+        // Preserve history recorded before storage hydration completes.
         const persisted = readPointStore(
           BUS_ARRIVAL_HISTORY_STORAGE_KEY,
           isBusArrivalHistoryPoint,
@@ -223,7 +226,11 @@ export default function BusPanel({
           type="text"
           value={search}
           onChange={(event) => setSearch(event.target.value)}
-          placeholder="Search bus stop code or name"
+          placeholder={
+            searchScope
+              ? `Search stops within ${searchScope}`
+              : "Search bus stop code or name"
+          }
           className="field-control text-xs"
         />
 
@@ -248,7 +255,9 @@ export default function BusPanel({
           </div>
         ) : searchQuery ? (
           <div className="text-[11px] text-muted">
-            No stops match &ldquo;{searchQuery}&rdquo;. Try a stop code, road, or description.
+            {searchScope
+              ? <>No stops within the {searchScope} match &ldquo;{searchQuery}&rdquo;. Widen or clear the radius filter to search further.</>
+              : <>No stops match &ldquo;{searchQuery}&rdquo;. Try a stop code, road, or description.</>}
           </div>
         ) : null}
 
@@ -583,12 +592,7 @@ function ArrivalPatternDetail({
     );
   }
 
-  const latest = values[values.length - 1];
-  const average = Math.round(
-    values.reduce((sum, value) => sum + value, 0) / values.length,
-  );
-  const min = Math.min(...values);
-  const max = Math.max(...values);
+  const { latest, average, min, max } = summarizeValues(values);
 
   return (
     <div className="space-y-1 text-[11px] text-muted">
@@ -598,33 +602,10 @@ function ArrivalPatternDetail({
         <span>Min wait: {min} min</span>
         <span>Max wait: {max} min</span>
       </div>
-      <MiniArrivalTrend values={values} />
+      <MiniTrend values={values} barClass="bg-info" titleUnit=" min" />
       <div className="text-[10px] opacity-75">
         {values.length} local samples. Stored in this browser only.
       </div>
-    </div>
-  );
-}
-
-function MiniArrivalTrend({ values }: { values: number[] }) {
-  const recent = values.slice(-24);
-  const min = Math.min(...recent);
-  const max = Math.max(...recent);
-  const range = max - min;
-
-  return (
-    <div className="flex h-8 items-end gap-0.5 border border-line bg-paper px-1 py-1">
-      {recent.map((value, index) => {
-        const height = range === 0 ? 50 : 18 + ((value - min) / range) * 82;
-        return (
-          <div
-            key={`${index}-${value}`}
-            className="w-full min-w-0 bg-info opacity-80"
-            style={{ height: `${height}%` }}
-            title={`${value} min`}
-          />
-        );
-      })}
     </div>
   );
 }

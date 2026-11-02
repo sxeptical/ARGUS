@@ -6,7 +6,7 @@ import {
   SchemaParseError,
   TimeoutError,
 } from "@/lib/errors";
-import { httpGetJson, toAppHttpError } from "./http";
+import { httpGetJson, toAppHttpError } from "@/lib/api-clients/http";
 
 const TestSchema = Schema.Struct({ ok: Schema.Boolean, count: Schema.Number });
 
@@ -31,18 +31,8 @@ const runWithFetch = (
   );
 
 describe("toAppHttpError", () => {
-  test("passes a TimeoutError through unchanged", () => {
-    const error = new TimeoutError({ service: "test", message: "slow" });
-    expect(toAppHttpError("test", error)).toBe(error);
-  });
-
-  test("converts a TimeoutException into a TimeoutError for the service", () => {
-    const error = toAppHttpError("test", { _tag: "TimeoutException" });
-    expect(error).toBeInstanceOf(TimeoutError);
-    expect(error.service).toBe("test");
-  });
-
-  test("passes SchemaParseError and ExternalApiError through unchanged", () => {
+  test("passes TimeoutError, SchemaParseError, and ExternalApiError through unchanged", () => {
+    const timeout = new TimeoutError({ service: "test", message: "slow" });
     const schemaError = new SchemaParseError({
       service: "test",
       message: "bad",
@@ -52,8 +42,15 @@ describe("toAppHttpError", () => {
       message: "down",
       status: 503,
     });
+    expect(toAppHttpError("test", timeout)).toBe(timeout);
     expect(toAppHttpError("test", schemaError)).toBe(schemaError);
     expect(toAppHttpError("test", apiError)).toBe(apiError);
+  });
+
+  test("converts a TimeoutException into a TimeoutError for the service", () => {
+    const error = toAppHttpError("test", { _tag: "TimeoutException" });
+    expect(error).toBeInstanceOf(TimeoutError);
+    expect(error.service).toBe("test");
   });
 
   test("maps a body decode failure (ResponseError reason Decode) to SchemaParseError", () => {

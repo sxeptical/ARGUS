@@ -1,27 +1,42 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useBusRoute } from "@/app/hooks/use-bus-route";
 import { useDashboardSources } from "@/app/hooks/use-dashboard-sources";
 import { useMrtPlanner } from "@/app/hooks/use-mrt-planner";
+import { usePersistentState } from "@/app/hooks/use-persistent-state";
 import { useWeatherHistory } from "@/app/hooks/use-weather-history";
 import { FLIGHTS_ENABLED } from "@/lib/features";
+import { summarizeFlights } from "@/lib/flights";
+import {
+  featuresTouchingRadius,
+  GEO_FILTER_DEFAULT_RADIUS_M,
+  withinRadius,
+  type GeoFilter,
+} from "@/lib/geo-filter";
 import {
   LAYERS,
   DEFAULT_SENSOR_VISIBILITY,
   SensorKey,
   coerceSensorVisibility,
 } from "@/lib/layers";
-import { readStoredJson, writeStoredJson } from "@/lib/local-history";
 import { MRT_DISPLAY_LINE_COUNT } from "@/lib/mrt-network";
 import { HAWKER_CENTRES, MALLS } from "@/lib/amenities-data";
-import { PARK_COUNT, PARKS_GEOJSON } from "@/lib/parks-data";
+import { PARKS_GEOJSON } from "@/lib/parks-data";
+import {
+  GEO_FILTER_CENTER_KEY,
+  GEO_FILTER_RADIUS_KEY,
+  parseGeoFilterCenter,
+  parseGeoFilterRadius,
+  SENSOR_VISIBILITY_KEY,
+} from "@/lib/ui-preferences";
 import type { ParkFeatureKind } from "@/types";
-import type { FlightState, TrafficCamera } from "@/types";
-
-// v1: persisted layer on/off choices. Versioned like the weather history key
-// so a future schema change can start fresh instead of migrating.
-const SENSOR_VISIBILITY_STORAGE_KEY = "argus.layers.visibility.v1";
+import type {
+  FlightState,
+  HawkerCentre,
+  Mall,
+  TrafficCamera,
+} from "@/types";
 
 export type SensorRow = {
   readonly key: SensorKey;
@@ -35,47 +50,24 @@ export type SensorRow = {
 
 export type SensorStatsRow = Omit<SensorRow, "key" | "dot">;
 
-function summarizeFlights(flights: readonly FlightState[]) {
-  return flights.reduce(
-    (summary, flight) => {
-      summary[flight.direction] += 1;
-      return summary;
-    },
-    { inbound: 0, outbound: 0, transit: 0 },
-  );
-}
+/** Which static amenity the map (or search) picked, by its bundle id. */
+export type AmenitySelectionTarget = { type: "mall" | "hawker"; id: string };
+
+/** A selected amenity resolved to its bundle record. */
+export type SelectedAmenity =
+  | { type: "mall"; mall: Mall }
+  | { type: "hawker"; hawker: HawkerCentre };
 
 export function useDashboardState() {
-  const [sensorVisibility, setSensorVisibility] = useState<
+  // Declared before the sources: carparks and EV chargers only load while
+  // their layer is on.
+  const [sensorVisibility, setSensorVisibility] = usePersistentState<
     Record<SensorKey, boolean>
-  >(() => ({ ...DEFAULT_SENSOR_VISIBILITY }));
-
-  // Layer choices are curated, not ephemeral: a user who turns layers off
-  // shouldn't redo it after every reload, and that matters more as the layer
-  // count grows. Hydration is deferred to a timer callback (the same
-  // pattern as the weather history) rather than a lazy initializer so the
-  // server render and the first client render agree — no hydration
-  // mismatch, and no `setState` directly inside the effect body.
-  const sensorVisibilityHydratedRef = useRef(false);
-  useEffect(() => {
-    const timer = window.setTimeout(() => {
-      sensorVisibilityHydratedRef.current = true;
-      setSensorVisibility(
-        coerceSensorVisibility(
-          readStoredJson(SENSOR_VISIBILITY_STORAGE_KEY),
-        ),
-      );
-    }, 0);
-    return () => window.clearTimeout(timer);
-  }, []);
-
-  // Writes wait for hydration: persisting defaults first would clobber the
-  // stored choices the timer is about to load.
-  useEffect(() => {
-    if (!sensorVisibilityHydratedRef.current) return;
-    writeStoredJson(SENSOR_VISIBILITY_STORAGE_KEY, sensorVisibility);
-  }, [sensorVisibility]);
-
+  >(
+    SENSOR_VISIBILITY_KEY,
+    DEFAULT_SENSOR_VISIBILITY,
+    coerceSensorVisibility,
+  );
   const data = useDashboardSources({
     carparks: sensorVisibility.carparks,
     evChargers: sensorVisibility.evChargers,
@@ -86,6 +78,74 @@ export function useDashboardState() {
   const [selectedCameraId, setSelectedCameraId] = useState<string | null>(null);
   const [selectedFlightId, setSelectedFlightId] = useState<string | null>(null);
   const [selectedParkId, setSelectedParkId] = useState<string | null>(null);
+  const [selectedAmenityId, setSelectedAmenityId] =
+    useState<AmenitySelectionTarget | null>(null);
+  // Keep the radius when clearing and re-picking the filter centre.
+  const [geoFilterCenter, setGeoFilterCenter] = usePersistentState<
+    readonly [number, number] | null
+  >(GEO_FILTER_CENTER_KEY, null, parseGeoFilterCenter);
+  const [geoFilterRadiusM, setGeoFilterRadiusM] = usePersistentState(
+    GEO_FILTER_RADIUS_KEY,
+    GEO_FILTER_DEFAULT_RADIUS_M,
+    parseGeoFilterRadius,
+  );
+  const [geoFilterPicking, setGeoFilterPicking] = useState(false);
+  const geoFilter = useMemo<GeoFilter | null>(
+    () =>
+      geoFilterCenter
+        ? { center: geoFilterCenter, radiusM: geoFilterRadiusM }
+        : null,
+    [geoFilterCenter, geoFilterRadiusM],
+  );
+  const pickGeoFilterCenter = useCallback((center: [number, number]) => {
+    setGeoFilterCenter(center);
+    setGeoFilterPicking(false);
+  }, [setGeoFilterCenter]);
+  const clearGeoFilter = useCallback(() => {
+    setGeoFilterCenter(null);
+    setGeoFilterPicking(false);
+  }, [setGeoFilterCenter]);
+
+  // Display filtered feeds, but keep unfiltered data for search and selection.
+  const busStops = useMemo(
+    () => withinRadius(data.busStops, geoFilter, (s) => [s.Longitude, s.Latitude]),
+    [data.busStops, geoFilter],
+  );
+  const cameras = useMemo(
+    () => withinRadius(data.cameras, geoFilter, (c) => [c.Longitude, c.Latitude]),
+    [data.cameras, geoFilter],
+  );
+  const flights = useMemo(
+    () => withinRadius(data.flights, geoFilter, (f) => [f.longitude, f.latitude]),
+    [data.flights, geoFilter],
+  );
+  const incidents = useMemo(
+    () => withinRadius(data.incidents, geoFilter, (i) => [i.lng, i.lat]),
+    [data.incidents, geoFilter],
+  );
+  const parkCount = useMemo(
+    () =>
+      featuresTouchingRadius(PARKS_GEOJSON.features, geoFilter).filter(
+        (feature) => feature.properties.kind === "park",
+      ).length,
+    [geoFilter],
+  );
+  const carparks = useMemo(
+    () => withinRadius(data.carparks, geoFilter, (c) => [c.lng, c.lat]),
+    [data.carparks, geoFilter],
+  );
+  const evChargers = useMemo(
+    () => withinRadius(data.evChargers, geoFilter, (e) => [e.lng, e.lat]),
+    [data.evChargers, geoFilter],
+  );
+  const mallCount = useMemo(
+    () => withinRadius(MALLS, geoFilter, (m) => [m.lng, m.lat]).length,
+    [geoFilter],
+  );
+  const hawkerCount = useMemo(
+    () => withinRadius(HAWKER_CENTRES, geoFilter, (h) => [h.lng, h.lat]).length,
+    [geoFilter],
+  );
 
   const selectedCamera = useMemo(
     () =>
@@ -103,6 +163,7 @@ export function useDashboardState() {
   );
   const selectFlight = useCallback((flight: FlightState) => {
     setSelectedParkId(null);
+    setSelectedAmenityId(null);
     setSelectedFlightId(flight.id);
   }, []);
   const selectedPark = useMemo(
@@ -123,13 +184,31 @@ export function useDashboardState() {
       cycle?: boolean;
     }) => {
       setSelectedFlightId(null);
+      setSelectedAmenityId(null);
       setSelectedParkId(`${feature.kind}:${feature.name}`);
     },
     [],
   );
+  const selectAmenity = useCallback((target: AmenitySelectionTarget) => {
+    setSelectedFlightId(null);
+    setSelectedParkId(null);
+    setSelectedAmenityId(target);
+  }, []);
+  const selectedAmenity = useMemo<SelectedAmenity | null>(() => {
+    if (!selectedAmenityId) return null;
+    if (selectedAmenityId.type === "mall") {
+      const mall =
+        MALLS.find((mall) => mall.id === selectedAmenityId.id) ?? null;
+      return mall ? { type: "mall", mall } : null;
+    }
+    const hawker =
+      HAWKER_CENTRES.find((hawker) => hawker.id === selectedAmenityId.id) ??
+      null;
+    return hawker ? { type: "hawker", hawker } : null;
+  }, [selectedAmenityId]);
   const flightSummary = useMemo(
-    () => summarizeFlights(data.flights),
-    [data.flights],
+    () => summarizeFlights(flights),
+    [flights],
   );
   const disruptedAlerts = useMemo(
     () => data.trainAlerts.filter((alert) => alert.status === "disrupted"),
@@ -146,16 +225,16 @@ export function useDashboardState() {
   // Exhaustive by design: a new registry layer without a count here is a
   // type error, not a silently empty panel.
   const layerCounts: Record<SensorKey, number> = {
-    flights: data.flights.length,
-    cameras: data.cameras.length,
-    busStops: data.busStops.length,
+    flights: flights.length,
+    cameras: cameras.length,
+    busStops: busStops.length,
     mrt: MRT_DISPLAY_LINE_COUNT,
-    parks: PARK_COUNT,
-    incidents: data.incidents.length,
-    carparks: data.carparks.length,
-    evChargers: data.evChargers.length,
-    malls: MALLS.length,
-    hawkers: HAWKER_CENTRES.length,
+    parks: parkCount,
+    incidents: incidents.length,
+    carparks: carparks.length,
+    evChargers: evChargers.length,
+    malls: mallCount,
+    hawkers: hawkerCount,
   };
   const sensorRows: SensorRow[] = LAYERS.map((layer) => ({
     key: layer.key,
@@ -191,8 +270,7 @@ export function useDashboardState() {
       tone: "text-ink",
     },
   ];
-  // Flights are disabled upstream: hide their toggle + stats so the panel
-  // doesn't show permanently-zero controls next to live layers.
+  // Hide permanently empty controls when flights are disabled upstream.
   const visibleSensorRows = FLIGHTS_ENABLED
     ? sensorRows
     : sensorRows.filter((row) => row.key !== "flights");
@@ -202,9 +280,7 @@ export function useDashboardState() {
   const visibleSensorCount = visibleSensorRows.filter(
     (row) => sensorVisibility[row.key],
   ).length;
-  // Intentionally-off feeds (flights) never enter the panel: sources only
-  // contains a "disabled" entry when FLIGHTS_ENABLED is false, and those
-  // feeds can't recover so they don't belong in Source Health.
+  // Disabled feeds are not health indicators.
   const signalBars = data.sources
     .filter((source) => source.message !== "disabled")
     .map((source) => ({
@@ -224,14 +300,22 @@ export function useDashboardState() {
     bootComplete: data.bootComplete,
     busRouteOverlay: busRoute.overlay,
     busRouteState: busRoute.state,
-    busStops: data.busStops,
-    cameras: data.cameras,
-    incidents: data.incidents,
-    carparks: data.carparks,
-    evChargers: data.evChargers,
+    allBusStops: data.busStops,
+    busStops,
+    cameras,
+    incidents,
+    carparks,
+    evChargers,
     clearBusRoute: busRoute.clear,
     error: data.error,
-    flights: data.flights,
+    flights,
+    geoFilter,
+    geoFilterPicking,
+    geoFilterRadiusM,
+    clearGeoFilter,
+    pickGeoFilterCenter,
+    setGeoFilterPicking,
+    setGeoFilterRadiusM,
     handleSelectStop: busRoute.selectStop,
     mrtEndStation: mrt.end,
     mrtMapPickTarget: mrt.mapPickTarget,
@@ -242,11 +326,11 @@ export function useDashboardState() {
     pickMrtStation: mrt.pickStation,
     resetMrtRoute: mrt.reset,
     selectBusRouteDirection: busRoute.selectDirection,
+    selectedAmenity,
     selectedCamera,
     selectedFlight,
     selectedPark,
     selectedStop: busRoute.selectedStop,
-    disruptedAlerts,
     disruptedMrtLines,
     trainAlerts: data.trainAlerts,
     sensorRows: visibleSensorRows,
@@ -256,6 +340,7 @@ export function useDashboardState() {
     setMrtMapPickTarget: mrt.setMapPickTarget,
     setMrtStartStation: mrt.setStart,
     setSelectedCamera: selectCamera,
+    setSelectedAmenity: selectAmenity,
     setSelectedFlight: selectFlight,
     setSelectedPark: selectPark,
     setSensorVisibility,
@@ -268,5 +353,3 @@ export function useDashboardState() {
     weatherHistory,
   };
 }
-
-export type DashboardState = ReturnType<typeof useDashboardState>;

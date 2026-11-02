@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mergePointLists, mergePointStores } from "./local-history";
+import { mergePointLists, mergePointStores } from "@/lib/local-history";
 
 type Point = { readonly timestamp: string; readonly value: number };
 

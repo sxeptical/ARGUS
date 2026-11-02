@@ -1,11 +1,4 @@
-/**
- * Tagged error union for the server-side Effect programs.
- *
- * Every external data source and every piece of cross-cutting infrastructure
- * (`Cache`, `RateLimit`, the route handler helper) fails with one of these
- * tags. The route handler helper pattern-matches on `_tag` to map each
- * error to the right HTTP status.
- */
+/** Tagged server errors mapped to HTTP responses by the route helper. */
 import { Data } from "effect";
 
 export class ExternalApiError extends Data.TaggedError("ExternalApiError")<{
@@ -29,26 +22,16 @@ export class BadRequestError extends Data.TaggedError("BadRequestError")<{
   readonly message: string;
 }> {}
 
-/**
- * The error channel of every external API client. Kept separate from
- * `AppError` so client programs cannot accidentally succeed with a
- * route-only error, while route programs can embed clients directly.
- */
+/** Errors emitted by external API clients. */
 export type UpstreamError =
   | ExternalApiError
   | SchemaParseError
   | TimeoutError;
 
-/**
- * The union of every error a route handler can emit. Use as the `E`
- * parameter of any route-level `Effect` so that the `handle` helper can
- * pattern-match on the tags exhaustively.
- */
+/** Error union handled exhaustively by the route helper. */
 export type AppError = UpstreamError | BadRequestError;
 
-/**
- * Convenience constructor for `TimeoutError` from an `Effect` `TimeoutException`.
- */
+/** Convert an Effect timeout to `TimeoutError`. */
 export const fromTimeoutException = (
   service: string,
   cause: unknown,
@@ -58,9 +41,7 @@ export const fromTimeoutException = (
     message: cause instanceof Error ? cause.message : "Request timed out",
   });
 
-/**
- * Convenience constructor for `SchemaParseError` from a `Schema.ParseError`.
- */
+/** Convert a schema parse failure to `SchemaParseError`. */
 export const fromParseError = (
   service: string,
   cause: unknown,

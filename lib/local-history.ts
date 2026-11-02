@@ -1,16 +1,7 @@
 /**
- * localStorage-backed history primitives shared by the weather and bus
- * arrival histories.
- *
- * The read/write/validate pattern was previously duplicated (and buggy):
- * both features hydrated persisted state with a `setTimeout` after network
- * data could already have been recorded, so a remount could overwrite
- * stored history with a one-point list. The helpers here use merge
- * semantics instead — hydration unions persisted points with anything
- * already recorded, by timestamp — so ordering no longer matters.
- *
- * Every store is bounded in two dimensions: points per series and total
- * series, so a long-lived browser cannot grow localStorage unboundedly.
+ * localStorage-backed history helpers. Persisted and current points are merged
+ * by timestamp so hydration cannot overwrite newer data. Stores cap both the
+ * number of series and points per series.
  */
 
 export type TimestampedPoint = { readonly timestamp: string };
@@ -23,8 +14,7 @@ export function readStoredJson(key: string): unknown {
     const raw = window.localStorage.getItem(key);
     return raw ? (JSON.parse(raw) as unknown) : null;
   } catch {
-    // Corrupted or unavailable storage is not fatal: callers treat it as
-    // "no history yet".
+    // Treat corrupted or unavailable storage as empty history.
     return null;
   }
 }
@@ -34,8 +24,7 @@ export function writeStoredJson(key: string, value: unknown): void {
   try {
     window.localStorage.setItem(key, JSON.stringify(value));
   } catch {
-    // Ignore quota / private-browsing failures; the live dashboard keeps
-    // working with in-memory history only.
+    // Storage failures leave the in-memory history usable.
   }
 }
 
@@ -143,10 +132,7 @@ function mapStoreSeries<T extends TimestampedPoint>(
   return next;
 }
 
-/**
- * Drop the least-recently-updated series when the store exceeds
- * `maxSeries`, so browsing many bus stops cannot grow storage unboundedly.
- */
+/** Drop the least-recently-updated series beyond `maxSeries`. */
 function capStoreSeries<T extends TimestampedPoint>(
   store: Record<string, readonly T[]>,
   maxSeries: number,

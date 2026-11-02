@@ -1,4 +1,3 @@
-import { aqiTone } from "@/lib/aqi";
 import type { TrafficIncident, TrainServiceAlert, WeatherData } from "@/types";
 
 export type SignalRow = {
@@ -35,15 +34,14 @@ export function buildSignalDigest(input: {
     tone: incidentTone(incident.type),
     text: incident.message,
   }));
-  const { aqi, aqiStatus } = input.weather;
-  const tone = aqiTone(aqiStatus);
-  // Alert from "Unhealthy for Sensitive Groups" (AQI > 100) upwards.
+  const { psi, psiStatus } = input.weather;
+  // NEA's "Unhealthy" starts above PSI 100; alert from there upwards.
   const weather =
-    aqi !== null && aqi > 100 && (tone === "warning" || tone === "danger")
+    psi !== null && psi > 100
       ? [{
           category: "weather" as const,
-          tone,
-          text: `AQI ${aqi} (${aqiStatus})`,
+          tone: "danger" as const,
+          text: `PSI ${psi} (${psiStatus})`,
         }]
       : [];
   return [...rail, ...road, ...weather];

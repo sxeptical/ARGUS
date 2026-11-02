@@ -1,24 +1,15 @@
 /**
- * News client: merges public Singapore RSS feeds.
- *
- * Failures are honest — when every feed fails, the source fails (so the
- * dashboard reports the source as offline) instead of caching a synthetic
- * "unavailable" item as a healthy 200. Feed bodies are streamed with a hard
- * byte cap so a hostile or broken feed cannot balloon serverless memory,
- * and fetches are abortable so an Effect timeout actually cancels the
- * socket.
+ * Merges Singapore RSS feeds with bounded, abortable downloads. Individual
+ * feed failures are tolerated; the source fails when every feed fails.
  */
 import { Cache } from "@/lib/cache";
-import { Duration, Effect } from "effect";
-import {
-  ExternalApiError,
-  fromTimeoutException,
-  type UpstreamError,
-} from "@/lib/errors";
+import { Effect } from "effect";
+import { ExternalApiError, type UpstreamError } from "@/lib/errors";
 import type { NewsItem } from "@/types";
+import { withTimeout } from "./http";
 
 const RSS_TIMEOUT_MS = 10_000;
-const MAX_RSS_BYTES = 512 * 1024; // 512 KB
+const MAX_RSS_BYTES = 512 * 1024;
 const SAFE_URL_RE = /^https?:\/\//i;
 
 const rssFeeds: ReadonlyArray<{ readonly source: string; readonly url: string }> = [
@@ -208,22 +199,22 @@ async function fetchRssBody(
 }
 
 const fetchRssText = (url: string): Effect.Effect<string, UpstreamError> =>
-  Effect.tryPromise({
-    try: (signal) => fetchRssBody(url, MAX_RSS_BYTES, signal),
-    catch: (error) =>
-      new ExternalApiError({
-        service: "rss",
-        status: 502,
-        message:
-          error instanceof Error
-            ? `RSS fetch failed: ${error.message}`
-            : "RSS fetch failed",
-      }),
-  }).pipe(
-    Effect.timeout(Duration.millis(RSS_TIMEOUT_MS)),
-    Effect.catchTag("TimeoutException", (cause) =>
-      Effect.fail(fromTimeoutException("rss", cause)),
-    ),
+  withTimeout(
+    "rss",
+    Effect.tryPromise({
+      try: (signal) => fetchRssBody(url, MAX_RSS_BYTES, signal),
+      catch: (error) =>
+        new ExternalApiError({
+          service: "rss",
+          status: 502,
+          message:
+            error instanceof Error
+              ? `RSS fetch failed: ${error.message}`
+              : "RSS fetch failed",
+        }),
+    }),
+    RSS_TIMEOUT_MS,
+  ).pipe(
     Effect.flatMap((text) =>
       text === null
         ? Effect.fail(
@@ -237,14 +228,6 @@ const fetchRssText = (url: string): Effect.Effect<string, UpstreamError> =>
     ),
   );
 
-const fetchRssFeed = (
-  feed: { readonly source: string; readonly url: string },
-): Effect.Effect<ParsedRssItem[], UpstreamError> =>
-  Effect.gen(function* () {
-    const xml = yield* fetchRssText(feed.url);
-    return parseRssItems(xml, feed.source);
-  });
-
 // ---------- Public client ----------
 
 export const getNews = (): Effect.Effect<NewsItem[], UpstreamError, Cache> =>
@@ -255,7 +238,13 @@ export const getNews = (): Effect.Effect<NewsItem[], UpstreamError, Cache> =>
       15 * 60 * 1000,
       Effect.gen(function* () {
         const results = yield* Effect.all(
-          rssFeeds.map((feed) => Effect.either(fetchRssFeed(feed))),
+          rssFeeds.map((feed) =>
+            Effect.either(
+              fetchRssText(feed.url).pipe(
+                Effect.map((xml) => parseRssItems(xml, feed.source)),
+              ),
+            ),
+          ),
           { concurrency: 2 },
         );
 
@@ -272,9 +261,6 @@ export const getNews = (): Effect.Effect<NewsItem[], UpstreamError, Cache> =>
           );
         }
 
-        // Filter CNA items to Singapore-relevant stories (URL, category, or
-        // title contains "singapore") so we don't present a global feed
-        // as if it were local news.
         const relevant = (succeeded.flat() as ParsedRssItem[]).filter(
           isSingaporeRelevant,
         );
@@ -285,7 +271,6 @@ export const getNews = (): Effect.Effect<NewsItem[], UpstreamError, Cache> =>
           publishedAt: item.publishedAt,
         }));
 
-        // Deduplicate by URL across feeds, newest first, capped.
         const seen = new Set<string>();
         merged = merged.filter((item) => {
           if (seen.has(item.url)) return false;
