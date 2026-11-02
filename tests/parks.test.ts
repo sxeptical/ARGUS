@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { PARK_LABELS_GEOJSON, PARKS_GEOJSON } from "@/lib/parks-data";
 import { areaHectares, buildParkSearchResults, describeParkFeature, formatParkName, parkLabelPoint } from "@/lib/parks";
+import { PARK_PHOTOS, photosForPark, validateParkPhotos } from "@/lib/park-photos";
 
 const texts = (lines: ReadonlyArray<{ text: string }>) => lines.map((line) => line.text);
 
@@ -10,6 +11,7 @@ describe("formatParkName", () => {
     expect(formatParkName("ISLAND GDNS WALK PG")).toBe("Island Gardens Walk Playground");
     expect(formatParkName("ANG MO KIO AVE 1 (CTE TO UPPER THOMSON)")).toBe("Ang Mo Kio Avenue 1 (CTE to Upper Thomson)");
     expect(formatParkName("ARMENIAN STREET (FCP)")).toBe("Armenian Street (FCP)");
+    expect(formatParkName("PEARL'S HILL CITY PK")).toBe("Pearl's Hill City Park");
   });
 
   test("only expands abbreviations in already mixed-case names", () => {
@@ -79,5 +81,51 @@ describe("parkLabelPoint", () => {
   test("gives every park exactly one label", () => {
     const parks = PARKS_GEOJSON.features.filter((f) => f.properties.kind === "park");
     expect(PARK_LABELS_GEOJSON.features).toHaveLength(parks.length);
+  });
+});
+
+describe("park photos", () => {
+  const parkNames = new Set(PARKS_GEOJSON.features.filter((f) => f.properties.kind === "park").map((f) => f.properties.name));
+
+  test("cover the big parks, keyed by display name, with credited Commons files", () => {
+    expect(PARK_PHOTOS.size).toBeGreaterThan(50);
+    for (const [name, photos] of PARK_PHOTOS) {
+      expect(parkNames.has(name)).toBe(true);
+      expect(photos.length).toBeGreaterThan(0);
+      expect(photos.length).toBeLessThanOrEqual(3);
+      for (const photo of photos) {
+        expect(photo.source).toBe("commons");
+        expect(photo.thumb).toMatch(/^https:\/\/(upload|thumb)\.wikimedia\.org\//);
+        expect(photo.thumb).not.toContain("utm_");
+        expect(photo.license?.length).toBeGreaterThan(0);
+      }
+    }
+    expect(photosForPark("Central Catchment Nature Reserve").length).toBeGreaterThan(0);
+  });
+
+  test("share photos across a split park and leave playgrounds empty", () => {
+    expect(photosForPark("East Coast Park Area C")).toBe(photosForPark("East Coast Park Area C"));
+    expect(photosForPark("East Coast Park Area C").map((p) => p.thumb)).toEqual(photosForPark("East Coast Park Area D").map((p) => p.thumb));
+    expect(photosForPark("Not A Real Playground")).toEqual([]);
+  });
+
+  test("keeps files reviewed as showing the wrong place out", () => {
+    const pages = [...PARK_PHOTOS.values()].flat().map((photo) => photo.page ?? "");
+    for (const bad of ["ChineseGardenSingapore-bridge-pagoda", "Former_Merlion_Park", "HK_Lakeside_Garden", "Marsiling_Park_Connector"]) {
+      expect(pages.some((page) => page.includes(bad))).toBe(false);
+    }
+    expect(PARK_PHOTOS.has("Bukit Canberra")).toBe(false);
+  });
+
+  test("rejects photos from other hosts", () => {
+    const photo = { thumb: "https://evil.example/a.jpg", page: null, author: "x", license: "CC0", source: "commons" };
+    expect(validateParkPhotos({ "Some Park": [photo] })).toBe(false);
+    expect(validateParkPhotos([])).toBe(false);
+  });
+
+  test("credits the photos in the popup", () => {
+    const photo = { thumb: "https://thumb.wikimedia.org/a.jpg", page: null, author: "Terence Ong", license: "CC BY 2.5", source: "commons" as const };
+    expect(texts(describeParkFeature({ kind: "park", name: "Kent Ridge Park", photos: [photo] }))).toContain("Photo: Terence Ong (CC BY 2.5) · Wikimedia Commons");
+    expect(texts(describeParkFeature({ kind: "park", name: "Kent Ridge Park", photos: [] })).some((text) => text.startsWith("Photo"))).toBe(false);
   });
 });

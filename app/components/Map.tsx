@@ -44,6 +44,7 @@ import { describeHawkerCentre, describeMall } from "@/lib/amenities";
 import { HAWKER_CENTRES, MALLS } from "@/lib/amenities-data";
 import { PARK_LABELS_GEOJSON, PARKS_GEOJSON } from "@/lib/parks-data";
 import { describeParkFeature, PARK_KIND_TITLE } from "@/lib/parks";
+import { photosForPark } from "@/lib/park-photos";
 import type { SensorKey } from "@/lib/layers";
 import type {
   AirRegionKey,
@@ -887,14 +888,17 @@ function useMapController({
       }
       const key = `${kind}:${properties.name}`;
       if (key === parkHoverKey && parkPopup && hoverPopupRef.current === parkPopup) return;
+      const name: string = properties.name;
+      const photos = kind === "park" ? photosForPark(name) : [];
       showHoverPopup(event.lngLat, PARK_KIND_TITLE[kind], "text-signal-park", describeParkFeature({
         kind,
-        name: properties.name,
+        name,
+        photos,
         ...(typeof properties.park === "string" ? { park: properties.park } : {}),
         ...(typeof properties.type === "string" ? { type: properties.type } : {}),
         cycle: properties.cycle === true || properties.cycle === "true",
         ...(typeof properties.areaHa === "number" ? { areaHa: properties.areaHa } : {}),
-      }));
+      }), photos.map((photo, index) => ({ src: photo.thumb, alt: `${name} photo ${index + 1}` })));
       parkPopup = hoverPopupRef.current;
       parkHoverKey = key;
     };

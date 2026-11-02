@@ -26,6 +26,7 @@ import { formatAltitudeFeet, formatSpeedKmh } from "@/lib/formatters";
 import { buildHawkerSearchResults, buildMallSearchResults, formatOpeningHours } from "@/lib/amenities";
 import { HAWKER_CENTRES, MALLS } from "@/lib/amenities-data";
 import { buildParkSearchResults, PARK_KIND_TITLE } from "@/lib/parks";
+import { photosForPark } from "@/lib/park-photos";
 import { PARKS_GEOJSON } from "@/lib/parks-data";
 import { formatRadius, withinRadius } from "@/lib/geo-filter";
 import { buildBusStopSearchResults, MRT_STATION_SEARCH_RESULTS } from "@/lib/map-search";
@@ -389,6 +390,7 @@ export default function Home() {
             ) : selectedPark ? (
               <div className="space-y-2 text-xs">
                 <div className="border border-line bg-paper p-2.5"><div className="font-mono text-sm font-medium text-ink">{selectedPark.name}</div><div className="data-label">{PARK_KIND_TITLE[selectedPark.kind]}</div></div>
+                {selectedPark.kind === "park" ? <PlacePhotoGallery key={selectedPark.name} name={selectedPark.name} photos={photosForPark(selectedPark.name)} /> : null}
                 {selectedPark.kind === "park" && selectedPark.areaHa ? <KeyValue label="Size" value={`${selectedPark.areaHa.toLocaleString("en-SG")} ha`} /> : null}
                 {selectedPark.kind === "pcn" ? <KeyValue label="Use" value="Walking, running, cycling" /> : null}
                 {selectedPark.kind === "trail" && selectedPark.park ? <KeyValue label="Park" value={selectedPark.park} /> : null}
