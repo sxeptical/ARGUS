@@ -1,4 +1,9 @@
-import { useId, useState } from "react";
+import { useId } from "react";
+import { usePersistentState } from "@/app/hooks/use-persistent-state";
+import {
+  parseStoredBoolean,
+  prefKey,
+} from "@/lib/ui-preferences";
 
 type TerminalPanelProps = {
   title: string;
@@ -15,7 +20,11 @@ export default function TerminalPanel({
   contentClassName,
   defaultExpanded = true,
 }: TerminalPanelProps) {
-  const [expanded, setExpanded] = useState(defaultExpanded);
+  const [expanded, setExpanded] = usePersistentState(
+    prefKey("panel-expanded", title),
+    defaultExpanded,
+    parseStoredBoolean,
+  );
   const contentId = useId();
 
   return (
