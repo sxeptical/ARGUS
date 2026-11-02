@@ -3,10 +3,13 @@ import {
   GEO_FILTER_MAX_RADIUS_M,
   GEO_FILTER_MIN_RADIUS_M,
 } from "@/lib/geo-filter";
+import { DEFAULT_NOTIFICATION_PREFS } from "@/lib/notifications";
 import {
   parseGeoFilterCenter,
   parseGeoFilterRadius,
   parseMrtStation,
+  parseNotificationPrefs,
+  parseSeenSignals,
   parseSensorVisibility,
   parseStoredBoolean,
   prefKey,
@@ -54,6 +57,22 @@ describe("ui preference parsing", () => {
     expect(parseMrtStation("")).toBeUndefined();
     expect(parseMrtStation(null)).toBeUndefined();
     expect(parseMrtStation(42)).toBeUndefined();
+  });
+
+  test("applies stored notification flags over defaults", () => {
+    expect(parseNotificationPrefs({ road: false, browser: "yes" })).toEqual({
+      ...DEFAULT_NOTIFICATION_PREFS,
+      road: false,
+    });
+    expect(parseNotificationPrefs(null)).toBeUndefined();
+  });
+
+  test("keeps only well-formed seen signal categories", () => {
+    expect(
+      parseSeenSignals({ rail: ["a"], road: [1], weather: "x", removed: ["b"] }),
+    ).toEqual({ rail: ["a"] });
+    expect(parseSeenSignals(null)).toBeUndefined();
+    expect(parseSeenSignals(["a"])).toBeUndefined();
   });
 
   test("accepts real booleans only", () => {
