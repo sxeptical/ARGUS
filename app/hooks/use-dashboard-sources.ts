@@ -113,10 +113,10 @@ const DEFAULT_WEATHER: WeatherData = {
   lastUpdated: new Date().toISOString(),
 };
 
-function useSource<T>(source: SourceDefinition | null) {
+function useSource<T>(source: SourceDefinition | null, refreshWhenHidden = false) {
   return useSWR<T, Error>(source?.url ?? null, apiFetch<T>, {
     refreshInterval: source?.refreshMs ?? 0,
-    refreshWhenHidden: false,
+    refreshWhenHidden,
     revalidateOnFocus: true,
     // Boot must settle even when a route hangs: apiFetch times out at 15s,
     // and SWR retries with backoff instead of leaving sources in `loading`.
@@ -163,16 +163,21 @@ export type OnDemandLayers = {
   readonly evChargers: boolean;
 };
 
-export function useDashboardSources(onDemand: OnDemandLayers) {
+export function useDashboardSources(
+  onDemand: OnDemandLayers,
+  // Only the feeds behind notifications keep polling in a background tab, and
+  // only once browser alerts are on, so other users' hidden tabs stay idle.
+  pollSignalsWhenHidden: boolean,
+) {
   // Hooks stay unconditional; a null SWR key disables flights (and hidden
   // on-demand layers) without changing hook order.
   const busStops = useSource<BusStop[]>(BUS_STOPS);
   const cameras = useSource<TrafficCamera[]>(CAMERAS);
-  const incidents = useSource<TrafficIncident[]>(INCIDENTS);
-  const weather = useSource<WeatherData>(WEATHER);
+  const incidents = useSource<TrafficIncident[]>(INCIDENTS, pollSignalsWhenHidden);
+  const weather = useSource<WeatherData>(WEATHER, pollSignalsWhenHidden);
   const news = useSource<NewsItem[]>(NEWS);
   const flights = useSource<FlightState[]>(FLIGHTS_ENABLED ? FLIGHTS : null);
-  const trainAlerts = useSource<TrainServiceAlert[]>(TRAIN_ALERTS);
+  const trainAlerts = useSource<TrainServiceAlert[]>(TRAIN_ALERTS, pollSignalsWhenHidden);
   const carparks = useSource<CarparkAvailability[]>(
     onDemand.carparks ? CARPARKS : null,
   );
@@ -225,6 +230,11 @@ export function useDashboardSources(onDemand: OnDemandLayers) {
     trainAlerts: trainAlerts.data ?? [],
     carparks: carparks.data ?? [],
     evChargers: evChargers.data ?? [],
+    signalsLoaded: {
+      rail: trainAlerts.data !== undefined,
+      road: incidents.data !== undefined,
+      weather: weather.data !== undefined,
+    },
     sources,
     activeSources,
     onlineSourceCount: activeSources.filter(

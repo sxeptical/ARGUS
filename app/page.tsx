@@ -7,7 +7,9 @@ import Map, { type MapSearchTarget } from "@/app/components/Map";
 import MapSearch from "@/app/components/MapSearch";
 import MrtRoutePanel from "@/app/components/MrtRoutePanel";
 import NewsPanel from "@/app/components/NewsPanel";
+import NotificationToasts from "@/app/components/NotificationToasts";
 import UpdateAvailableToast from "@/app/components/UpdateAvailableToast";
+import { DashboardFooter } from "@/app/components/dashboard/DashboardFooter";
 import { DashboardHeader } from "@/app/components/dashboard/DashboardHeader";
 import { GeoFilterPanel } from "@/app/components/dashboard/GeoFilterPanel";
 import {
@@ -20,8 +22,10 @@ import {
 import { LayersSidebar } from "@/app/components/dashboard/LayersSidebar";
 import { LoadingScreen } from "@/app/components/dashboard/LoadingScreen";
 import { MobileLayersDrawer } from "@/app/components/dashboard/MobileLayersDrawer";
+import { NotificationBell } from "@/app/components/dashboard/NotificationBell";
 import { PlacePhotoGallery } from "@/app/components/dashboard/PlacePhotoGallery";
 import { useDashboardState } from "@/app/hooks/use-dashboard-state";
+import { useNotifications } from "@/app/hooks/use-notifications";
 import { formatAltitudeFeet, formatSpeedKmh } from "@/lib/formatters";
 import { buildHawkerSearchResults, buildMallSearchResults, formatOpeningHours } from "@/lib/amenities";
 import { HAWKER_CENTRES, MALLS } from "@/lib/amenities-data";
@@ -46,6 +50,7 @@ export default function Home() {
   const {
     activeSources,
     allBusStops,
+    allIncidents,
     bootComplete,
     busRouteOverlay,
     busRouteState,
@@ -68,6 +73,7 @@ export default function Home() {
     mrtRoutePlan,
     mrtStartStation,
     news,
+    notificationPrefs,
     onlineSourceCount,
     pickGeoFilterCenter,
     pickMrtStation,
@@ -86,6 +92,7 @@ export default function Home() {
     setMrtEndStation,
     setMrtMapPickTarget,
     setMrtStartStation,
+    setNotificationPrefs,
     setSelectedCamera,
     setSelectedAmenity,
     setSelectedFlight,
@@ -93,6 +100,7 @@ export default function Home() {
     setSensorVisibility,
     showBusRoute,
     signalBars,
+    signalsLoaded,
     sources,
     systemStatus,
     trainAlerts,
@@ -101,7 +109,27 @@ export default function Home() {
     weatherHistory,
   } = useDashboardState();
 
-  const signalDigest = buildSignalDigest({ trainAlerts, incidents, weather });
+  const signalDigest = useMemo(
+    () => buildSignalDigest({ trainAlerts, incidents, weather }),
+    [trainAlerts, incidents, weather],
+  );
+  const allSignals = useMemo(
+    () => buildSignalDigest({ trainAlerts, incidents: allIncidents, weather }),
+    [trainAlerts, allIncidents, weather],
+  );
+  const {
+    alerts,
+    dismissToast,
+    expireToast,
+    markAlertsRead,
+    toasts,
+    unreadCount,
+  } = useNotifications({
+    signals: allSignals,
+    scopedSignals: signalDigest,
+    loaded: signalsLoaded,
+    prefs: notificationPrefs,
+  });
   const [searchTarget, setSearchTarget] = useState<MapSearchTarget | null>(null);
   const [airQualityOverlay, setAirQualityOverlay] =
     useState<AirQualityOverlay | null>(null);
@@ -140,9 +168,24 @@ export default function Home() {
   return (
     <div className="flex min-h-dvh flex-col gap-2 bg-paper p-2 pl-[max(0.5rem,env(safe-area-inset-left))] pr-[max(0.5rem,env(safe-area-inset-right))] pb-[max(0.5rem,env(safe-area-inset-bottom))] sm:gap-3 sm:p-3 lg:h-dvh lg:overflow-hidden">
       <UpdateAvailableToast />
+      <NotificationToasts
+        toasts={toasts}
+        onDismiss={dismissToast}
+        onDismissAll={markAlertsRead}
+        onExpire={expireToast}
+      />
       <DashboardHeader
         activeSourceCount={activeSources.length}
         hasError={error !== null}
+        notificationBell={
+          <NotificationBell
+            alerts={alerts}
+            unreadCount={unreadCount}
+            onMarkRead={markAlertsRead}
+            prefs={notificationPrefs}
+            setPrefs={setNotificationPrefs}
+          />
+        }
         onlineSourceCount={onlineSourceCount}
         systemStatus={systemStatus}
       />
@@ -429,6 +472,7 @@ export default function Home() {
         </aside>
       </main>
 
+      <DashboardFooter />
     </div>
   );
 }

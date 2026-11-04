@@ -8,6 +8,12 @@ import {
   GEO_FILTER_MIN_RADIUS_M,
 } from "@/lib/geo-filter";
 import { isRouteableMrtStation } from "@/lib/mrt-routing";
+import {
+  DEFAULT_NOTIFICATION_PREFS,
+  type NotificationPrefs,
+  type SeenSignals,
+} from "@/lib/notifications";
+import type { SignalCategory } from "@/lib/signals";
 
 export const SENSOR_VISIBILITY_KEY = "argus.prefs.sensors.v1";
 export const GEO_FILTER_CENTER_KEY = "argus.prefs.geo-filter.center.v1";
@@ -71,6 +77,33 @@ export const MRT_END_KEY = "argus.prefs.mrt.end.v1";
 export function parseMrtStation(stored: unknown): string | undefined {
   if (typeof stored !== "string" || stored.length === 0) return undefined;
   return isRouteableMrtStation(stored) ? stored : undefined;
+}
+
+// ---------- Notifications ----------
+
+export const NOTIFICATION_PREFS_KEY = "argus.prefs.notifications.v1";
+export const SEEN_SIGNALS_KEY = "argus.prefs.notifications.seen.v1";
+
+export function parseNotificationPrefs(
+  stored: unknown,
+): NotificationPrefs | undefined {
+  return parseSensorVisibility(stored, DEFAULT_NOTIFICATION_PREFS);
+}
+
+/** Keep only well-formed categories, so a damaged one just takes a new baseline. */
+export function parseSeenSignals(stored: unknown): SeenSignals | undefined {
+  if (!stored || typeof stored !== "object" || Array.isArray(stored)) {
+    return undefined;
+  }
+  const entries = stored as Partial<Record<string, unknown>>;
+  const seen: SeenSignals = {};
+  for (const category of ["rail", "road", "weather"] satisfies SignalCategory[]) {
+    const ids = entries[category];
+    if (Array.isArray(ids) && ids.every((id) => typeof id === "string")) {
+      seen[category] = ids as string[];
+    }
+  }
+  return seen;
 }
 
 // ---------- Boolean flags and derived keys ----------

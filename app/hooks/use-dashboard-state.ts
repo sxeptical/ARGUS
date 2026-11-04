@@ -22,12 +22,15 @@ import {
 } from "@/lib/layers";
 import { MRT_DISPLAY_LINE_COUNT } from "@/lib/mrt-network";
 import { HAWKER_CENTRES, MALLS } from "@/lib/amenities-data";
+import { DEFAULT_NOTIFICATION_PREFS } from "@/lib/notifications";
 import { PARKS_GEOJSON } from "@/lib/parks-data";
 import {
   GEO_FILTER_CENTER_KEY,
   GEO_FILTER_RADIUS_KEY,
+  NOTIFICATION_PREFS_KEY,
   parseGeoFilterCenter,
   parseGeoFilterRadius,
+  parseNotificationPrefs,
   SENSOR_VISIBILITY_KEY,
 } from "@/lib/ui-preferences";
 import type { ParkFeatureKind } from "@/types";
@@ -68,10 +71,19 @@ export function useDashboardState() {
     DEFAULT_SENSOR_VISIBILITY,
     coerceSensorVisibility,
   );
-  const data = useDashboardSources({
-    carparks: sensorVisibility.carparks,
-    evChargers: sensorVisibility.evChargers,
-  });
+  // Also declared before the sources: browser alerts need background polling.
+  const [notificationPrefs, setNotificationPrefs] = usePersistentState(
+    NOTIFICATION_PREFS_KEY,
+    DEFAULT_NOTIFICATION_PREFS,
+    parseNotificationPrefs,
+  );
+  const data = useDashboardSources(
+    {
+      carparks: sensorVisibility.carparks,
+      evChargers: sensorVisibility.evChargers,
+    },
+    notificationPrefs.browser,
+  );
   const busRoute = useBusRoute();
   const mrt = useMrtPlanner();
   const weatherHistory = useWeatherHistory(data.weather);
@@ -301,6 +313,7 @@ export function useDashboardState() {
     busRouteOverlay: busRoute.overlay,
     busRouteState: busRoute.state,
     allBusStops: data.busStops,
+    allIncidents: data.incidents,
     busStops,
     cameras,
     incidents,
@@ -322,6 +335,7 @@ export function useDashboardState() {
     mrtRoutePlan: mrt.plan,
     mrtStartStation: mrt.start,
     news: data.news,
+    notificationPrefs,
     onlineSourceCount: data.onlineSourceCount,
     pickMrtStation: mrt.pickStation,
     resetMrtRoute: mrt.reset,
@@ -339,6 +353,7 @@ export function useDashboardState() {
     setMrtEndStation: mrt.setEnd,
     setMrtMapPickTarget: mrt.setMapPickTarget,
     setMrtStartStation: mrt.setStart,
+    setNotificationPrefs,
     setSelectedCamera: selectCamera,
     setSelectedAmenity: selectAmenity,
     setSelectedFlight: selectFlight,
@@ -346,6 +361,7 @@ export function useDashboardState() {
     setSensorVisibility,
     showBusRoute: busRoute.show,
     signalBars,
+    signalsLoaded: data.signalsLoaded,
     sources: data.sources,
     systemStatus: data.error ? "Degraded" : "Live",
     visibleSensorCount,
