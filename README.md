@@ -49,6 +49,7 @@ It is designed as a single-page operations surface: map first, signal panels aro
 - Park photos from Wikimedia Commons, credited per file, in `public/park-photos.json`, rebuilt with `bun scripts/fetch-park-photos.mjs`.
 - LTA train service alerts, with disrupted MRT lines highlighted on the map.
 - Intelligence panel live signals digest combining disrupted rail, road incidents, and unhealthy PSI alerts.
+- Notifications for new rail disruptions, road accidents, and unhealthy PSI, as in-app toasts plus optional browser alerts while the tab is in the background. Nothing is delivered once the tab is closed.
 - Data.gov.sg weather, PSI, and air temperature.
 - Aviationstack flights for Singapore airports, with OpenSky fallback.
 - Singapore news feed merge from public RSS sources.
