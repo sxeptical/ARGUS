@@ -349,6 +349,17 @@ export function interpolateStations(
   });
 }
 
+/**
+ * `line|station` keys for the stations a route rides. Keyed by line because an
+ * interchange has one interpolated point per line, and only the ridden line's
+ * point sits on the drawn route.
+ */
+export function routeStationKeys(routeSegments: MrtRouteSegment[]): string[] {
+  return routeSegments.flatMap((segment) =>
+    segment.stations.map((station) => `${segment.line}|${station}`),
+  );
+}
+
 export function buildRouteGeoJson(
   mrtLines: MRTGeoJson,
   routeSegments: MrtRouteSegment[],

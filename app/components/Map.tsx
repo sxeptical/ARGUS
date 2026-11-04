@@ -15,6 +15,7 @@ import {
   buildRouteGeoJson,
   resolveBusRouteDrawPath,
   resolveRemainingRouteStops,
+  routeStationKeys,
   EMPTY_BUS_ROUTE_GEOJSON,
   EMPTY_BUS_ROUTE_STOPS_GEOJSON,
   type BusRouteOverlay,
@@ -212,6 +213,9 @@ function improveDarkBasemapContrast(map: maplibregl.Map): void {
 const MRT_LINES = mrtLinesData as MRTGeoJson;
 const EMPTY_MRT_ROUTE_SEGMENTS: MrtRouteSegment[] = [];
 const EMPTY_DISRUPTED_MRT_LINES: ReadonlyArray<string> = [];
+const ROUTE_FOCUS_SCRIM_OPACITY = 0.72;
+// Mirrors routeStationKeys in lib/map-geometry.
+const ROUTE_STATION_KEY: maplibregl.ExpressionSpecification = ["concat", ["get", "line"], "|", ["get", "name"]];
 
 const AIR_REGION_CENTERS: ReadonlyArray<{
   key: AirRegionKey;
@@ -330,50 +334,27 @@ function registerLayerMouseListener(
   return () => map.off(eventName, layerId, listener);
 }
 
-function applyMrtRouteFocus(map: maplibregl.Map, hasRoute: boolean) {
-  if (map.getLayer("mrt-lines-layer")) {
+/**
+ * Raise the scrim and light up the ridden stations while a route is on screen.
+ * A hidden MRT layer hides the route too, so nothing is focused then.
+ */
+function applyMrtRouteFocus(
+  map: maplibregl.Map,
+  routeSegments: MrtRouteSegment[],
+  mrtVisible: boolean,
+) {
+  const stationKeys = mrtVisible ? routeStationKeys(routeSegments) : [];
+  if (map.getLayer("route-focus-scrim-layer")) {
     map.setPaintProperty(
-      "mrt-lines-layer",
-      "line-opacity",
-      hasRoute ? 0.15 : 0.96,
+      "route-focus-scrim-layer",
+      "background-opacity",
+      stationKeys.length > 0 ? ROUTE_FOCUS_SCRIM_OPACITY : 0,
     );
   }
-  if (map.getLayer("mrt-lines-casing-layer")) {
-    map.setPaintProperty(
-      "mrt-lines-casing-layer",
-      "line-opacity",
-      hasRoute ? 0.12 : 0.84,
-    );
-  }
-  if (map.getLayer("mrt-lines-future-layer")) {
-    map.setPaintProperty(
-      "mrt-lines-future-layer",
-      "line-opacity",
-      hasRoute ? 0.08 : 0.82,
-    );
-  }
-  if (map.getLayer("mrt-lines-future-casing-layer")) {
-    map.setPaintProperty(
-      "mrt-lines-future-casing-layer",
-      "line-opacity",
-      hasRoute ? 0.07 : 0.72,
-    );
-  }
-  if (map.getLayer("mrt-stations-layer")) {
-    map.setPaintProperty("mrt-stations-layer", "circle-opacity", [
-      "case",
-      ["get", "routeable"],
-      hasRoute ? 0.3 : 1,
-      hasRoute ? 0.12 : 0.35,
-    ]);
-  }
-  if (map.getLayer("mrt-stations-label-layer")) {
-    map.setPaintProperty("mrt-stations-label-layer", "text-opacity", [
-      "case",
-      ["get", "routeable"],
-      hasRoute ? 0.35 : 1,
-      hasRoute ? 0.08 : 0.45,
-    ]);
+  for (const layerId of ["mrt-route-stations-layer", "mrt-route-stations-label-layer"]) {
+    if (map.getLayer(layerId)) {
+      map.setFilter(layerId, ["in", ROUTE_STATION_KEY, ["literal", stationKeys]]);
+    }
   }
 }
 
@@ -662,8 +643,8 @@ function useMapController({
     if (routeSource) {
       routeSource.setData(routeGeoJson);
     }
-    applyMrtRouteFocus(map, routeGeoJson.features.length > 0);
-  }, [mrtRouteSegments]);
+    applyMrtRouteFocus(map, mrtRouteSegmentsRef.current, sensorVisibility.mrt);
+  }, [mrtRouteSegments, sensorVisibility.mrt]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -1527,8 +1508,6 @@ function useMapController({
           },
         });
 
-        applyMrtRouteFocus(map, initialRouteGeoJson.features.length > 0);
-
         map.addSource("mrt-stations", {
           type: "geojson",
           data: filterMrtStations(MRT_STATION_GEOJSON, geoFilterRef.current),
@@ -1574,6 +1553,42 @@ function useMapController({
             "text-color": MAP_COLORS.ink,
             "text-halo-color": MAP_COLORS.paper,
             "text-halo-width": 1,
+          },
+        });
+
+        // The ridden stations, redrawn above the scrim. Clicks still land on
+        // mrt-stations-layer underneath. Filtered to nothing until a route is
+        // set; labels use the name because `label` is blanked on all but one
+        // of an interchange's points.
+        map.addLayer({
+          id: "mrt-route-stations-layer",
+          type: "circle",
+          source: "mrt-stations",
+          filter: ["in", ROUTE_STATION_KEY, ["literal", []]],
+          paint: {
+            "circle-radius": 4.5,
+            "circle-color": MAP_COLORS.ink,
+            "circle-stroke-width": 1.5,
+            "circle-stroke-color": MAP_COLORS.paper,
+          },
+        });
+
+        map.addLayer({
+          id: "mrt-route-stations-label-layer",
+          type: "symbol",
+          source: "mrt-stations",
+          minzoom: 11.5,
+          filter: ["in", ROUTE_STATION_KEY, ["literal", []]],
+          layout: {
+            "text-field": ["get", "name"],
+            "text-size": 11,
+            "text-anchor": "top",
+            "text-offset": [0, 1],
+          },
+          paint: {
+            "text-color": MAP_COLORS.ink,
+            "text-halo-color": MAP_COLORS.paper,
+            "text-halo-width": 1.2,
           },
         });
 
@@ -1733,6 +1748,30 @@ function useMapController({
       } catch (error) {
         console.warn("Air quality overlay failed to initialize", error);
       }
+
+      // Route focus stacks last: one scrim dims everything added so far, the
+      // basemap included, and only the routes the user picked sit above it.
+      map.addLayer({
+        id: "route-focus-scrim-layer",
+        type: "background",
+        paint: {
+          "background-color": MAP_COLORS.paper,
+          "background-opacity": 0,
+        },
+      });
+      for (const layerId of [
+        "bus-route-casing-layer",
+        "bus-route-layer",
+        "bus-route-stops-layer",
+        "bus-route-stops-label-layer",
+        "mrt-route-casing-layer",
+        "mrt-route-layer",
+        "mrt-route-stations-layer",
+        "mrt-route-stations-label-layer",
+      ]) {
+        if (map.getLayer(layerId)) map.moveLayer(layerId);
+      }
+      applyMrtRouteFocus(map, mrtRouteSegmentsRef.current, sensorVisibilityRef.current.mrt);
     };
 
     const removeMapLoadListener = registerMapLoadListener(map, handleMapLoad);

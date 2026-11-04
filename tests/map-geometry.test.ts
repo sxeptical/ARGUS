@@ -5,8 +5,11 @@ import {
   buildRouteGeoJson,
   interpolateStations,
   resolveBusRouteDrawPath,
+  routeStationKeys,
 } from "@/lib/map-geometry";
+import { MRT_STATION_GEOJSON } from "@/lib/map-features";
 import { MRT_DISPLAY_LINE_STATIONS } from "@/lib/mrt-network";
+import { planMrtRoute } from "@/lib/mrt-routing";
 import mrtLinesData from "@/public/mrt-lines.json";
 import type { MRTGeoJson } from "@/types";
 
@@ -195,5 +198,22 @@ describe("buildRouteGeoJson", () => {
     const coords = (line?.geometry.coordinates ?? []) as [number, number][];
     // Ranggung (index 5) → Sengkang (closing vertex) → Compassvale (index 1).
     expect(route.features[0].geometry.coordinates).toEqual([coords[5], coords[6], coords[1]]);
+  });
+});
+
+describe("routeStationKeys", () => {
+  test("returns nothing without segments, so the route focus stays off", () => {
+    expect(routeStationKeys([])).toEqual([]);
+  });
+
+  test("matches the ridden line's station points, not other lines' at an interchange", () => {
+    const plan = planMrtRoute("Newton", "Bedok");
+    const keys = routeStationKeys(plan?.segments ?? []);
+    const stationKey = ({ properties }: (typeof MRT_STATION_GEOJSON.features)[number]) => `${properties.line}|${properties.name}`;
+    const matched = MRT_STATION_GEOJSON.features.filter((feature) => keys.includes(stationKey(feature)));
+
+    expect(keys.length).toBeGreaterThan(0);
+    expect(new Set(matched.map(stationKey))).toEqual(new Set(keys));
+    expect(matched.filter((feature) => feature.properties.name === "Newton")).toHaveLength(1);
   });
 });
