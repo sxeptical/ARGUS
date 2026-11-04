@@ -120,19 +120,38 @@ describe("selectNotifiable", () => {
 describe("mergeActiveSignals", () => {
   test("appends new toasts and drops cleared ones", () => {
     expect(
-      mergeActiveSignals([signal("old"), signal("kept")], [signal("new")], new Set(["kept", "new"])),
+      mergeActiveSignals([signal("old"), signal("kept")], [signal("new")], [
+        signal("kept"),
+        signal("new"),
+      ]),
     ).toEqual([signal("kept"), signal("new")]);
   });
 
   test("does not add a toast that is already showing", () => {
     expect(
-      mergeActiveSignals([signal("a")], [signal("a")], new Set(["a"])).map((row) => row.id),
+      mergeActiveSignals([signal("a")], [signal("a")], [signal("a")]).map((row) => row.id),
     ).toEqual(["a"]);
   });
 
   test("returns the same array when nothing changed", () => {
     const current = [signal("a")];
-    expect(mergeActiveSignals(current, [], new Set(["a"]))).toBe(current);
+    expect(mergeActiveSignals(current, [], [signal("a")])).toBe(current);
+  });
+
+  test("refreshes a retained row whose text changed, keeping its position", () => {
+    const current = [signal("r", "rail"), signal("a")];
+    const reworded = { ...signal("r", "rail"), text: "reworded" };
+    const merged = mergeActiveSignals(current, [], [reworded, signal("a")]);
+    expect(merged.map((row) => row.id)).toEqual(["r", "a"]);
+    expect(merged[0]).toBe(reworded);
+    expect(merged[1]).toBe(current[1]);
+    expect(merged).not.toBe(current);
+  });
+
+  test("keeps the previous row object when its content is unchanged", () => {
+    const current = [signal("a")];
+    const merged = mergeActiveSignals(current, [], [{ ...signal("a") }]);
+    expect(merged).toBe(current);
   });
 });
 

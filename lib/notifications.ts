@@ -85,18 +85,42 @@ export function selectNotifiable(
 }
 
 /**
- * Add new signals to a toast or alert list and drop any that have cleared.
+ * Add new signals to a toast or alert list, drop any that have cleared, and
+ * refresh retained ones from the latest feed. Signal ids are deliberately
+ * stable across polls, so the text behind an id can change — LTA rewording, a
+ * higher PSI — without becoming a new signal. Retained rows keep their
+ * position and id, so toasts, keys and unread bookkeeping are untouched.
  * Returns `current` when nothing changed so React can skip the re-render.
  */
 export function mergeActiveSignals(
   current: readonly SignalRow[],
   fresh: readonly SignalRow[],
-  activeIds: ReadonlySet<string>,
+  active: readonly SignalRow[],
 ): readonly SignalRow[] {
-  const kept = current.filter((signal) => activeIds.has(signal.id));
+  const latest = new Map(active.map((signal) => [signal.id, signal]));
+  const kept: SignalRow[] = [];
+  let changed = false;
+  for (const signal of current) {
+    const next = latest.get(signal.id);
+    if (!next) {
+      changed = true;
+      continue;
+    }
+    if (
+      next.category !== signal.category ||
+      next.tone !== signal.tone ||
+      next.text !== signal.text
+    ) {
+      kept.push(next);
+      changed = true;
+    } else {
+      // Unchanged: keep the row so an identical poll returns the same array.
+      kept.push(signal);
+    }
+  }
   const keptIds = new Set(kept.map((signal) => signal.id));
   const added = fresh.filter((signal) => !keptIds.has(signal.id));
-  if (added.length === 0 && kept.length === current.length) return current;
+  if (!changed && added.length === 0) return current;
   return [...kept, ...added];
 }
 

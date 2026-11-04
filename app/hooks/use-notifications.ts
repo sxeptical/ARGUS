@@ -55,9 +55,11 @@ export function useNotifications({
         prefs,
         new Set(scopedSignals.map((signal) => signal.id)),
       );
-      const activeIds = new Set(signals.map((signal) => signal.id));
-      setToasts((current) => mergeActiveSignals(current, notifiable, activeIds));
-      setAlerts((current) => mergeActiveSignals(current, notifiable, activeIds));
+      // `signals` is also the source for refreshing retained rows, so a rail
+      // reword or higher PSI updates existing toasts instead of waiting for
+      // the signal to clear.
+      setToasts((current) => mergeActiveSignals(current, notifiable, signals));
+      setAlerts((current) => mergeActiveSignals(current, notifiable, signals));
       if (notifiable.length > 0) {
         setUnreadIds((current) => new Set([...current, ...notifiable.map((signal) => signal.id)]));
       }
