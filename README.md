@@ -6,7 +6,7 @@ https://www.argusint.live
 
 [![Next.js](https://img.shields.io/badge/Next.js-16-black?logo=nextdotjs)](https://nextjs.org/)
 [![React](https://img.shields.io/badge/React-19-61dafb?logo=react&logoColor=111)](https://react.dev/)
-[![MapLibre](https://img.shields.io/badge/MapLibre-6.4-21b8a6)](https://maplibre.org/)
+[![MapLibre](https://img.shields.io/badge/MapLibre-6.16-21b8a6)](https://maplibre.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-ready-3178c6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![Vercel](https://img.shields.io/badge/Deploy-Vercel-black?logo=vercel)](https://vercel.com/)
 [![Bun](https://img.shields.io/badge/Bun-1.4-f9f1e1?logo=bun&logoColor=f472b6)](https://bun.sh/)
