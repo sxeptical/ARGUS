@@ -43,7 +43,7 @@ const MINUTES_PER_STOP_BY_LINE: Record<string, number> = {
   "Circle Line Extension": 2,
   "Downtown Line": 1.5,
   "Thomson-East Coast Line": 2.5,
-  // TEL Stage 5 extension (Bayshore → Bedok South → Sungei Bedok) — planned 2H 2026, not yet operational
+  // TEL Stage 5 extension (Bayshore → Bedok South → Sungei Bedok) — opens 26 Dec 2026, not yet operational
   "Thomson-East Coast Line Extension": 2.5,
   // LRT stations are close together; trains take ~1.5 min per hop.
   "Bukit Panjang LRT": 1.5,
