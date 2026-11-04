@@ -159,23 +159,6 @@ bun run verify   # Typecheck, lint, test, and production build
 
 ---
 
-## Vercel Deployment
-
-Set the environment variables in Vercel Project Settings:
-
-- `LTA_API_KEY`
-- `AVIATIONSTACK_API_KEY`
-
-Make sure they are enabled for the environment you are deploying to:
-
-- Production
-- Preview
-- Development, if you use Vercel CLI locally
-
-After editing env vars in Vercel, redeploy the project. Vercel deployments do not automatically pick up changed env vars until a new deployment is created.
-
----
-
 ## Notes
 
 - Flight direction is best-effort. Aviationstack airport metadata is used when available; otherwise heading relative to Changi is used.
