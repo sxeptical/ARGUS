@@ -12,11 +12,13 @@ describe("isRouteableMrtStation", () => {
     expect(isRouteableMrtStation("Keppel")).toBe(true);
     expect(isRouteableMrtStation("Cantonment")).toBe(true);
     expect(isRouteableMrtStation("Prince Edward Road")).toBe(true);
+    expect(isRouteableMrtStation("Hume")).toBe(true);
   });
 
   test("returns false for non-existent stations", () => {
     expect(isRouteableMrtStation("Bedok South")).toBe(false);
     expect(isRouteableMrtStation("Sungei Bedok")).toBe(false);
+    expect(isRouteableMrtStation("Xilin")).toBe(false);
     expect(isRouteableMrtStation("Nonexistent Station")).toBe(false);
     expect(isRouteableMrtStation("")).toBe(false);
   });
@@ -69,6 +71,10 @@ describe("planMrtRoute", () => {
     expect(plan).not.toBeNull();
     expect(plan!.transfers).toBeGreaterThanOrEqual(0);
     expect(plan!.estimatedMinutes).toBeGreaterThan(0);
+  });
+
+  test("rides through Hume between Hillview and Beauty World", () => {
+    expect(planMrtRoute("Hillview", "Beauty World")?.stations).toEqual(["Hillview", "Hume", "Beauty World"]);
   });
 });
 

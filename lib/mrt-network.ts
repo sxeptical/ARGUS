@@ -173,6 +173,7 @@ export const MRT_OPERATIONAL_LINE_STATIONS: Record<string, string[]> = {
     "Bukit Panjang",
     "Cashew",
     "Hillview",
+    "Hume",
     "Beauty World",
     "King Albert Park",
     "Sixth Avenue",
@@ -205,7 +206,7 @@ export const MRT_OPERATIONAL_LINE_STATIONS: Record<string, string[]> = {
     "Upper Changi",
     "Expo",
   ],
-  // TEL Stage 5 (Bedok South, Sungei Bedok) is planned, not operational.
+  // TEL Stage 5 (Bedok South, Sungei Bedok) opens 26 Dec 2026, not operational yet.
   "Thomson-East Coast Line": [
     "Woodlands North",
     "Woodlands",
@@ -244,10 +245,17 @@ export const MRT_OPERATIONAL_LINE_STATIONS: Record<string, string[]> = {
 
 /** Future / non-routeable extensions shown on the map only. */
 const MRT_FUTURE_LINE_STATIONS: Record<string, string[]> = {
-  // TEL Stage 5 extension — planned 2H 2026, NOT yet operational.
+  // TEL Stage 5 extension — opens 26 Dec 2026, NOT yet operational.
   "Thomson-East Coast Line Extension": [
     "Bayshore",
     "Bedok South",
+    "Sungei Bedok",
+  ],
+  // DTL3e — opens 26 Dec 2026, NOT yet operational. Sungei Bedok is the
+  // TEL interchange.
+  "Downtown Line Extension": [
+    "Expo",
+    "Xilin",
     "Sungei Bedok",
   ],
   "Jurong Region Line": [
