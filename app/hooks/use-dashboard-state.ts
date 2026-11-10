@@ -206,6 +206,12 @@ export function useDashboardState() {
     setSelectedParkId(null);
     setSelectedAmenityId(target);
   }, []);
+  /** Closes the focus dialog: nothing is locked any more. */
+  const clearSelection = useCallback(() => {
+    setSelectedFlightId(null);
+    setSelectedParkId(null);
+    setSelectedAmenityId(null);
+  }, []);
   const selectedAmenity = useMemo<SelectedAmenity | null>(() => {
     if (!selectedAmenityId) return null;
     if (selectedAmenityId.type === "mall") {
@@ -340,6 +346,7 @@ export function useDashboardState() {
     pickMrtStation: mrt.pickStation,
     resetMrtRoute: mrt.reset,
     selectBusRouteDirection: busRoute.selectDirection,
+    clearSelection,
     selectedAmenity,
     selectedCamera,
     selectedFlight,

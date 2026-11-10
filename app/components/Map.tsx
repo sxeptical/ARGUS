@@ -91,7 +91,7 @@ type MapProps = {
   onFlightClick: (flight: FlightState) => void;
   onMrtStationClick?: (stationName: string) => void;
   onParkClick: (feature: { kind: ParkFeatureKind; name: string; park?: string; type?: string; cycle?: boolean }) => void;
-  /** Locks the clicked mall/hawker centre into the Target Focus panel. */
+  /** Opens the clicked mall/hawker centre in the focus dialog. */
   onAmenityClick?: (target: { type: "mall" | "hawker"; id: string }) => void;
   mrtRouteSegments?: MrtRouteSegment[];
   busRouteOverlay?: BusRouteOverlay | null;
@@ -315,6 +315,9 @@ function buildPlaneIcon(size = 64): ImageData {
 
   return context.getImageData(0, 0, size, size);
 }
+
+// The only font stack OpenFreeMap serves; MapLibre's default (Open Sans) 404s.
+const MAP_FONT = ["Noto Sans Regular"];
 
 function registerMapLoadListener(
   map: maplibregl.Map,
@@ -1143,7 +1146,7 @@ function useMapController({
         source: "bus-route-stops",
         minzoom: 12,
         layout: {
-          "text-field": ["get", "Description"],
+          "text-font": MAP_FONT, "text-field": ["get", "Description"],
           "text-size": 10,
           "text-anchor": "top",
           "text-offset": [0, 0.9],
@@ -1243,7 +1246,7 @@ function useMapController({
         minzoom: 10.8,
         layout: {
           visibility: sensorVisibilityRef.current.flights ? "visible" : "none",
-          "text-field": ["get", "callsign"],
+          "text-font": MAP_FONT, "text-field": ["get", "callsign"],
           "text-size": 10,
           "text-anchor": "left",
           "text-offset": [0.8, 0],
@@ -1322,7 +1325,7 @@ function useMapController({
           visibility: sensorVisibilityRef.current.cameras
             ? "visible"
             : "none",
-          "text-field": ["get", "point_count_abbreviated"],
+          "text-font": MAP_FONT, "text-field": ["get", "point_count_abbreviated"],
           "text-size": 10,
         },
         paint: {
@@ -1544,7 +1547,7 @@ function useMapController({
           minzoom: 11.5,
           layout: {
             visibility: sensorVisibilityRef.current.mrt ? "visible" : "none",
-            "text-field": ["get", "label"],
+            "text-font": MAP_FONT, "text-field": ["get", "label"],
             "text-size": 10,
             "text-anchor": "top",
             "text-offset": [0, 1],
@@ -1580,7 +1583,7 @@ function useMapController({
           minzoom: 11.5,
           filter: ["in", ROUTE_STATION_KEY, ["literal", []]],
           layout: {
-            "text-field": ["get", "name"],
+            "text-font": MAP_FONT, "text-field": ["get", "name"],
             "text-size": 11,
             "text-anchor": "top",
             "text-offset": [0, 1],
@@ -1628,7 +1631,7 @@ function useMapController({
         map.addLayer({ id: "parks-label-layer", type: "symbol", source: "park-labels", minzoom: 10.5, layout: {
           visibility: parksVisibility,
           // Only parks of 40 ha+ until street zoom, so the island view isn't a wall of names.
-          "text-field": ["step", ["zoom"], ["case", [">=", ["coalesce", ["get", "areaHa"], 0], 40], ["get", "name"], ""], 13, ["get", "name"]],
+          "text-font": MAP_FONT, "text-field": ["step", ["zoom"], ["case", [">=", ["coalesce", ["get", "areaHa"], 0], 40], ["get", "name"], ""], 13, ["get", "name"]],
           "text-size": 10,
           "symbol-sort-key": ["-", 0, ["coalesce", ["get", "areaHa"], 0]],
         }, paint: { "text-color": MAP_COLORS.park, "text-halo-color": MAP_COLORS.paper, "text-halo-width": 1.2 } });
@@ -1673,7 +1676,7 @@ function useMapController({
             "circle-stroke-color": MAP_COLORS.paper,
             "circle-stroke-width": 1.5,
           } });
-          map.addLayer({ id: `${prefix}-label-layer`, type: "symbol", source: sourceId, minzoom: 14, layout: { visibility, "text-field": ["get", "name"], "text-size": 10, "text-offset": [0, 1.1], "text-anchor": "top" }, paint: { "text-color": color as maplibregl.DataDrivenPropertyValueSpecification<string>, "text-halo-color": MAP_COLORS.paper, "text-halo-width": 1 } });
+          map.addLayer({ id: `${prefix}-label-layer`, type: "symbol", source: sourceId, minzoom: 14, layout: { visibility, "text-font": MAP_FONT, "text-field": ["get", "name"], "text-size": 10, "text-offset": [0, 1.1], "text-anchor": "top" }, paint: { "text-color": color as maplibregl.DataDrivenPropertyValueSpecification<string>, "text-halo-color": MAP_COLORS.paper, "text-halo-width": 1 } });
           layerListenerCleanups.push(registerLayerMouseListener(map, "click", `${prefix}-point-layer`, onClick), registerLayerMouseListener(map, "mouseenter", `${prefix}-point-layer`, onEnter), registerLayerMouseListener(map, "mouseleave", `${prefix}-point-layer`, handleHoverPopupLeave), registerLayerMouseListener(map, "mouseenter", `${prefix}-point-layer`, handleInteractiveLayerEnter), registerLayerMouseListener(map, "mouseleave", `${prefix}-point-layer`, handleInteractiveLayerLeave));
         }
       } catch (error) {
@@ -1734,7 +1737,7 @@ function useMapController({
           type: "symbol",
           source: "air-quality-regions",
           layout: {
-            "text-field": ["get", "label"],
+            "text-font": MAP_FONT, "text-field": ["get", "label"],
             "text-size": 10,
             "text-allow-overlap": true,
             "text-ignore-placement": true,

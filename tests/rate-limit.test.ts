@@ -1,6 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { Effect } from "effect";
-import { extractClientIp, RateLimit, RateLimitLive } from "@/lib/rate-limit";
+import { createRateLimiter, extractClientIp } from "@/lib/rate-limit";
 
 const originalVercel = process.env.VERCEL;
 const originalTrustProxy = process.env.ARGUS_TRUST_PROXY_HEADERS;
@@ -71,67 +70,33 @@ describe("extractClientIp", () => {
   });
 });
 
-describe("RateLimit service", () => {
-  test("allows through the threshold and blocks the next request", async () => {
-    const result = await Effect.runPromise(
-      Effect.gen(function* () {
-        const limiter = yield* RateLimit;
-        const first = yield* limiter.check("203.0.113.1", {
-          scope: "threshold",
-          maxRequests: 2,
-          windowMs: 60_000,
-        });
-        const second = yield* limiter.check("203.0.113.1", {
-          scope: "threshold",
-          maxRequests: 2,
-          windowMs: 60_000,
-        });
-        const third = yield* limiter.check("203.0.113.1", {
-          scope: "threshold",
-          maxRequests: 2,
-          windowMs: 60_000,
-        });
-        return { first, second, third };
-      }).pipe(Effect.provide(RateLimitLive)),
-    );
+describe("rate limiter", () => {
+  test("allows through the threshold and blocks the next request", () => {
+    const limiter = createRateLimiter();
+    const options = { scope: "threshold", maxRequests: 2, windowMs: 60_000 };
+    const first = limiter.check("203.0.113.1", options);
+    const second = limiter.check("203.0.113.1", options);
+    const third = limiter.check("203.0.113.1", options);
 
-    expect(result.first.allowed).toBe(true);
-    expect(result.second.allowed).toBe(true);
-    expect(result.second.remaining).toBe(0);
-    expect(result.third.allowed).toBe(false);
+    expect(first.allowed).toBe(true);
+    expect(second.allowed).toBe(true);
+    expect(second.remaining).toBe(0);
+    expect(third.allowed).toBe(false);
   });
 
-  test("resets after the window and isolates scopes", async () => {
-    const result = await Effect.runPromise(
-      Effect.gen(function* () {
-        const limiter = yield* RateLimit;
-        yield* limiter.check("203.0.113.2", {
-          scope: "one",
-          maxRequests: 1,
-          windowMs: 10,
-        });
-        const blocked = yield* limiter.check("203.0.113.2", {
-          scope: "one",
-          maxRequests: 1,
-          windowMs: 10,
-        });
-        const otherScope = yield* limiter.check("203.0.113.2", {
-          scope: "two",
-          maxRequests: 1,
-          windowMs: 10,
-        });
-        yield* Effect.sleep("15 millis");
-        const reset = yield* limiter.check("203.0.113.2", {
-          scope: "one",
-          maxRequests: 1,
-          windowMs: 10,
-        });
-        return { blocked, otherScope, reset };
-      }).pipe(Effect.provide(RateLimitLive)),
-    );
+  test("resets after the window and isolates scopes and IPs", async () => {
+    const limiter = createRateLimiter();
+    const one = { scope: "one", maxRequests: 1, windowMs: 10 };
+    limiter.check("203.0.113.2", one);
+    const blocked = limiter.check("203.0.113.2", one);
+    const otherScope = limiter.check("203.0.113.2", { ...one, scope: "two" });
+    const otherIp = limiter.check("203.0.113.3", one);
+    await new Promise((resolve) => setTimeout(resolve, 15));
+    const reset = limiter.check("203.0.113.2", one);
 
-    expect(result.blocked.allowed).toBe(false);
-    expect(result.otherScope.allowed).toBe(true);
-    expect(result.reset.allowed).toBe(true);
+    expect(blocked.allowed).toBe(false);
+    expect(otherScope.allowed).toBe(true);
+    expect(otherIp.allowed).toBe(true);
+    expect(reset.allowed).toBe(true);
   });
 });

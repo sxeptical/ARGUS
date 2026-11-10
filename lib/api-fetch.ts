@@ -3,15 +3,14 @@
  * The timeout prevents hung routes from blocking dashboard startup.
  */
 
-const DEFAULT_CLIENT_TIMEOUT_MS = 15_000;
+const TIMEOUT_MS = 15_000;
 
 export async function apiFetch<T>(
   url: string,
   init?: RequestInit,
 ): Promise<T> {
-  const timeoutMs = DEFAULT_CLIENT_TIMEOUT_MS;
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
 
   // Respect a caller-provided signal (e.g. use-bus-route cancellation) by
   // forwarding its abort to our controller.
@@ -38,7 +37,7 @@ export async function apiFetch<T>(
   } catch (error) {
     if (error instanceof DOMException && error.name === "AbortError") {
       if (init?.signal?.aborted) throw error;
-      throw new Error(`Request timed out after ${timeoutMs / 1000}s: ${url}`);
+      throw new Error(`Request timed out after ${TIMEOUT_MS / 1000}s: ${url}`);
     }
     throw error;
   } finally {

@@ -13,17 +13,12 @@
     "isolatedModules": true,
     "jsx": "react-jsx",
     "incremental": true,
-    // TS 7 always uses stable ordering; enable it in the TS 6 API checker
-    // so `bun run typecheck` and `next build` share the same semantics.
-    "stableTypeOrdering": true,
     "plugins": [
       {
         "name": "next"
       }
     ],
-    // TypeScript 7 defaults `types` to [] (no automatic @types inclusion);
-    // keep Node globals available for the API routes and lib code, plus
-    // Bun test globals for `*.test.ts`.
+    // Node globals for the API routes and lib code, plus Bun test globals.
     "types": ["node", "bun-types"],
     "paths": {
       "@/*": ["./*"]

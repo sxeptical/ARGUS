@@ -1,16 +1,8 @@
 /** Combines LTA bus routes with BusRouter road-following geometry. */
-import { HttpClient } from "@effect/platform";
-import { Effect, Schema } from "effect";
-import { Cache } from "@/lib/cache";
-import {
-  ExternalApiError,
-  fromParseError,
-  type UpstreamError,
-} from "@/lib/errors";
-import {
-  BusRouteResponseSchema,
-  LtaBusRoutesResponseSchema,
-} from "@/types/schemas";
+import { z } from "zod";
+import { cache } from "@/lib/cache";
+import { ExternalApiError } from "@/lib/errors";
+import { LtaBusRoutesResponseSchema } from "@/types/schemas";
 import type {
   BusRouteDirection,
   BusRouteResponse,
@@ -111,41 +103,19 @@ const buildBusRoutesIndex = (
   return raw;
 };
 
-const fetchAndIndexBusRoutes = (): Effect.Effect<
-  BusRoutesIndex,
-  UpstreamError,
-  HttpClient.HttpClient
-> =>
-  withTimeout(
-    "lta-bus-routes",
-    Effect.gen(function* () {
-      const allRows = yield* collectLtaEndpoint(
-        "/BusRoutes",
-        LtaBusRoutesResponseSchema,
-        {
+const getBusRoutesIndex = (): Promise<BusRoutesIndex> =>
+  cache.get("bus-routes-index", BUS_ROUTES_CACHE_TTL_MS, () =>
+    withTimeout("lta-bus-routes", BUS_ROUTES_TIMEOUT_MS, async (signal) =>
+      buildBusRoutesIndex(
+        await collectLtaEndpoint("/BusRoutes", LtaBusRoutesResponseSchema, {
           pageSize: BUS_ROUTES_PAGE_SIZE,
           maxPages: BUS_ROUTES_MAX_PAGES,
           concurrency: BUS_ROUTES_PAGE_CONCURRENCY,
-        },
-      );
-      return buildBusRoutesIndex(allRows);
-    }),
-    BUS_ROUTES_TIMEOUT_MS,
+          signal,
+        }),
+      ),
+    ),
   );
-
-const getBusRoutesIndex = (): Effect.Effect<
-  BusRoutesIndex,
-  UpstreamError,
-  Cache | HttpClient.HttpClient
-> =>
-  Effect.gen(function* () {
-    const cache = yield* Cache;
-    return yield* cache.get(
-      "bus-routes-index",
-      BUS_ROUTES_CACHE_TTL_MS,
-      fetchAndIndexBusRoutes(),
-    );
-  });
 
 // ---------- BusRouter geometry ----------
 
@@ -373,10 +343,7 @@ type BusRouterGeometryIndex = Map<string, Array<Array<[number, number]>>>;
 
 // Permissive: object of serviceNo → encoded polyline string[]; entries are
 // validated while decoding patterns below.
-const BusRouterRoutesSchema = Schema.Record({
-  key: Schema.String,
-  value: Schema.Unknown,
-});
+const BusRouterRoutesSchema = z.record(z.string(), z.unknown());
 
 const decodeGeometryIndex = (body: unknown): BusRouterGeometryIndex => {
   const index: BusRouterGeometryIndex = new Map();
@@ -405,71 +372,51 @@ const decodeGeometryIndex = (body: unknown): BusRouterGeometryIndex => {
   return index;
 };
 
-const fetchBusRouterGeometryIndex = (): Effect.Effect<
-  BusRouterGeometryIndex,
-  UpstreamError,
-  HttpClient.HttpClient
-> =>
-  Effect.gen(function* () {
-    const urls = [BUSROUTER_ROUTES_URL, BUSROUTER_ROUTES_FALLBACK_URL];
-    for (const url of urls) {
-      const decoded = yield* httpGetJson(
+const fetchBusRouterGeometryIndex =
+  async (): Promise<BusRouterGeometryIndex> => {
+    for (const url of [BUSROUTER_ROUTES_URL, BUSROUTER_ROUTES_FALLBACK_URL]) {
+      // Per-source failure falls through to the next URL.
+      const decoded = await httpGetJson(
         "busrouter",
         url,
         { Accept: "application/json" },
         BusRouterRoutesSchema,
         BUSROUTER_GEOMETRY_TIMEOUT_MS,
-      ).pipe(
-        Effect.map(decodeGeometryIndex),
-        // Per-source failure falls through to the next URL.
-        Effect.catchAll(() => Effect.succeed(null)),
-      );
+      ).then(decodeGeometryIndex, () => null);
 
-      if (decoded && decoded.size > 0) {
-        return decoded;
-      }
+      if (decoded && decoded.size > 0) return decoded;
     }
-    return yield* Effect.fail(
-      new ExternalApiError({
-        service: "busrouter",
-        status: 502,
-        message: "No BusRouter geometry source is currently reachable",
-      }),
-    );
-  });
+    throw new ExternalApiError({
+      service: "busrouter",
+      status: 502,
+      message: "No BusRouter geometry source is currently reachable",
+    });
+  };
 
 const EMPTY_GEOMETRY_INDEX: BusRouterGeometryIndex = new Map();
 
 /** Fall back to stop chords and briefly cache geometry-source failures. */
-const getBusRouterGeometryIndex = (): Effect.Effect<
-  BusRouterGeometryIndex,
-  never,
-  Cache | HttpClient.HttpClient
-> =>
-  Effect.gen(function* () {
-    const cache = yield* Cache;
-    const recentlyUnavailable = yield* cache.peek<BusRouterGeometryIndex>(
+const getBusRouterGeometryIndex = async (): Promise<BusRouterGeometryIndex> => {
+  const recentlyUnavailable = cache.peek<BusRouterGeometryIndex>(
+    "busrouter-geometry-unavailable",
+    BUSROUTER_GEOMETRY_NEGATIVE_TTL_MS,
+  );
+  if (recentlyUnavailable) return recentlyUnavailable;
+
+  try {
+    return await cache.get(
+      "busrouter-geometry-index",
+      BUSROUTER_GEOMETRY_CACHE_TTL_MS,
+      fetchBusRouterGeometryIndex,
+    );
+  } catch {
+    return cache.get(
       "busrouter-geometry-unavailable",
       BUSROUTER_GEOMETRY_NEGATIVE_TTL_MS,
+      async () => EMPTY_GEOMETRY_INDEX,
     );
-    if (recentlyUnavailable) return recentlyUnavailable;
-
-    return yield* cache
-      .get(
-        "busrouter-geometry-index",
-        BUSROUTER_GEOMETRY_CACHE_TTL_MS,
-        fetchBusRouterGeometryIndex(),
-      )
-      .pipe(
-        Effect.catchAll(() =>
-          cache.get(
-            "busrouter-geometry-unavailable",
-            BUSROUTER_GEOMETRY_NEGATIVE_TTL_MS,
-            Effect.succeed(EMPTY_GEOMETRY_INDEX),
-          ),
-        ),
-      );
-  });
+  }
+};
 
 /**
  * Pick each direction's road polyline. Directions choose independently: the
@@ -533,156 +480,142 @@ const findCaseInsensitiveKey = (
   return null;
 };
 
-export const getBusRoute = (
+export const getBusRoute = async (
   serviceNo: string,
   stopId?: string,
-): Effect.Effect<
-  BusRouteResponse,
-  UpstreamError,
-  Cache | HttpClient.HttpClient
-> =>
-  Effect.gen(function* () {
-    const normalizedService = serviceNo.trim();
-    const index = yield* getBusRoutesIndex();
+): Promise<BusRouteResponse> => {
+  const normalizedService = serviceNo.trim();
+  const index = await getBusRoutesIndex();
 
-    // LTA service numbers are case-sensitive in practice for letter
-    // suffixes (e.g. 12e). Try exact match first, then case-insensitive.
-    let serviceKey = normalizedService;
-    let directionsMap = index.get(normalizedService) ?? null;
-    if (!directionsMap) {
-      const matched = findCaseInsensitiveKey(index, normalizedService);
-      if (matched !== null) {
-        serviceKey = matched;
-        directionsMap = index.get(matched) ?? null;
-      }
+  // LTA service numbers are case-sensitive in practice for letter
+  // suffixes (e.g. 12e). Try exact match first, then case-insensitive.
+  let serviceKey = normalizedService;
+  let directionsMap = index.get(normalizedService) ?? null;
+  if (!directionsMap) {
+    const matched = findCaseInsensitiveKey(index, normalizedService);
+    if (matched !== null) {
+      serviceKey = matched;
+      directionsMap = index.get(matched) ?? null;
     }
+  }
 
-    if (!directionsMap || directionsMap.size === 0) {
-      return yield* Effect.fail(
-        new ExternalApiError({
-          service: "lta",
-          status: 404,
-          message: `Bus service ${normalizedService} was not found`,
-        }),
-      );
-    }
+  if (!directionsMap || directionsMap.size === 0) {
+    throw new ExternalApiError({
+      service: "lta",
+      status: 404,
+      message: `Bus service ${normalizedService} was not found`,
+    });
+  }
 
-    const stopsCatalog = yield* getBusStops();
-    const stopByCode = new Map(
-      stopsCatalog.map((stop) => [stop.BusStopCode, stop]),
-    );
+  const stopsCatalog = await getBusStops();
+  const stopByCode = new Map(
+    stopsCatalog.map((stop) => [stop.BusStopCode, stop]),
+  );
 
-    const contextStopId = stopId?.trim() || null;
+  const contextStopId = stopId?.trim() || null;
 
-    const draft = [...directionsMap.entries()]
-      .sort(([a], [b]) => a - b)
-      .map(([direction, indexedStops]) => {
-        const joined: BusRouteStop[] = [];
-        for (const entry of indexedStops) {
-          const stop = stopByCode.get(entry.busStopCode);
-          if (
-            !stop ||
-            !Number.isFinite(stop.Latitude) ||
-            !Number.isFinite(stop.Longitude)
-          ) {
-            continue;
-          }
-          joined.push({
-            busStopCode: entry.busStopCode,
-            description: stop.Description,
-            latitude: stop.Latitude,
-            longitude: stop.Longitude,
-            stopSequence: entry.stopSequence,
-          });
+  const draft = [...directionsMap.entries()]
+    .sort(([a], [b]) => a - b)
+    .map(([direction, indexedStops]) => {
+      const joined: BusRouteStop[] = [];
+      for (const entry of indexedStops) {
+        const stop = stopByCode.get(entry.busStopCode);
+        if (
+          !stop ||
+          !Number.isFinite(stop.Latitude) ||
+          !Number.isFinite(stop.Longitude)
+        ) {
+          continue;
         }
-
-        let selectedStopIndex: number | null = null;
-        if (contextStopId) {
-          const idx = joined.findIndex((s) => s.busStopCode === contextStopId);
-          if (idx >= 0) {
-            selectedStopIndex = idx;
-          }
-        }
-
-        const originCode =
-          joined[0]?.busStopCode ?? indexedStops[0]?.busStopCode ?? "";
-        const destinationCode =
-          joined[joined.length - 1]?.busStopCode ??
-          indexedStops[indexedStops.length - 1]?.busStopCode ??
-          "";
-
-        return {
-          direction,
-          selectedStopIndex,
-          originCode,
-          destinationCode,
-          stops: joined,
-        };
-      })
-      .filter((dir) => dir.stops.length >= 2);
-
-    if (draft.length === 0) {
-      return yield* Effect.fail(
-        new ExternalApiError({
-          service: "lta",
-          status: 404,
-          message: `Bus service ${serviceKey} has no mappable stops`,
-        }),
-      );
-    }
-
-    const shownDirections = directionsLeavingStop(draft);
-
-    // Prefer a direction only when the context stop appears on exactly one.
-    const matchingDirections = shownDirections
-      .filter((dir) => dir.selectedStopIndex !== null)
-      .map((dir) => dir.direction);
-    const preferredDir =
-      matchingDirections.length === 1 ? matchingDirections[0] : null;
-
-    // Attach road-following geometry when BusRouter data is available.
-    const geometryIndex = yield* getBusRouterGeometryIndex();
-    let patterns =
-      geometryIndex.get(serviceKey) ??
-      geometryIndex.get(normalizedService) ??
-      null;
-    if (!patterns) {
-      const geometryKey = findCaseInsensitiveKey(geometryIndex, serviceKey);
-      if (geometryKey !== null) {
-        patterns = geometryIndex.get(geometryKey) ?? null;
+        joined.push({
+          busStopCode: entry.busStopCode,
+          description: stop.Description,
+          latitude: stop.Latitude,
+          longitude: stop.Longitude,
+          stopSequence: entry.stopSequence,
+        });
       }
-    }
-    const pathByDirection = matchPatternsToDirections(
-      patterns ?? [],
-      shownDirections.map((d) => ({ direction: d.direction, stops: d.stops })),
-    );
 
-    const directions: BusRouteDirection[] = shownDirections.map((dir) => {
-      const fit = pathByDirection.get(dir.direction);
-      const path = fit?.path ?? [];
-      // Same in-order projection used for matching, so the remaining-route
-      // slice starts on the pass of the road the selected stop is actually on.
-      const selectedPathIndex =
-        fit && dir.selectedStopIndex !== null
-          ? (fit.stopSegments[dir.selectedStopIndex] ?? null)
-          : null;
+      let selectedStopIndex: number | null = null;
+      if (contextStopId) {
+        const idx = joined.findIndex((s) => s.busStopCode === contextStopId);
+        if (idx >= 0) {
+          selectedStopIndex = idx;
+        }
+      }
+
+      const originCode =
+        joined[0]?.busStopCode ?? indexedStops[0]?.busStopCode ?? "";
+      const destinationCode =
+        joined[joined.length - 1]?.busStopCode ??
+        indexedStops[indexedStops.length - 1]?.busStopCode ??
+        "";
 
       return {
-        direction: dir.direction,
-        selectedStopIndex: dir.selectedStopIndex,
-        originCode: dir.originCode,
-        destinationCode: dir.destinationCode,
-        stops: dir.stops,
-        preferred: preferredDir !== null && dir.direction === preferredDir,
-        path,
-        selectedPathIndex,
+        direction,
+        selectedStopIndex,
+        originCode,
+        destinationCode,
+        stops: joined,
       };
-    });
+    })
+    .filter((dir) => dir.stops.length >= 2);
 
-    // Validate the assembled response against the shared contract so the
-    // schema in @/types/schemas stays the source of truth for the client.
-    return yield* Schema.decodeUnknown(BusRouteResponseSchema)({
-      serviceNo: serviceKey,
-      directions,
-    }).pipe(Effect.mapError((cause) => fromParseError("lta", cause)));
+  if (draft.length === 0) {
+    throw new ExternalApiError({
+      service: "lta",
+      status: 404,
+      message: `Bus service ${serviceKey} has no mappable stops`,
+    });
+  }
+
+  const shownDirections = directionsLeavingStop(draft);
+
+  // Prefer a direction only when the context stop appears on exactly one.
+  const matchingDirections = shownDirections
+    .filter((dir) => dir.selectedStopIndex !== null)
+    .map((dir) => dir.direction);
+  const preferredDir =
+    matchingDirections.length === 1 ? matchingDirections[0] : null;
+
+  // Attach road-following geometry when BusRouter data is available.
+  const geometryIndex = await getBusRouterGeometryIndex();
+  let patterns =
+    geometryIndex.get(serviceKey) ??
+    geometryIndex.get(normalizedService) ??
+    null;
+  if (!patterns) {
+    const geometryKey = findCaseInsensitiveKey(geometryIndex, serviceKey);
+    if (geometryKey !== null) {
+      patterns = geometryIndex.get(geometryKey) ?? null;
+    }
+  }
+  const pathByDirection = matchPatternsToDirections(
+    patterns ?? [],
+    shownDirections.map((d) => ({ direction: d.direction, stops: d.stops })),
+  );
+
+  const directions: BusRouteDirection[] = shownDirections.map((dir) => {
+    const fit = pathByDirection.get(dir.direction);
+    const path = fit?.path ?? [];
+    // Same in-order projection used for matching, so the remaining-route
+    // slice starts on the pass of the road the selected stop is actually on.
+    const selectedPathIndex =
+      fit && dir.selectedStopIndex !== null
+        ? (fit.stopSegments[dir.selectedStopIndex] ?? null)
+        : null;
+
+    return {
+      direction: dir.direction,
+      selectedStopIndex: dir.selectedStopIndex,
+      originCode: dir.originCode,
+      destinationCode: dir.destinationCode,
+      stops: dir.stops,
+      preferred: preferredDir !== null && dir.direction === preferredDir,
+      path,
+      selectedPathIndex,
+    };
   });
+
+  return { serviceNo: serviceKey, directions };
+};

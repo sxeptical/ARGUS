@@ -1,116 +1,95 @@
 /** Schema-validated HTTP requests with timeouts and normalized errors. */
-import { HttpClient } from "@effect/platform";
-import { Duration, Effect, Schema } from "effect";
+import type { z } from "zod";
 import {
   ExternalApiError,
   SchemaParseError,
   TimeoutError,
-  fromParseError,
-  fromTimeoutException,
-  type UpstreamError,
 } from "@/lib/errors";
 
 export const DEFAULT_TIMEOUT_MS = 10_000;
 
-/** Time out the entire request, body read, and decode pipeline. */
-export const withTimeout = <A, E, R>(
+/**
+ * Reject with `TimeoutError` when `run` outlives `ms`. The signal aborts at
+ * the deadline so `run` can cancel a fetch it owns.
+ */
+export async function withTimeout<A>(
   service: string,
-  effect: Effect.Effect<A, E, R>,
   ms: number,
-): Effect.Effect<A, E | TimeoutError, R> =>
-  effect.pipe(
-    Effect.timeout(Duration.millis(ms)),
-    Effect.catchTag("TimeoutException", (cause) =>
-      Effect.fail(fromTimeoutException(service, cause)),
-    ),
-  );
-
-const errorTag = (e: unknown): string | undefined =>
-  e && typeof e === "object" && "_tag" in e
-    ? String((e as { _tag: unknown })._tag)
-    : undefined;
-
-/** Normalize HTTP failures; unknown shapes become 502 `ExternalApiError`s. */
-export const toAppHttpError = (
-  service: string,
-  e: unknown,
-): ExternalApiError | SchemaParseError | TimeoutError => {
-  const tag = errorTag(e);
-  if (tag === "TimeoutError") return e as TimeoutError;
-  if (tag === "TimeoutException") return fromTimeoutException(service, e);
-  if (tag === "SchemaParseError") return e as SchemaParseError;
-  if (tag === "ExternalApiError") return e as ExternalApiError;
-  // Body decode failures from `response.json` are ResponseError { reason: "Decode" }.
-  if (tag === "ResponseError") {
-    const reason =
-      e && typeof e === "object" && "reason" in e
-        ? String((e as { reason: unknown }).reason)
-        : "";
-    if (reason === "Decode") {
-      return new SchemaParseError({
-        service,
-        message:
-          e instanceof Error ? e.message : `${service} returned malformed JSON`,
-      });
-    }
-    return new ExternalApiError({
-      service,
-      status: 502,
-      message:
-        e instanceof Error ? e.message : `${service} response body failed`,
-    });
-  }
-  return new ExternalApiError({
-    service,
-    status: 502,
-    message:
-      e instanceof Error
-        ? e.message
-        : `${service} request failed: ${String(e)}`,
+  run: (signal: AbortSignal) => Promise<A>,
+): Promise<A> {
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      controller.abort();
+      reject(
+        new TimeoutError({
+          service,
+          message: `${service} timed out after ${ms}ms`,
+        }),
+      );
+    }, ms);
   });
-};
+  try {
+    return await Promise.race([run(controller.signal), deadline]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 /**
- * GET and schema-decode a flat JSON body. `HttpClientResponse.schemaJson`
- * is unsuitable because it expects a `{ status, headers, body }` wrapper.
+ * GET a JSON body and validate it; the timeout covers the body read too.
+ * `parentSignal` lets an enclosing deadline cancel this request as well.
  */
-export const httpGetJson = <A, I>(
+export const httpGetJson = <A>(
   service: string,
   url: string,
   headers: Record<string, string>,
-  schema: Schema.Schema<A, I, never>,
+  schema: z.ZodType<A>,
   timeoutMs: number,
-): Effect.Effect<A, UpstreamError, HttpClient.HttpClient> =>
-  Effect.gen(function* () {
-    const response = yield* HttpClient.get(url, { headers });
-
-    if (response.status === 404) {
-      return yield* Effect.fail(
-        new ExternalApiError({
-          service,
-          status: 404,
-          message: `${service} returned 404`,
-        }),
-      );
+  parentSignal?: AbortSignal,
+): Promise<A> =>
+  withTimeout(service, timeoutMs, async (signal) => {
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        headers,
+        signal: parentSignal
+          ? AbortSignal.any([parentSignal, signal])
+          : signal,
+      });
+    } catch (error) {
+      throw new ExternalApiError({
+        service,
+        status: 502,
+        message: `${service} request failed: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      });
     }
 
-    if (response.status < 200 || response.status >= 300) {
-      return yield* Effect.fail(
-        new ExternalApiError({
-          service,
-          status: response.status,
-          message: `${service} request failed (${response.status})`,
-        }),
-      );
+    if (!response.ok) {
+      await response.body?.cancel().catch(() => undefined);
+      throw new ExternalApiError({
+        service,
+        status: response.status,
+        message: `${service} request failed (${response.status})`,
+      });
     }
 
-    const body = yield* response.json;
-    return yield* Schema.decodeUnknown(schema)(body).pipe(
-      Effect.mapError((cause) => fromParseError(service, cause)),
-    );
-  }).pipe(
-    Effect.timeout(Duration.millis(timeoutMs)),
-    Effect.catchAll((e): Effect.Effect<never, UpstreamError> =>
-      Effect.fail(toAppHttpError(service, e)),
-    ),
-  );
+    let body: unknown;
+    try {
+      body = await response.json();
+    } catch {
+      throw new SchemaParseError({
+        service,
+        message: `${service} returned malformed JSON`,
+      });
+    }
+
+    const parsed = schema.safeParse(body);
+    if (!parsed.success) {
+      throw new SchemaParseError({ service, message: parsed.error.message });
+    }
+    return parsed.data;
+  });

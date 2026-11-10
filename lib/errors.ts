@@ -1,52 +1,43 @@
-/** Tagged server errors mapped to HTTP responses by the route helper. */
-import { Data } from "effect";
+/** Server errors mapped to HTTP responses by the route helper. */
 
-export class ExternalApiError extends Data.TaggedError("ExternalApiError")<{
+/** An upstream API failed or answered with a non-2xx `status`. */
+export class ExternalApiError extends Error {
   readonly service: string;
-  readonly message: string;
   readonly status: number;
-}> {}
 
-export class SchemaParseError extends Data.TaggedError("SchemaParseError")<{
-  readonly service: string;
-  readonly message: string;
-}> {}
+  constructor(options: { service: string; message: string; status: number }) {
+    super(options.message);
+    this.name = "ExternalApiError";
+    this.service = options.service;
+    this.status = options.status;
+  }
+}
 
-export class TimeoutError extends Data.TaggedError("TimeoutError")<{
+/** An upstream body was not JSON or did not match its schema. */
+export class SchemaParseError extends Error {
   readonly service: string;
-  readonly message: string;
-}> {}
+
+  constructor(options: { service: string; message: string }) {
+    super(options.message);
+    this.name = "SchemaParseError";
+    this.service = options.service;
+  }
+}
+
+export class TimeoutError extends Error {
+  readonly service: string;
+
+  constructor(options: { service: string; message: string }) {
+    super(options.message);
+    this.name = "TimeoutError";
+    this.service = options.service;
+  }
+}
 
 /** A well-formed request whose query parameters failed validation (HTTP 400). */
-export class BadRequestError extends Data.TaggedError("BadRequestError")<{
-  readonly message: string;
-}> {}
-
-/** Errors emitted by external API clients. */
-export type UpstreamError =
-  | ExternalApiError
-  | SchemaParseError
-  | TimeoutError;
-
-/** Error union handled exhaustively by the route helper. */
-export type AppError = UpstreamError | BadRequestError;
-
-/** Convert an Effect timeout to `TimeoutError`. */
-export const fromTimeoutException = (
-  service: string,
-  cause: unknown,
-): TimeoutError =>
-  new TimeoutError({
-    service,
-    message: cause instanceof Error ? cause.message : "Request timed out",
-  });
-
-/** Convert a schema parse failure to `SchemaParseError`. */
-export const fromParseError = (
-  service: string,
-  cause: unknown,
-): SchemaParseError =>
-  new SchemaParseError({
-    service,
-    message: cause instanceof Error ? cause.message : "Schema parse failure",
-  });
+export class BadRequestError extends Error {
+  constructor(options: { message: string }) {
+    super(options.message);
+    this.name = "BadRequestError";
+  }
+}

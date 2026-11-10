@@ -38,7 +38,9 @@ export default function MapSearch({ results, onSelect, scope }: MapSearchProps) 
 				target?.tagName === "TEXTAREA" ||
 				target?.isContentEditable;
 
-			if (!isOpen && event.key.toLowerCase() === "s" && !isTyping &&
+			// Another dialog (e.g. a mall's store directory) owns the keyboard while open.
+			const otherDialogOpen = !isOpen && document.querySelector('[aria-modal="true"]') !== null;
+			if (!isOpen && event.key.toLowerCase() === "s" && !isTyping && !otherDialogOpen &&
 				!event.altKey && !event.ctrlKey && !event.metaKey) {
 				event.preventDefault();
 				setIsOpen(true);

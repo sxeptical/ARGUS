@@ -1,0 +1,225 @@
+{
+  "fetchedAt": "2026-11-06",
+  "malls": {
+    "osm-way-52236347": {
+      "stores": 138,
+      "listName": "313@somerset"
+    },
+    "osm-way-153136696": {
+      "stores": 205,
+      "listName": "AMK Hub"
+    },
+    "osm-way-465145060": {
+      "stores": 67,
+      "listName": "Aperia Mall"
+    },
+    "osm-way-675585724": {
+      "stores": 194,
+      "listName": "Bedok Mall"
+    },
+    "osm-way-172364977": {
+      "stores": 241,
+      "listName": "Bugis Junction (Part of Bugis Town)"
+    },
+    "osm-way-48031573": {
+      "stores": 94,
+      "listName": "Bugis+ (Part of Bugis Town)"
+    },
+    "osm-way-1395633020": {
+      "stores": 222,
+      "listName": "Causeway Point"
+    },
+    "osm-way-166194031": {
+      "stores": 145,
+      "listName": "Century Square"
+    },
+    "osm-way-102429452": {
+      "stores": 209,
+      "listName": "City Square Mall"
+    },
+    "osm-way-699168484": {
+      "stores": 99,
+      "listName": "Clarke Quay Central"
+    },
+    "curated-cqclarkequay": {
+      "stores": 60,
+      "listName": "CQ @ Clarke Quay"
+    },
+    "osm-way-432515092": {
+      "stores": 190,
+      "listName": "Funan"
+    },
+    "osm-way-161136289": {
+      "stores": 218,
+      "listName": "Great World"
+    },
+    "osm-way-127548081": {
+      "stores": 24,
+      "listName": "Greenwich V"
+    },
+    "osm-way-375020383": {
+      "stores": 28,
+      "listName": "HillV2"
+    },
+    "osm-way-107578653": {
+      "stores": 39,
+      "listName": "Hougang 1"
+    },
+    "osm-way-32774665": {
+      "stores": 103,
+      "listName": "Hougang Mall"
+    },
+    "osm-way-152598430": {
+      "stores": 38,
+      "listName": "Icon Village"
+    },
+    "osm-way-33543880": {
+      "stores": 229,
+      "listName": "IMM Building"
+    },
+    "osm-way-231917869": {
+      "stores": 278,
+      "listName": "ION Orchard"
+    },
+    "osm-relation-13156866": {
+      "stores": 252,
+      "listName": "Jem"
+    },
+    "osm-way-547383951": {
+      "stores": 260,
+      "listName": "Jewel Changi Airport"
+    },
+    "osm-way-245072068": {
+      "stores": 40,
+      "listName": "Junction 10"
+    },
+    "osm-way-620515713": {
+      "stores": 171,
+      "listName": "Junction 8"
+    },
+    "osm-relation-21400876": {
+      "stores": 380,
+      "listName": "Jurong Point"
+    },
+    "osm-node-4682788852": {
+      "stores": 33,
+      "listName": "Katong V"
+    },
+    "osm-way-173131856": {
+      "stores": 145,
+      "listName": "Lot One Shoppers' Mall"
+    },
+    "osm-way-728368561": {
+      "stores": 77,
+      "listName": "Mandarin Gallery"
+    },
+    "osm-way-303311927": {
+      "stores": 216,
+      "listName": "Marina Square"
+    },
+    "osm-way-46515799": {
+      "stores": 148,
+      "listName": "Ngee Ann City"
+    },
+    "osm-way-707600485": {
+      "stores": 407,
+      "listName": "Northpoint City"
+    },
+    "osm-way-1226724186": {
+      "stores": 97,
+      "listName": "One Holland Village"
+    },
+    "osm-way-41889999": {
+      "stores": 92,
+      "listName": "Orchard Central"
+    },
+    "osm-way-46518144": {
+      "stores": 23,
+      "listName": "Pacific Plaza"
+    },
+    "osm-way-172518496": {
+      "stores": 196,
+      "listName": "Paragon"
+    },
+    "osm-way-539767937": {
+      "stores": 294,
+      "listName": "Plaza Singapura"
+    },
+    "osm-way-39487263": {
+      "stores": 262,
+      "listName": "Raffles City Shopping Centre"
+    },
+    "osm-way-1122039326": {
+      "stores": 88,
+      "listName": "Sengkang Grand Mall"
+    },
+    "osm-way-172529121": {
+      "stores": 134,
+      "listName": "Square 2"
+    },
+    "osm-way-46595137": {
+      "stores": 396,
+      "listName": "Suntec City"
+    },
+    "osm-way-117035196": {
+      "stores": 55,
+      "listName": "Swing By @ Thomson Plaza"
+    },
+    "osm-way-166194476": {
+      "stores": 186,
+      "listName": "Tampines 1"
+    },
+    "osm-way-166194030": {
+      "stores": 149,
+      "listName": "Tampines Mall"
+    },
+    "osm-way-46503585": {
+      "stores": 139,
+      "listName": "The Centrepoint"
+    },
+    "osm-relation-2298319": {
+      "stores": 214,
+      "listName": "The Shoppes at Marina Bay Sands"
+    },
+    "osm-way-172117296": {
+      "stores": 149,
+      "listName": "Tiong Bahru Plaza"
+    },
+    "osm-way-172529122": {
+      "stores": 118,
+      "listName": "United Square"
+    },
+    "osm-way-173222209": {
+      "stores": 21,
+      "listName": "Valley Point"
+    },
+    "osm-way-172529118": {
+      "stores": 123,
+      "listName": "Velocity@Novena Square"
+    },
+    "osm-relation-2353588": {
+      "stores": 378,
+      "listName": "VivoCity"
+    },
+    "osm-way-301736937": {
+      "stores": 226,
+      "listName": "Waterway Point"
+    },
+    "osm-way-144381429": {
+      "stores": 95,
+      "listName": "West Coast Plaza"
+    },
+    "osm-way-158234014": {
+      "stores": 244,
+      "listName": "Westgate"
+    },
+    "osm-way-34575159": {
+      "stores": 143,
+      "listName": "White Sands"
+    },
+    "osm-way-172518503": {
+      "stores": 100,
+      "listName": "Wisma Atria"
+    }
+  }
+}

@@ -3,8 +3,6 @@ export {
   getBusStops,
   getCarparkAvailability,
   getEvChargingLocations,
-  normalizeCarparkAvailability,
-  normalizeEvChargingLocations,
   getTrafficCameras,
   getTrafficIncidents,
   getTrainServiceAlerts,

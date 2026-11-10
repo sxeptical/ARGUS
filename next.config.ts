@@ -50,11 +50,6 @@ const nextConfig: NextConfig = {
     "localhost",
     "*.preview.usehoplite.com",
   ],
-  experimental: {
-    // Use Next's compiler API: its CLI checker can mis-resolve the native
-    // TypeScript package alias used by `bun run typecheck`.
-    useTypeScriptCli: false,
-  },
   images: {
     // Disabled because camera images are dynamic external URLs from LTA;
     // unoptimized avoids Next.js image processing overhead and cost on Vercel.

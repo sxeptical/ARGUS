@@ -14,23 +14,20 @@ import { DashboardHeader } from "@/app/components/dashboard/DashboardHeader";
 import { GeoFilterPanel } from "@/app/components/dashboard/GeoFilterPanel";
 import {
   IntelPanel,
-  KeyValue,
   LegendDot,
   LegendSwatch,
   SignalBar,
 } from "@/app/components/dashboard/IntelPanel";
 import { LayersSidebar } from "@/app/components/dashboard/LayersSidebar";
 import { LoadingScreen } from "@/app/components/dashboard/LoadingScreen";
+import { FocusDialog } from "@/app/components/dashboard/FocusDialog";
 import { MobileLayersDrawer } from "@/app/components/dashboard/MobileLayersDrawer";
 import { NotificationBell } from "@/app/components/dashboard/NotificationBell";
-import { PlacePhotoGallery } from "@/app/components/dashboard/PlacePhotoGallery";
 import { useDashboardState } from "@/app/hooks/use-dashboard-state";
 import { useNotifications } from "@/app/hooks/use-notifications";
-import { formatAltitudeFeet, formatSpeedKmh } from "@/lib/formatters";
-import { buildHawkerSearchResults, buildMallSearchResults, formatOpeningHours } from "@/lib/amenities";
+import { buildHawkerSearchResults, buildMallSearchResults } from "@/lib/amenities";
 import { HAWKER_CENTRES, MALLS } from "@/lib/amenities-data";
-import { buildParkSearchResults, PARK_KIND_TITLE } from "@/lib/parks";
-import { photosForPark } from "@/lib/park-photos";
+import { buildParkSearchResults } from "@/lib/parks";
 import { PARKS_GEOJSON } from "@/lib/parks-data";
 import { formatRadius, withinRadius } from "@/lib/geo-filter";
 import { buildBusStopSearchResults, MRT_STATION_SEARCH_RESULTS } from "@/lib/map-search";
@@ -59,6 +56,7 @@ export default function Home() {
     carparks,
     clearBusRoute,
     clearGeoFilter,
+    clearSelection,
     disruptedMrtLines,
     error,
     evChargers,
@@ -263,7 +261,7 @@ export default function Home() {
                   const stop = busStops.find((item) => item.BusStopCode === result.id);
                   if (stop) handleSelectStop(stop);
                 } else if (result.type === "mall" || result.type === "hawker") {
-                  // Land in Target Focus, not just on the map, and make sure
+                  // Open it in focus mode, not just on the map, and make sure
                   // the searched place is actually drawn when we get there.
                   setSelectedAmenity({ type: result.type, id: result.id });
                   const layer = SEARCH_LAYER_BY_TYPE[result.type];
@@ -393,86 +391,18 @@ export default function Home() {
               ))}
             </div>
           </IntelPanel>
-
-          <div className="order-first xl:order-none">
-          <IntelPanel
-            title="Target Focus"
-              badge={selectedFlight ? "Flight Locked" : selectedPark ? "Park Locked" : selectedAmenity ? (selectedAmenity.type === "mall" ? "Mall Locked" : "Hawker Locked") : "Standby"}
-          >
-            {selectedFlight ? (
-              <div className="space-y-2 text-xs">
-                <div className="border border-line bg-paper p-2.5">
-                  <div className="font-mono text-sm font-medium text-ink">
-                    {selectedFlight.callsign}
-                  </div>
-                  <div className="data-label">
-                    {selectedFlight.originCountry}
-                  </div>
-                </div>
-                <KeyValue
-                  label="Direction"
-                  value={selectedFlight.direction.toUpperCase()}
-                />
-                <KeyValue
-                  label="Altitude"
-                  value={formatAltitudeFeet(selectedFlight.altitude)}
-                />
-                <KeyValue
-                  label="Speed"
-                  value={formatSpeedKmh(selectedFlight.velocity)}
-                />
-                <KeyValue
-                  label="Track"
-                  value={
-                    selectedFlight.track !== null
-                      ? `${Math.round(selectedFlight.track)}°`
-                      : "N/A"
-                  }
-                />
-              </div>
-            ) : selectedPark ? (
-              <div className="space-y-2 text-xs">
-                <div className="border border-line bg-paper p-2.5"><div className="font-mono text-sm font-medium text-ink">{selectedPark.name}</div><div className="data-label">{PARK_KIND_TITLE[selectedPark.kind]}</div></div>
-                {selectedPark.kind === "park" ? <PlacePhotoGallery key={selectedPark.name} name={selectedPark.name} photos={photosForPark(selectedPark.name)} /> : null}
-                {selectedPark.kind === "park" && selectedPark.areaHa ? <KeyValue label="Size" value={`${selectedPark.areaHa.toLocaleString("en-SG")} ha`} /> : null}
-                {selectedPark.kind === "pcn" ? <KeyValue label="Use" value="Walking, running, cycling" /> : null}
-                {selectedPark.kind === "trail" && selectedPark.park ? <KeyValue label="Park" value={selectedPark.park} /> : null}
-                {selectedPark.kind === "trail" ? <KeyValue label="Access" value={selectedPark.cycle ? "Walking and cycling" : "Walking only"} /> : null}
-                {selectedPark.kind === "trail" && selectedPark.type ? <KeyValue label="Type" value={selectedPark.type} /> : null}
-              </div>
-            ) : selectedAmenity ? (
-              <div className="space-y-2 text-xs">
-                {selectedAmenity.type === "mall" ? (
-                  <>
-                    <div className="border border-line bg-paper p-2.5"><div className="font-mono text-sm font-medium text-ink">{selectedAmenity.mall.name}</div><div className="data-label">Shopping Mall</div></div>
-                    <PlacePhotoGallery key={selectedAmenity.mall.id} name={selectedAmenity.mall.name} photos={selectedAmenity.mall.photos} />
-                    {selectedAmenity.mall.stores !== null ? <KeyValue label="Shops" value={selectedAmenity.mall.stores.toLocaleString("en-SG")} /> : null}
-                    {selectedAmenity.mall.fnb !== null ? <KeyValue label="Food & Drink" value={selectedAmenity.mall.fnb.toLocaleString("en-SG")} /> : null}
-                    {selectedAmenity.mall.nearestMrt ? <KeyValue label="Nearest MRT" value={selectedAmenity.mall.nearestMrt} /> : null}
-                    {selectedAmenity.mall.openingHours ? <KeyValue label="Hours" value={formatOpeningHours(selectedAmenity.mall.openingHours) ?? selectedAmenity.mall.openingHours} /> : null}
-                    {selectedAmenity.mall.address ? <KeyValue label="Address" value={selectedAmenity.mall.address} /> : null}
-                  </>
-                ) : (
-                  <>
-                    <div className="border border-line bg-paper p-2.5"><div className="font-mono text-sm font-medium text-ink">{selectedAmenity.hawker.name}</div><div className="data-label">Hawker Centre</div></div>
-                    <PlacePhotoGallery key={selectedAmenity.hawker.id} name={selectedAmenity.hawker.name} photos={selectedAmenity.hawker.photos} />
-                    {selectedAmenity.hawker.status === "planned" ? <KeyValue label="Status" value={selectedAmenity.hawker.expectedYear ? `Under construction · expected ${selectedAmenity.hawker.expectedYear}` : "Under construction"} /> : <KeyValue label="Status" value="In operation" />}
-                    {selectedAmenity.hawker.stalls !== null ? <KeyValue label="Stalls" value={`${selectedAmenity.hawker.stalls.toLocaleString("en-SG")} cooked food`} /> : null}
-                    {selectedAmenity.hawker.address ? <KeyValue label="Address" value={selectedAmenity.hawker.address} /> : null}
-                  </>
-                )}
-              </div>
-            ) : (
-              <div className="text-xs leading-relaxed text-muted">
-                Select a flight, park or amenity on the map to inspect it here.
-              </div>
-            )}
-          </IntelPanel>
-          </div>
         </aside>
       </main>
 
       <DashboardFooter />
+
+      <FocusDialog
+        key={selectedFlight?.id ?? selectedPark?.name ?? (selectedAmenity ? (selectedAmenity.type === "mall" ? selectedAmenity.mall.id : selectedAmenity.hawker.id) : "none")}
+        flight={selectedFlight}
+        park={selectedPark}
+        amenity={selectedAmenity}
+        onClose={clearSelection}
+      />
     </div>
   );
 }

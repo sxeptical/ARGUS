@@ -10,6 +10,7 @@ const WIKIDATA_SPARQL_URL = "https://query.wikidata.org/sparql";
 const COMMONS_API_URL = "https://commons.wikimedia.org/w/api.php";
 export const MAX_PHOTOS_PER_PLACE = 3;
 const PHOTO_THUMB_WIDTH = 480;
+const MIN_PHOTO_EDGE = 800;
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 // Overpass and the Wikimedia APIs shed load with 429/5xx; retry those a few times.
@@ -45,9 +46,12 @@ const withoutTracking = (url) => {
   for (const key of [...parsed.searchParams.keys()]) if (key.startsWith("utm_")) parsed.searchParams.delete(key);
   return parsed.toString();
 };
-// Commons also holds logos, floor plans, maps and signage; keep photo-like files.
-export const isPhotoFile = (title) =>
-  /\.jpe?g$/i.test(title) && !/\b(?:logo|maps?|plans?|directory|floor|signs?|signboard|info board|notice ?board|machines?|mesin)\b/i.test(title);
+// Commons also holds logos, floor plans, maps and signage, and (newest first
+// surfaces these) photos of the bus stop, rail line or lockers next door;
+// keep photos of the place itself.
+const NOT_THE_PLACE_RE =
+  /\b(?:logo|maps?|plans?|directory|floor|signs?|signboard|info board|notice ?board|machines?|mesin|bus ?stops?|bus interchange|(?:mrt|lrt) (?:tracks?|stations?|viaducts?)|tracks?|lockers?|kiosks?|car ?parks?|toilets?)\b/i;
+export const isPhotoFile = (title) => /\.jpe?g$/i.test(title) && !NOT_THE_PLACE_RE.test(title);
 
 /** Wikidata items of one class in Singapore, with coordinates, image, and Commons category. */
 export async function fetchWikidataItems(classId) {
@@ -75,20 +79,44 @@ const GENERIC_PLACE_WORDS = new Set(["hawker", "food", "market", "centre", "cent
 const distinctiveWords = (label) =>
   label.toLowerCase().split(/[^a-z0-9]+/).filter((word) => word.length >= 4 && !GENERIC_PLACE_WORDS.has(word));
 
-/** Candidate file titles for a Wikidata item: its main image, then its category. */
+const MAX_SUBCATEGORIES = 8;
+const MAX_CANDIDATES_PER_PLACE = 150;
+
+/**
+ * Candidate file titles for a Wikidata item: its main image plus the photos
+ * in its Commons category and one level of subcategories ("Interior of X",
+ * "X in 2024"), so pickPhotos can choose the newest rather than the first.
+ */
 async function itemPhotoTitles(item) {
   const titles = [...item.images];
-  if (item.category && titles.length < MAX_PHOTOS_PER_PLACE) {
-    const members = await commonsQuery({ action: "query", list: "categorymembers", cmtitle: `Category:${item.category}`, cmtype: "file", cmlimit: "20" });
+  if (item.category) {
+    const subcats = await commonsQuery({ action: "query", list: "categorymembers", cmtitle: `Category:${item.category}`, cmtype: "subcat", cmlimit: "50" });
+    const categories = [
+      `Category:${item.category}`,
+      ...(subcats?.query?.categorymembers ?? []).map((member) => member.title).slice(0, MAX_SUBCATEGORIES),
+    ];
     // Categories collect loosely related files (machines, signage, nearby
     // streets): keep only files whose name mentions the place.
     const words = distinctiveWords(item.label);
-    titles.push(...(members?.query?.categorymembers ?? [])
-      .map((member) => member.title)
-      .filter((title) => words.some((word) => title.toLowerCase().includes(word))));
+    for (const category of categories) {
+      const members = await commonsQuery({ action: "query", list: "categorymembers", cmtitle: category, cmtype: "file", cmlimit: "200" });
+      titles.push(...(members?.query?.categorymembers ?? [])
+        .map((member) => member.title)
+        .filter((title) => words.some((word) => title.toLowerCase().includes(word))));
+    }
   }
-  return [...new Set(titles)].filter(isPhotoFile).slice(0, MAX_PHOTOS_PER_PLACE + 3);
+  return [...new Set(titles)].filter(isPhotoFile).slice(0, MAX_CANDIDATES_PER_PLACE);
 }
+
+/**
+ * Capture year from Commons' DateTimeOriginal ("2024-05-12 14:03", "12 May
+ * 2024", "<time datetime=...>"), or null when missing or implausible.
+ */
+export const photoYear = (raw, now = new Date()) => {
+  const match = /\b(19[89]\d|20\d\d)\b/.exec(stripHtml(raw));
+  const year = match ? Number(match[1]) : null;
+  return year !== null && year <= now.getFullYear() ? year : null;
+};
 
 /** Thumbnail + attribution for each usable file title, in batches of 50. */
 export async function resolvePhotoInfo(titles) {
@@ -98,7 +126,8 @@ export async function resolvePhotoInfo(titles) {
     const batch = await commonsQuery({
       action: "query",
       prop: "imageinfo",
-      iiprop: "url|mime|extmetadata",
+      iiprop: "url|mime|size|extmetadata",
+      iiextmetadatafilter: "LicenseShortName|Artist|DateTimeOriginal",
       iiurlwidth: String(PHOTO_THUMB_WIDTH),
       titles: allTitles.slice(i, i + 50).join("|"),
     });
@@ -107,18 +136,44 @@ export async function resolvePhotoInfo(titles) {
       const meta = info?.extmetadata ?? {};
       const license = stripHtml(meta.LicenseShortName?.value);
       const author = truncate(cleanAuthor(stripHtml(meta.Artist?.value)), 40);
-      // Only freely licensed JPEGs served from Wikimedia's media hosts.
+      // Only freely licensed JPEGs served from Wikimedia's media hosts, big
+      // enough to fill the gallery without upscaling.
       if (info?.mime !== "image/jpeg" || !license || /fair use|non-free/i.test(license)) continue;
       if (!WIKIMEDIA_MEDIA_URL_RE.test(info.thumburl ?? "")) continue;
-      infoByTitle.set(page.title, { thumb: withoutTracking(info.thumburl), page: info.descriptionurl, author, license, source: "commons" });
+      if (Math.max(info.width ?? 0, info.height ?? 0) < MIN_PHOTO_EDGE) continue;
+      infoByTitle.set(page.title, {
+        thumb: withoutTracking(info.thumburl),
+        page: info.descriptionurl,
+        author,
+        license,
+        source: "commons",
+        year: photoYear(meta.DateTimeOriginal?.value),
+      });
     }
   }
   return infoByTitle;
 }
 
-/** File titles in the order given, resolved and capped at MAX_PHOTOS_PER_PLACE. */
-export const pickPhotos = (titles, infoByTitle) =>
-  titles.flatMap((title) => (infoByTitle.has(title) ? [infoByTitle.get(title)] : [])).slice(0, MAX_PHOTOS_PER_PLACE);
+// Photos taken within this many years count as recent.
+const RECENT_YEARS = 6;
+
+/**
+ * Up to MAX_PHOTOS_PER_PLACE of the resolved titles, newest capture year
+ * first (undated last; ties keep the given order, so a Wikidata main image
+ * wins among equals). Among recent photos, one per author comes first so a
+ * single visit doesn't fill the gallery; a second recent shot still beats
+ * an older photo from someone else.
+ */
+export const pickPhotos = (titles, infoByTitle, now = new Date()) => {
+  const ranked = titles
+    .flatMap((title, index) => (infoByTitle.has(title) ? [{ photo: infoByTitle.get(title), index }] : []))
+    .sort((a, b) => (b.photo.year ?? 0) - (a.photo.year ?? 0) || a.index - b.index)
+    .map(({ photo }) => photo);
+  const recent = ranked.filter((photo) => (photo.year ?? 0) >= now.getFullYear() - RECENT_YEARS);
+  const authors = new Set();
+  const spread = recent.filter((photo) => !authors.has(photo.author) && Boolean(authors.add(photo.author)));
+  return [...new Set([...spread, ...recent, ...ranked])].slice(0, MAX_PHOTOS_PER_PLACE);
+};
 
 /**
  * Up to MAX_PHOTOS_PER_PLACE Commons photos per place, keyed by place id.

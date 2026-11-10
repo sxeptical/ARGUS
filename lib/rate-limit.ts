@@ -1,5 +1,4 @@
-/** Per-IP rate limiter with bounded window storage and atomic `Ref` updates. */
-import { Context, Effect, Layer, Ref } from "effect";
+/** Per-IP fixed-window rate limiter with bounded in-memory storage. */
 
 const DEFAULT_WINDOW_MS = 60 * 1000;
 const GLOBAL_MAX_REQUESTS = 300;
@@ -17,88 +16,52 @@ export interface RateLimitOptions {
   readonly scope?: string;
 }
 
-export interface RateLimit {
-  readonly check: (
-    ip: string,
-    options?: RateLimitOptions,
-  ) => Effect.Effect<RateLimitDecision>;
-}
-
-export const RateLimit = Context.GenericTag<RateLimit>("@argus/RateLimit");
-
 interface WindowEntry {
   count: number;
   windowStart: number;
 }
 
-interface WindowState {
-  ipWindows: Map<string, WindowEntry>;
-}
+export function createRateLimiter() {
+  const windows = new Map<string, WindowEntry>();
 
-// Never evict the current key: doing so would reset its request count.
-const evictOldestIfNeeded = (
-  windows: Map<string, WindowEntry>,
-  currentKey: string,
-): void => {
-  if (windows.size < MAX_ENTRIES) return;
-  let oldestKey = "";
-  let oldest = Infinity;
-  for (const [key, entry] of windows) {
-    if (key !== currentKey && entry.windowStart < oldest) {
-      oldest = entry.windowStart;
-      oldestKey = key;
+  // Never evict the current key: doing so would reset its request count.
+  const evictOldestIfNeeded = (currentKey: string): void => {
+    if (windows.size < MAX_ENTRIES) return;
+    let oldestKey = "";
+    let oldest = Infinity;
+    for (const [key, entry] of windows) {
+      if (key !== currentKey && entry.windowStart < oldest) {
+        oldest = entry.windowStart;
+        oldestKey = key;
+      }
     }
-  }
-  if (oldestKey) windows.delete(oldestKey);
-};
+    if (oldestKey) windows.delete(oldestKey);
+  };
 
-const make = Effect.gen(function* () {
-  const state = yield* Ref.make<WindowState>({ ipWindows: new Map() });
-
-  const check: RateLimit["check"] = (ip, options = {}) =>
-    Effect.gen(function* () {
+  return {
+    check(ip: string, options: RateLimitOptions = {}): RateLimitDecision {
       const maxRequests = options.maxRequests ?? GLOBAL_MAX_REQUESTS;
       const windowMs = options.windowMs ?? DEFAULT_WINDOW_MS;
-      const scope = options.scope ?? "global";
-      const key = `${scope}:${ip}`;
-
+      const key = `${options.scope ?? "global"}:${ip}`;
       const now = Date.now();
 
-      return yield* Ref.modify(state, (s) => {
-        evictOldestIfNeeded(s.ipWindows, key);
-        const entry = s.ipWindows.get(key);
-        if (!entry || now - entry.windowStart > windowMs) {
-          s.ipWindows.set(key, { count: 1, windowStart: now });
-          return [
-            {
-              allowed: true,
-              remaining: maxRequests - 1,
-              resetMs: windowMs,
-            } satisfies RateLimitDecision,
-            s,
-          ] as const;
-        }
-        entry.count += 1;
-        const remaining = Math.max(0, maxRequests - entry.count);
-        const resetMs = Math.max(0, entry.windowStart + windowMs - now);
-        return [
-          {
-            allowed: entry.count <= maxRequests,
-            remaining,
-            resetMs,
-          } satisfies RateLimitDecision,
-          s,
-        ] as const;
-      });
-    });
+      evictOldestIfNeeded(key);
+      const entry = windows.get(key);
+      if (!entry || now - entry.windowStart > windowMs) {
+        windows.set(key, { count: 1, windowStart: now });
+        return { allowed: true, remaining: maxRequests - 1, resetMs: windowMs };
+      }
+      entry.count += 1;
+      return {
+        allowed: entry.count <= maxRequests,
+        remaining: Math.max(0, maxRequests - entry.count),
+        resetMs: Math.max(0, entry.windowStart + windowMs - now),
+      };
+    },
+  };
+}
 
-  return { check } satisfies RateLimit;
-});
-
-export const RateLimitLive: Layer.Layer<RateLimit, never, never> = Layer.effect(
-  RateLimit,
-  make,
-);
+export const rateLimiter = createRateLimiter();
 
 /**
  * Trust Vercel's forwarding header on Vercel, or standard proxy headers only
@@ -124,9 +87,5 @@ export function extractClientIp(request: Request): string {
   }
 
   // Untrusted clients share one bucket to prevent spoofed per-IP limits.
-  if (!trustProxy) {
-    return "unknown";
-  }
-
-  return "127.0.0.1";
+  return trustProxy ? "127.0.0.1" : "unknown";
 }
