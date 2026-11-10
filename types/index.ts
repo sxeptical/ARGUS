@@ -389,6 +389,24 @@ export interface HealthcareSite {
 }
 
 /**
+ * Public library branch from the static library bundle: NLB's 2019 register
+ * (data.gov.sg, content as of 2019) plus OpenStreetMap branches that
+ * postdate it (Punggol Regional Library). `branch` is the NLB branch code
+ * (SRPL, OCPL, ...), null for OSM-added branches.
+ */
+export interface PublicLibrary {
+  id: string;
+  name: string;
+  branch: string | null;
+  address: string | null;
+  lat: number;
+  lng: number;
+  /** Wikimedia Commons photos (credited per file), when the branch has an item. */
+  photos: PlacePhoto[];
+  source: "nlb" | "osm";
+}
+
+/**
  * Retail pharmacy from the static pharmacy bundle (HSA via data.gov.sg).
  */
 export interface Pharmacy {
@@ -420,7 +438,7 @@ export interface AmenitiesBundle {
   malls: Mall[];
 }
 
-export type SearchResultType = "bus-stop" | "mrt" | "park" | "mall" | "hawker" | "gym" | "community-club" | "pharmacy" | "hotel" | "heritage" | "healthcare";
+export type SearchResultType = "bus-stop" | "mrt" | "park" | "mall" | "hawker" | "gym" | "community-club" | "pharmacy" | "hotel" | "heritage" | "healthcare" | "library";
 
 export interface MapSearchResult {
   id: string;

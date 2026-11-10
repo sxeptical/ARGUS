@@ -31,6 +31,7 @@ import { HERITAGE_SITES, DEFAULT_HERITAGE_KIND_VISIBILITY } from "@/lib/heritage
 import { filterHeritageByKind, orderedHeritageKindCounts } from "@/lib/heritage";
 import { HEALTHCARE_SITES, DEFAULT_HEALTHCARE_KIND_VISIBILITY } from "@/lib/healthcare-data";
 import { filterHealthcareByKind, orderedHealthcareKindCounts } from "@/lib/healthcare";
+import { LIBRARIES } from "@/lib/libraries-data";
 import { DEFAULT_NOTIFICATION_PREFS } from "@/lib/notifications";
 import { PARKS_GEOJSON } from "@/lib/parks-data";
 import {
@@ -59,6 +60,7 @@ import type {
   HeritageSite,
   Hotel,
   Mall,
+  PublicLibrary,
   Pharmacy,
   TrafficCamera,
 } from "@/types";
@@ -76,7 +78,7 @@ export type SensorRow = {
 export type SensorStatsRow = Omit<SensorRow, "key" | "dot">;
 
 /** Which static amenity the map (or search) picked, by its bundle id. */
-export type AmenitySelectionTarget = { type: "mall" | "hawker" | "gym" | "community-club" | "pharmacy" | "hotel" | "heritage" | "healthcare"; id: string };
+export type AmenitySelectionTarget = { type: "mall" | "hawker" | "gym" | "community-club" | "pharmacy" | "hotel" | "heritage" | "healthcare" | "library"; id: string };
 
 /** A selected amenity resolved to its bundle record. */
 export type SelectedAmenity =
@@ -87,7 +89,8 @@ export type SelectedAmenity =
   | { type: "pharmacy"; pharmacy: Pharmacy }
   | { type: "hotel"; hotel: Hotel }
   | { type: "heritage"; site: HeritageSite }
-  | { type: "healthcare"; site: HealthcareSite };
+  | { type: "healthcare"; site: HealthcareSite }
+  | { type: "library"; library: PublicLibrary };
 
 export function useDashboardState() {
   // Declared before the sources: carparks and EV chargers only load while
@@ -249,6 +252,10 @@ export function useDashboardState() {
     [setHealthcareKinds],
   );
   const healthcareKindCountList = useMemo(() => orderedHealthcareKindCounts(HEALTHCARE_SITES), []);
+  const libraryCount = useMemo(
+    () => withinRadius(LIBRARIES, geoFilter, (library) => [library.lng, library.lat]).length,
+    [geoFilter],
+  );
 
   const selectedCamera = useMemo(
     () =>
@@ -336,6 +343,10 @@ export function useDashboardState() {
       const site = HEALTHCARE_SITES.find((site) => site.id === selectedAmenityId.id) ?? null;
       return site ? { type: "healthcare", site } : null;
     }
+    if (selectedAmenityId.type === "library") {
+      const library = LIBRARIES.find((library) => library.id === selectedAmenityId.id) ?? null;
+      return library ? { type: "library", library } : null;
+    }
     const hawker =
       HAWKER_CENTRES.find((hawker) => hawker.id === selectedAmenityId.id) ??
       null;
@@ -376,6 +387,7 @@ export function useDashboardState() {
     hotels: hotelCount,
     heritage: heritageCount,
     healthcare: healthcareCount,
+    libraries: libraryCount,
   };
   const sensorRows: SensorRow[] = LAYERS.map((layer) => ({
     key: layer.key,

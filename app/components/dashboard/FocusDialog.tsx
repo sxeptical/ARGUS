@@ -12,6 +12,7 @@ import { PHARMACY_SOURCE_HINT } from "@/lib/pharmacies";
 import { HOTEL_SOURCE_HINT } from "@/lib/hotels";
 import { HERITAGE_KIND_LABEL, HERITAGE_SOURCE_HINT } from "@/lib/heritage";
 import { HEALTHCARE_KIND_LABEL, HEALTHCARE_SOURCE_HINT } from "@/lib/healthcare";
+import { LIBRARY_SOURCE_HINT } from "@/lib/libraries";
 import { formatAltitudeFeet, formatSpeedKmh } from "@/lib/formatters";
 import { photosForPark } from "@/lib/park-photos";
 import { PARK_KIND_TITLE } from "@/lib/parks";
@@ -188,6 +189,22 @@ export function FocusDialog({
             {site.address ? <KeyValue label="Address" value={site.address} /> : null}
           </div>
           <p className="text-[11px] leading-relaxed text-muted">{HEALTHCARE_SOURCE_HINT[site.source]}</p>
+        </div>
+      </FocusShell>
+    );
+  }
+
+  if (amenity?.type === "library") {
+    const { library } = amenity;
+    return (
+      <FocusShell kind="Public Library" title={library.name} onClose={onClose}>
+        <div className="space-y-2 p-4 text-xs">
+          <PlacePhotoGallery key={library.id} name={library.name} photos={library.photos} />
+          <div>
+            {library.branch ? <KeyValue label="Branch" value={library.branch} /> : null}
+            {library.address ? <KeyValue label="Address" value={library.address} /> : null}
+          </div>
+          <p className="text-[11px] leading-relaxed text-muted">{LIBRARY_SOURCE_HINT[library.source]}</p>
         </div>
       </FocusShell>
     );

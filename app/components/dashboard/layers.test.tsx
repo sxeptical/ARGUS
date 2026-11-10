@@ -40,6 +40,7 @@ const layerCounts: Record<SensorKey, number> = {
   hotels: 468,
   heritage: 249,
   healthcare: 1460,
+  libraries: 28,
 };
 
 const allRows: SensorRow[] = LAYERS.map((layer) => ({
@@ -170,6 +171,7 @@ describe("buildLayerGroups", () => {
       "hotels",
       "heritage",
       "healthcare",
+      "libraries",
     ]);
   });
 
@@ -286,7 +288,7 @@ describe("layer surfaces render", () => {
       expect(markup).toContain(htmlEscape(group.label));
     }
     expect(markup).toContain("MRT &amp; LRT");
-    expect(markup).toContain("4/15 visible");
+    expect(markup).toContain("4/16 visible");
   });
 });
 
