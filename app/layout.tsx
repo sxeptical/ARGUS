@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, JetBrains_Mono } from "next/font/google";
+import CloudflareAnalytics from "./components/CloudflareAnalytics";
 import "./globals.css";
 
 const jetBrainsMono = JetBrains_Mono({
@@ -35,6 +36,7 @@ export default function RootLayout({
     >
       <body className="flex min-h-full flex-col bg-paper text-ink">
         {children}
+        <CloudflareAnalytics />
       </body>
     </html>
   );
