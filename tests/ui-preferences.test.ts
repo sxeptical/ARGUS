@@ -7,6 +7,7 @@ import { DEFAULT_NOTIFICATION_PREFS } from "@/lib/notifications";
 import {
   parseGeoFilterCenter,
   parseGeoFilterRadius,
+  parseLayerOptionSelection,
   parseMrtStation,
   parseNotificationPrefs,
   parseSeenSignals,
@@ -34,6 +35,19 @@ describe("ui preference parsing", () => {
   test("rejects non-object sensor values", () => {
     expect(parseSensorVisibility(null, defaults)).toBeUndefined();
     expect(parseSensorVisibility([true], defaults)).toBeUndefined();
+  });
+
+  test("reverts a stored all-off sub-filter selection to all on", () => {
+    // The toggle UI never strands a layer with every option off (deselecting
+    // the last one reverts to all), so a stored all-false must not win over
+    // defaults either.
+    const allOn = { flights: true, parks: true };
+    expect(parseLayerOptionSelection({ flights: false, parks: false }, allOn)).toEqual(allOn);
+    expect(parseLayerOptionSelection({ flights: false }, allOn)).toEqual({
+      flights: false,
+      parks: true,
+    });
+    expect(parseLayerOptionSelection(null, allOn)).toBeUndefined();
   });
 
   test("keeps a cleared filter centre and rejects malformed ones", () => {

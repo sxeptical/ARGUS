@@ -49,8 +49,8 @@ import {
   NOTIFICATION_PREFS_KEY,
   parseGeoFilterCenter,
   parseGeoFilterRadius,
+  parseLayerOptionSelection,
   parseNotificationPrefs,
-  parseSensorVisibility,
   SENSOR_VISIBILITY_KEY,
 } from "@/lib/ui-preferences";
 import type { ParkFeatureKind } from "@/types";
@@ -124,31 +124,31 @@ export function useDashboardState() {
   const [gymBrands, setGymBrands] = usePersistentState<Record<GymBrand, boolean>>(
     GYM_BRANDS_KEY,
     DEFAULT_GYM_BRAND_VISIBILITY,
-    (stored) => parseSensorVisibility(stored, DEFAULT_GYM_BRAND_VISIBILITY),
+    (stored) => parseLayerOptionSelection(stored, DEFAULT_GYM_BRAND_VISIBILITY),
   );
   // Also declared before the sources: the heritage layer and its count follow it.
   const [heritageKinds, setHeritageKinds] = usePersistentState<Record<HeritageKind, boolean>>(
     HERITAGE_KINDS_KEY,
     DEFAULT_HERITAGE_KIND_VISIBILITY,
-    (stored) => parseSensorVisibility(stored, DEFAULT_HERITAGE_KIND_VISIBILITY),
+    (stored) => parseLayerOptionSelection(stored, DEFAULT_HERITAGE_KIND_VISIBILITY),
   );
   // Also declared before the sources: the healthcare layer and its count follow it.
   const [healthcareKinds, setHealthcareKinds] = usePersistentState<Record<HealthcareKind, boolean>>(
     HEALTHCARE_KINDS_KEY,
     DEFAULT_HEALTHCARE_KIND_VISIBILITY,
-    (stored) => parseSensorVisibility(stored, DEFAULT_HEALTHCARE_KIND_VISIBILITY),
+    (stored) => parseLayerOptionSelection(stored, DEFAULT_HEALTHCARE_KIND_VISIBILITY),
   );
   // Also declared before the sources: the supermarket layer and its count follow it.
   const [supermarketBrands, setSupermarketBrands] = usePersistentState<Record<SupermarketBrand, boolean>>(
     SUPERMARKET_BRANDS_KEY,
     DEFAULT_SUPERMARKET_BRAND_VISIBILITY,
-    (stored) => parseSensorVisibility(stored, DEFAULT_SUPERMARKET_BRAND_VISIBILITY),
+    (stored) => parseLayerOptionSelection(stored, DEFAULT_SUPERMARKET_BRAND_VISIBILITY),
   );
   // Also declared before the sources: the schools layer and its count follow it.
   const [schoolLevels, setSchoolLevels] = usePersistentState<Record<SchoolLevel, boolean>>(
     SCHOOL_LEVELS_KEY,
     DEFAULT_SCHOOL_LEVEL_VISIBILITY,
-    (stored) => parseSensorVisibility(stored, DEFAULT_SCHOOL_LEVEL_VISIBILITY),
+    (stored) => parseLayerOptionSelection(stored, DEFAULT_SCHOOL_LEVEL_VISIBILITY),
   );
   const data = useDashboardSources(
     {

@@ -227,6 +227,62 @@ async function fetchAtp() {
 const defaultSportsgVenue = (venue) =>
   /sport centre/i.test(venue) || /activesg gym/i.test(venue) || venue === "Woodlands SC";
 
+// SportSG venues whose dataset name differs from the official gym display
+// name (key: dataset VENUE, value: official name). Names follow ActiveSG's
+// gym directory (activesgcircle.gov.sg/facilities/gyms, 31 gyms, last
+// updated 8 Nov 2026): Sport Centres host a "<Place> ActiveSG Gym", and the
+// community-centre gyms use "ActiveSG Gym @ <Place>" (the dataset omits the
+// spaces around "@"). The dataset venue string is kept as a search alias, so
+// "Tampines Sport Centre" still finds the gym after the rename.
+//  - "Heartbeat@Bedok ActiveSG Sport Centre" has no "Gym" and no spaces
+//    around "@"; "Jurong Lake Gardens ActiveSG Gym & Pool" is the gym only
+//    (pool is a separate facility), and "Woodlands SC" is abbreviated.
+//  - Tampines and Bedok are the user-reported pairs: the official
+//    "Tampines ActiveSG Gym" sits at "Level 7 Our Tampines Hub, 1 Tampines
+//    Walk", so "Our Tampines Hub"/"OTH" are extra aliases (the building in
+//    the address alone would also match those searches).
+const SPORTSG_OFFICIAL_GYM_NAMES = {
+  "ActiveSG Gym@Ang Mo Kio Community Centre": "ActiveSG Gym @ Ang Mo Kio Community Centre",
+  "ActiveSG Gym@Enabling Village": "ActiveSG Gym @ Enabling Village",
+  "ActiveSG Gym@Fernvale Square": "ActiveSG Gym @ Fernvale Square",
+  "ActiveSG Gym@Serangoon Central": "ActiveSG Gym @ Serangoon Central",
+  "ActiveSG Gym@Toa Payoh": "ActiveSG Gym @ Toa Payoh",
+  "ActiveSG Gym@Toa Payoh West Community Centre": "ActiveSG Gym @ Toa Payoh West Community Centre",
+  "Bishan Sport Centre": "Bishan ActiveSG Gym",
+  "Bukit Canberra Sport Centre": "Bukit Canberra ActiveSG Gym",
+  "Bukit Gombak Sport Centre": "Bukit Gombak ActiveSG Gym",
+  "Choa Chu Kang Sport Centre": "Choa Chu Kang ActiveSG Gym",
+  "Clementi Sport Centre": "Clementi ActiveSG Gym",
+  "Delta Sport Centre": "Delta ActiveSG Gym",
+  "Heartbeat@Bedok ActiveSG Sport Centre": "Heartbeat @ Bedok ActiveSG Gym",
+  "Hougang Sport Centre": "Hougang ActiveSG Gym",
+  "Jalan Besar Sport Centre": "Jalan Besar ActiveSG Gym",
+  "Jurong East Sport Centre": "Jurong East ActiveSG Gym",
+  "Jurong Lake Gardens ActiveSG Gym & Pool": "Jurong Lake Gardens ActiveSG Gym",
+  "Jurong West Sport Centre": "Jurong West ActiveSG Gym",
+  "Pasir Ris Sport Centre": "Pasir Ris ActiveSG Gym",
+  "Queenstown Sport Centre": "Queenstown ActiveSG Gym",
+  "Sengkang Sport Centre": "Sengkang ActiveSG Gym",
+  "Senja-Cashew Sport Centre": "Senja-Cashew ActiveSG Gym",
+  "Tampines Sport Centre": "Tampines ActiveSG Gym",
+  "Woodlands SC": "Woodlands ActiveSG Gym",
+  "Yio Chu Kang Sport Centre": "Yio Chu Kang ActiveSG Gym",
+  "Yishun Sport Centre": "Yishun ActiveSG Gym",
+};
+
+// Building prefixes the official directory gives in the address but the
+// SportSG dataset omits; kept so the venue is still visible (and searchable)
+// under the gym's official name.
+const SPORTSG_ADDRESS_PREFIXES = {
+  "Heartbeat@Bedok ActiveSG Sport Centre": "Level 6 Heartbeat@Bedok",
+  "Tampines Sport Centre": "Level 7 Our Tampines Hub",
+};
+
+// Extra search aliases beyond the dataset venue string.
+const SPORTSG_EXTRA_ALIASES = {
+  "Tampines Sport Centre": ["Our Tampines Hub", "OTH"],
+};
+
 // SportSG venues that host an ActiveSG gym but whose names don't match the
 // default rule (key: dataset VENUE, value: official gym name). Names follow
 // ActiveSG's gym directory (activesg.gov.sg/gym-pool-crowd, verified Nov
@@ -281,16 +337,25 @@ async function fetchSportsg() {
     if (!inSingapore(lat, lng)) continue;
     const street = [text(props.ADDRESSBLOCKHOUSENUMBER), text(props.ADDRESSSTREETNAME)].filter(Boolean).join(" ");
     const postcode = text(props.POSTAL_CODE);
+    const officialName = SPORTSG_OFFICIAL_GYM_NAMES[venue];
+    const name = officialName ?? SPORTSG_ADDITIONAL_GYM_VENUES[venue] ?? venue;
+    const addressPrefix = SPORTSG_ADDRESS_PREFIXES[venue];
+    const addressStreet = addressPrefix && street ? `${addressPrefix}, ${street}` : street;
+    // The dataset venue string stays searchable under the official name.
+    const aliases = officialName && officialName !== venue
+      ? [venue, ...(SPORTSG_EXTRA_ALIASES[venue] ?? [])]
+      : [];
     gyms.push({
       id: `sportsg-${normalizeName(venue)}`,
-      name: SPORTSG_ADDITIONAL_GYM_VENUES[venue] ?? venue,
+      name,
       brand: /activesg/i.test(venue) ? "ActiveSG" : "SportSG",
       category: "public",
-      address: street ? `${street}${postcode ? `, Singapore ${postcode}` : ""}` : null,
+      address: addressStreet ? `${addressStreet}${postcode ? `, Singapore ${postcode}` : ""}` : null,
       lat: round(lat),
       lng: round(lng),
       openingHours: null,
       website: null,
+      ...(aliases.length ? { aliases } : {}),
       source: "sportsg",
     });
   }
@@ -397,6 +462,14 @@ const osmAfterAtp = osmGyms.filter((gym) => {
 const publicGyms = [...sportsgGyms, ...curatedGyms];
 const osmKept = osmAfterAtp.filter((gym) => {
   const isOsmActiveSg = /activesg/i.test(gym.name);
+  // Unbranded OSM fitness centres whose name says "gym"/"gymnasium" and that
+  // sit on a public ActiveSG site are that site's gym under an older name —
+  // e.g. "Tampines Gymnasium" (OSM node 5813931524, no brand tag, 39 m from
+  // the Tampines Sport Centre point) is the Our Tampines Hub ActiveSG gym.
+  // The 100 m bar is far tighter than the 300 m ActiveSG rule below, so
+  // independent gyms near (not on) a sport centre stay.
+  const isUnbrandedGymName = !gym.brand && /gym/i.test(gym.name);
+  if (isUnbrandedGymName && publicGyms.some((publicGym) => distMetres(publicGym, gym) <= 100)) return false;
   return !publicGyms.some((publicGym) => {
     if (distMetres(publicGym, gym) > 300) return false;
     return isOsmActiveSg || (/activesg/i.test(publicGym.name) && /gym/i.test(gym.name));

@@ -44,11 +44,15 @@ describe("gyms bundle", () => {
   });
 
   // Regression guard for the Nov 2026 ActiveSG directory gap: every gym in
-  // ActiveSG's official list (activesg.gov.sg/gym-pool-crowd) is on the map,
-  // and Sport Centres with no gym (or closed ones) are not shown as gyms.
-  // Gyms whose SportSG venue name hides the gym (swimming complexes,
-  // Hockey Village, Teck Ghee) and Punggol (not in the dataset) are the
-  // formerly missing ones.
+  // ActiveSG's official list (activesgcircle.gov.sg/facilities/gyms) is on
+  // the map under its official display name, and Sport Centres with no gym
+  // (or closed ones) are not shown as gyms. Gyms whose SportSG venue name
+  // hides the gym (swimming complexes, Hockey Village, Teck Ghee) and
+  // Punggol (not in the dataset) are the formerly missing ones. Sport Centres
+  // use the directory's "<Place> ActiveSG Gym" form (the dataset's "Sport
+  // Centre" suffix), including the user-reported "Heartbeat @ Bedok" and
+  // "Tampines" (at Our Tampines Hub) gyms; the dataset venue string stays
+  // reachable as a search alias ("Tampines Sport Centre", "OTH").
   test("covers the official ActiveSG gym list, not stale Sport Centres", () => {
     const activeSg = new Set(GYMS.filter((g) => g.brand === "ActiveSG").map((g) => g.name));
     for (const name of [
@@ -57,15 +61,21 @@ describe("gyms bundle", () => {
       "ActiveSG Sport Park @ Teck Ghee Gym",
       "ActiveSG Hockey Village @ Boon Lay Gym",
       "Bukit Batok ActiveSG Gym",
-      "ActiveSG Gym@Ang Mo Kio Community Centre",
-      "ActiveSG Gym@Enabling Village",
-      "ActiveSG Gym@Fernvale Square",
-      "ActiveSG Gym@Serangoon Central",
-      "ActiveSG Gym@Toa Payoh",
-      "ActiveSG Gym@Toa Payoh West Community Centre",
+      "ActiveSG Gym @ Ang Mo Kio Community Centre",
+      "ActiveSG Gym @ Enabling Village",
+      "ActiveSG Gym @ Fernvale Square",
+      "ActiveSG Gym @ Serangoon Central",
+      "ActiveSG Gym @ Toa Payoh",
+      "ActiveSG Gym @ Toa Payoh West Community Centre",
+      "Heartbeat @ Bedok ActiveSG Gym",
+      "Tampines ActiveSG Gym",
+      "Bishan ActiveSG Gym",
+      "Bukit Canberra ActiveSG Gym",
+      "Woodlands ActiveSG Gym",
     ]) {
       expect(activeSg.has(name)).toBe(true);
     }
+    expect(activeSg.size).toBe(31);
     for (const name of [
       // No gym at these Sport Centres (checked against the directory).
       "Kallang Sport Centre",
@@ -73,8 +83,32 @@ describe("gyms bundle", () => {
       // Closed for redevelopment / lease expiry.
       "Toa Payoh Sport Centre",
       "St. Wilfred Sport Centre",
+      // Old dataset venue strings: kept only as search aliases now.
+      "Tampines Sport Centre",
+      "Heartbeat@Bedok ActiveSG Sport Centre",
+      "ActiveSG Gym@Ang Mo Kio Community Centre",
     ]) {
       expect(activeSg.has(name)).toBe(false);
+    }
+    // Unbranded OSM "Tampines Gymnasium" was the same OTH gym; it dedupes
+    // against the SportSG point within 100 m.
+    expect(GYMS.some((g) => g.name === "Tampines Gymnasium")).toBe(false);
+  });
+
+  test("keeps venues searchable under official names and old labels", () => {
+    const byName = new Map(GYMS.map((g) => [g.name, g]));
+    expect(byName.get("Tampines ActiveSG Gym")).toMatchObject({
+      address: "Level 7 Our Tampines Hub, 1 Tampines Walk, Singapore 528523",
+      aliases: ["Tampines Sport Centre", "Our Tampines Hub", "OTH"],
+    });
+    expect(byName.get("Heartbeat @ Bedok ActiveSG Gym")).toMatchObject({
+      address: "Level 6 Heartbeat@Bedok, 11 Bedok North Street 1, Singapore 469662",
+      aliases: ["Heartbeat@Bedok ActiveSG Sport Centre"],
+    });
+    // Search keywords carry aliases so "OTH" / "Our Tampines Hub" find the gym.
+    const tampines = buildGymSearchResults([byName.get("Tampines ActiveSG Gym")!])[0];
+    for (const keyword of ["OTH", "Our Tampines Hub", "Tampines Sport Centre"]) {
+      expect(tampines.keywords).toContain(keyword);
     }
   });
 
@@ -85,6 +119,9 @@ describe("gyms bundle", () => {
     expect(validateGymsBundle([{ ...gym(), source: "unknown" }])).toBe(false);
     expect(validateGymsBundle([{ ...gym(), brand: "SportSG" }])).toBe(false);
     expect(validateGymsBundle([{ ...gym(), brand: null }])).toBe(false);
+    expect(validateGymsBundle([{ ...gym(), aliases: "OTH" }])).toBe(false);
+    expect(validateGymsBundle([{ ...gym(), aliases: [42] }])).toBe(false);
+    expect(validateGymsBundle([{ ...gym(), aliases: ["OTH"] }])).toBe(true);
     expect(validateGymsBundle([{ ...gym(), id: "" }])).toBe(false);
     expect(validateGymsBundle([{ ...gym(), name: "" }])).toBe(false);
     expect(validateGymsBundle([{ ...gym(), lat: Number.NaN }])).toBe(false);

@@ -192,14 +192,6 @@ const HAWKERS_GEOJSON = {
     geometry: { type: "Point" as const, coordinates: [hawker.lng, hawker.lat] },
   })),
 };
-const GYMS_GEOJSON = {
-  type: "FeatureCollection" as const,
-  features: GYMS.map((gym) => ({
-    type: "Feature" as const,
-    properties: { id: gym.id, name: gym.name, brand: gym.brand },
-    geometry: { type: "Point" as const, coordinates: [gym.lng, gym.lat] },
-  })),
-};
 /** Gyms whose operator brand is on; the radius filter applies on top of this. */
 const buildGymsGeoJson = (
   brands: Readonly<Record<GymBrand, boolean>> | undefined,
@@ -208,9 +200,58 @@ const buildGymsGeoJson = (
   features: filterGymsByBrand(GYMS, brands ?? {}).map((gym) => ({
     type: "Feature" as const,
     properties: { id: gym.id, name: gym.name, brand: gym.brand },
-    geometry: { type: "Point" as const, coordinates: [gym.lng, gym.lat] },
+    geometry: { type: "Point" as const, coordinates: renderedGymCoords(gym.id) ?? [gym.lng, gym.lat] },
   })),
 });
+
+// Gyms are drawn beneath community clubs, pharmacies, hotels, heritage,
+// libraries, supermarkets, schools and healthcare, so a gym stored at the
+// same lat/lng as one of those points (e.g. Tampines Sport Centre and
+// Guardian (Our Tampines Hub) share exact coordinates, as do the
+// Heartbeat@Bedok gym and Kampong Chai Chee CC) renders invisible under the
+// later dot. Nudge a gym within 10 m of such a point by 28 m in a stable
+// direction so both render; co-located gyms 10 m+ away already overlap only
+// partially and are untouched.
+const GYM_COINCIDENCE_M = 10;
+const GYM_COINCIDENCE_NUDGE_M = 28;
+const LATER_DRAWN_POINTS: ReadonlyArray<readonly [number, number]> = [
+  ...COMMUNITY_CLUBS.map((point) => [point.lng, point.lat] as const),
+  ...PHARMACIES.map((point) => [point.lng, point.lat] as const),
+  ...HOTELS.map((point) => [point.lng, point.lat] as const),
+  ...HERITAGE_SITES.map((point) => [point.lng, point.lat] as const),
+  ...LIBRARIES.map((point) => [point.lng, point.lat] as const),
+  ...SUPERMARKETS.map((point) => [point.lng, point.lat] as const),
+  ...SCHOOLS.map((point) => [point.lng, point.lat] as const),
+  ...HEALTHCARE_SITES.map((point) => [point.lng, point.lat] as const),
+];
+
+const coincideNudge = (gym: { id: string; lat: number; lng: number }): [number, number] | undefined => {
+  const lon = (gym.lng * Math.PI) / 180;
+  const cosLat = Math.cos(lon);
+  const over = LATER_DRAWN_POINTS.some(([lng, lat]) => {
+    const dx = (lng - gym.lng) * Math.PI / 180 * cosLat * 6371000;
+    const dy = (lat - gym.lat) * Math.PI / 180 * 6371000;
+    return Math.hypot(dx, dy) <= GYM_COINCIDENCE_M;
+  });
+  if (!over) return undefined;
+  // Stable direction per gym so the offset doesn't jump between re-renders.
+  let hash = 0;
+  for (const ch of gym.id) hash = (hash * 31 + ch.charCodeAt(0)) >>> 0;
+  const angle = ((hash % 360) * Math.PI) / 180;
+  const eastM = Math.cos(angle) * GYM_COINCIDENCE_NUDGE_M;
+  const northM = Math.sin(angle) * GYM_COINCIDENCE_NUDGE_M;
+  const dLat = (northM / 6371000) * (180 / Math.PI);
+  const dLng = (eastM / (6371000 * Math.max(0.5, Math.cos((gym.lat * Math.PI) / 180)))) * (180 / Math.PI);
+  return [gym.lng + dLng, gym.lat + dLat] as [number, number];
+};
+
+const GYM_RENDERED_COORDS = new globalThis.Map<string, [number, number]>();
+for (const gym of GYMS) {
+  const nudged = coincideNudge(gym);
+  if (nudged) GYM_RENDERED_COORDS.set(gym.id, nudged);
+}
+
+const renderedGymCoords = (id: string) => GYM_RENDERED_COORDS.get(id);
 const COMMUNITY_CLUBS_GEOJSON = {
   type: "FeatureCollection" as const,
   features: COMMUNITY_CLUBS.map((club) => ({
@@ -1999,7 +2040,7 @@ function useMapController({
         for (const [sourceId, prefix, visible, color, data, onEnter, onClick] of [
           ["malls-data", "malls", sensorVisibilityRef.current.malls, MAP_COLORS.mall, MALLS_GEOJSON, handleMallEnter, handleMallClick],
           ["hawkers-data", "hawkers", sensorVisibilityRef.current.hawkers, ["match", ["get", "status"], "planned", MAP_COLORS.muted, MAP_COLORS.hawker], HAWKERS_GEOJSON, handleHawkerEnter, handleHawkerClick],
-          ["gyms-data", "gyms", sensorVisibilityRef.current.gyms, MAP_COLORS.gym, GYMS_GEOJSON, handleGymEnter, handleGymClick],
+          ["gyms-data", "gyms", sensorVisibilityRef.current.gyms, MAP_COLORS.gym, buildGymsGeoJson(gymBrandsRef.current), handleGymEnter, handleGymClick],
           ["community-clubs-data", "community-clubs", sensorVisibilityRef.current.communityClubs, MAP_COLORS.communityClub, COMMUNITY_CLUBS_GEOJSON, handleCommunityClubEnter, handleCommunityClubClick],
           ["pharmacies-data", "pharmacies", sensorVisibilityRef.current.pharmacies, MAP_COLORS.pharmacy, PHARMACIES_GEOJSON, handlePharmacyEnter, handlePharmacyClick],
           ["hotels-data", "hotels", sensorVisibilityRef.current.hotels, MAP_COLORS.hotel, HOTELS_GEOJSON, handleHotelEnter, handleHotelClick],

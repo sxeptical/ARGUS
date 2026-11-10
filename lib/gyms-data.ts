@@ -63,6 +63,8 @@ const isGym = (value: unknown): value is Gym => {
     Number.isFinite(gym.lng) &&
     isNullableString(gym.openingHours) &&
     isNullableString(gym.website) &&
+    (gym.aliases === undefined ||
+      (Array.isArray(gym.aliases) && gym.aliases.every((alias) => typeof alias === "string"))) &&
     typeof gym.source === "string" &&
     GYM_SOURCES.has(gym.source)
   );

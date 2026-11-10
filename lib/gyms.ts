@@ -56,6 +56,7 @@ export const buildGymSearchResults = (gyms: ReadonlyArray<Gym>): MapSearchResult
       GYM_CATEGORY_LABEL[gym.category],
       gym.brand,
       ...(gym.address ? [gym.address] : []),
+      ...(gym.aliases ?? []),
     ],
   }));
 

@@ -111,6 +111,22 @@ export function parseSeenSignals(stored: unknown): SeenSignals | undefined {
   return seen;
 }
 
+/**
+ * `parseSensorVisibility` for sub-filters (gym brands, heritage kinds, ...):
+ * like the toggle UI, a stored all-false selection would strand the layer
+ * empty, so it falls back to every option on. Unknown stored keys are
+ * dropped, as with `parseSensorVisibility`.
+ */
+export function parseLayerOptionSelection<K extends string>(
+  stored: unknown,
+  defaults: Readonly<Record<K, boolean>>,
+): Record<K, boolean> | undefined {
+  const parsed = parseSensorVisibility(stored, defaults);
+  if (!parsed) return undefined;
+  if (Object.values(parsed).every((flag) => !flag)) return { ...defaults };
+  return parsed;
+}
+
 // ---------- Boolean flags and derived keys ----------
 
 export const AIR_SECTION_PINNED_KEY = "argus.prefs.air.section.pinned.v1";

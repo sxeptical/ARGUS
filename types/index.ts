@@ -321,6 +321,8 @@ export interface Gym {
   lng: number;
   openingHours: string | null;
   website: string | null;
+  /** Extra strings map search matches (e.g. "OTH" for Tampines ActiveSG Gym). */
+  aliases?: string[];
   source: GymSource;
 }
 
