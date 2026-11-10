@@ -5,7 +5,7 @@ import type { SelectedAmenity } from "@/app/hooks/use-dashboard-state";
 import { KeyValue } from "@/app/components/dashboard/IntelPanel";
 import { hasStoreDirectory, MallStoreDirectory } from "@/app/components/dashboard/MallDirectory";
 import { PlacePhotoGallery } from "@/app/components/dashboard/PlacePhotoGallery";
-import { formatOpeningHours } from "@/lib/amenities";
+import { describeHawkerClosure, formatOpeningHours } from "@/lib/amenities";
 import { GYM_CATEGORY_LABEL, GYM_SOURCE_HINT } from "@/lib/gyms";
 import { formatAltitudeFeet, formatSpeedKmh } from "@/lib/formatters";
 import { photosForPark } from "@/lib/park-photos";
@@ -63,6 +63,7 @@ export function FocusDialog({
 
   if (amenity?.type === "hawker") {
     const { hawker } = amenity;
+    const closure = describeHawkerClosure(hawker.closures);
     return (
       <FocusShell kind="Hawker Centre" title={hawker.name} onClose={onClose}>
         <div className="space-y-2 p-4 text-xs">
@@ -72,6 +73,7 @@ export function FocusDialog({
               label="Status"
               value={hawker.status === "planned" ? (hawker.expectedYear ? `Under construction · expected ${hawker.expectedYear}` : "Under construction") : "In operation"}
             />
+            {closure ? <KeyValue label="Closure" value={closure.text} /> : null}
             {hawker.stalls !== null ? <KeyValue label="Stalls" value={`${hawker.stalls.toLocaleString("en-SG")} cooked food`} /> : null}
             {hawker.address ? <KeyValue label="Address" value={hawker.address} /> : null}
           </div>

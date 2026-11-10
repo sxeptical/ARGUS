@@ -3,7 +3,7 @@
  * layers. Pure so the map and tests share one definition.
  */
 import type { PopupLine } from "@/lib/mobility";
-import type { HawkerCentre, MapSearchResult, Mall, PlacePhoto } from "@/types";
+import type { HawkerCentre, HawkerClosure, MapSearchResult, Mall, PlacePhoto } from "@/types";
 
 const plural = (count: number, one: string, many: string) =>
   `${count} ${count === 1 ? one : many}`;
@@ -25,20 +25,88 @@ export const formatOpeningHours = (raw: string): string | null => {
     .replace(/;\s*/g, ", ");
 };
 
-export const describeHawkerCentre = (hawker: HawkerCentre): PopupLine[] => [
+/**
+ * Today's calendar date in Singapore (YYYY-MM-DD), so closure boundaries
+ * line up with NEA's local dates regardless of the viewer's timezone.
+ */
+export const singaporeToday = (now = new Date()): string =>
+  new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Singapore",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(now);
+
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/** "12 Dec", "12–15 Dec", or "28 Dec 2025–2 Jan 2026" for ISO date ranges. */
+export const formatClosureRange = (start: string, end: string): string => {
+  const [sy, sm, sd] = start.split("-").map(Number);
+  const [ey, em, ed] = end.split("-").map(Number);
+  if (start === end) return `${sd} ${MONTHS[sm - 1]}`;
+  if (sy === ey && sm === em) return `${sd}–${ed} ${MONTHS[sm - 1]}`;
+  if (sy === ey) return `${sd} ${MONTHS[sm - 1]}–${ed} ${MONTHS[em - 1]}`;
+  return `${sd} ${MONTHS[sm - 1]} ${sy}–${ed} ${MONTHS[em - 1]} ${ey}`;
+};
+
+export type HawkerClosureStatus = {
+  /** True when a closure covers today; false when it is the next upcoming. */
+  current: boolean;
+  text: string;
+};
+
+/**
+ * The closure worth showing for a hawker centre: the one covering today
+ * (earliest-ending, so "closed now until" is the soonest reopening), else
+ * the next upcoming period. Computed at render time from the stored ISO
+ * periods; past periods and centres with no closure row yield null.
+ */
+export const describeHawkerClosure = (
+  closures: ReadonlyArray<HawkerClosure>,
+  todayIso: string = singaporeToday(),
+): HawkerClosureStatus | null => {
+  const valid = closures.filter((closure) => closure.end >= closure.start);
+  const current = valid
+    .filter((closure) => closure.start <= todayIso && todayIso <= closure.end)
+    .sort((a, b) => a.end.localeCompare(b.end))[0];
+  const next = current
+    ? undefined
+    : valid
+      .filter((closure) => closure.start > todayIso)
+      .sort((a, b) => a.start.localeCompare(b.start))[0];
+  const closure = current ?? next;
+  if (!closure) return null;
+  const kind = closure.kind === "cleaning" ? "cleaning" : "other works";
+  const remarks = closure.remarks ? ` — ${closure.remarks}` : "";
+  return {
+    current: Boolean(current),
+    text: current
+      ? `Closed now for ${kind} until ${formatClosureRange(closure.end, closure.end)}${remarks}`
+      : `Closed for ${kind} ${formatClosureRange(closure.start, closure.end)}${remarks}`,
+  };
+};
+
+export const describeHawkerCentre = (
+  hawker: HawkerCentre,
+  todayIso: string = singaporeToday(),
+): PopupLine[] => {
+  const closure = describeHawkerClosure(hawker.closures, todayIso);
+  return [
   { text: hawker.name, kind: "name" },
   hawker.status === "open"
-    ? { text: "In operation", kind: "status", tone: "success" }
+    ? { text: "In operation", kind: "status", tone: "success" as const }
     : {
         text: hawker.expectedYear ? `Under construction · expected ${hawker.expectedYear}` : "Under construction",
-        kind: "status",
-        tone: "muted",
+        kind: "status" as const,
+        tone: "muted" as const,
       },
+  ...(closure ? [{ text: closure.text, kind: (closure.current ? "status" : "detail") as "status" | "detail", tone: (closure.current ? "warning" : "muted") as "warning" | "muted" }] : []),
   ...(hawker.stalls === null ? [] : [{ text: plural(hawker.stalls, "cooked food stall", "cooked food stalls"), kind: "count" as const }]),
   ...(hawker.address ? [{ text: hawker.address, kind: "detail" as const }] : []),
   ...creditLine(hawker.photos),
   { text: "Source: NEA via data.gov.sg", kind: "hint" },
-];
+  ];
+};
 
 /**
  * "Photos: A, B (CC BY-SA 4.0); C (CC BY 2.5) · Wikimedia Commons", or

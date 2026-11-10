@@ -193,7 +193,20 @@ export interface ParksGeoJson {
 /**
  * NEA hawker centre from the static amenities bundle. `planned` centres are
  * under construction; `expectedYear` is NEA's estimated completion year.
+ * `closures` are the NEA cleaning/other-works periods from
+ * public/hawker-closures.json, joined by hawker id (empty when the centre
+ * has no closure row, e.g. new/planned centres).
  */
+export type HawkerClosureKind = "cleaning" | "other-works";
+
+export interface HawkerClosure {
+  kind: HawkerClosureKind;
+  /** ISO calendar dates (YYYY-MM-DD), inclusive on both ends. */
+  start: string;
+  end: string;
+  remarks: string | null;
+}
+
 export interface HawkerCentre {
   id: string;
   name: string;
@@ -204,6 +217,7 @@ export interface HawkerCentre {
   status: "open" | "planned";
   expectedYear: number | null;
   photos: PlacePhoto[];
+  closures: HawkerClosure[];
 }
 
 /**
