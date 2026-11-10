@@ -102,17 +102,24 @@ export function LayersSidebar({
   });
 
   return (
-    <aside className="order-4 flex min-w-0 flex-col gap-2 sm:gap-3 xl:order-1 xl:min-h-0 xl:overflow-y-auto xl:pr-1">
+    // `xl:overflow-hidden` + a capped Weather panel keep Weather visible at
+    // the bottom of the viewport while the Layers list scrolls internally.
+    <aside className="order-4 flex min-w-0 flex-col gap-2 sm:gap-3 xl:order-1 xl:min-h-0 xl:overflow-hidden">
       <IntelPanel
         title="Layers"
         badge={`${visibleSensorCount}/${sensorRows.length}`}
-      >
-        <div className="space-y-2">
-          {/* Layer controls live in the map drawer below xl; keep this panel
-              to the stat summary there. */}
-          <div className="max-xl:hidden space-y-2">
+        className="xl:flex xl:min-h-0 xl:flex-1 xl:flex-col xl:overflow-hidden"
+        contentClassName="space-y-2 xl:min-h-0 xl:flex-1 xl:overflow-y-auto xl:pr-1"
+        headerContent={
+          // Layer controls live in the map drawer below xl, so the filter
+          // is desktop-only; the stat summary below still shows everywhere.
+          <span className="block max-xl:hidden">
             <LayerFilterInput value={filter} onChange={setFilter} />
-            {groups.map((group) => (
+          </span>
+        }
+      >
+        <div className="max-xl:hidden space-y-2">
+          {groups.map((group) => (
               <div key={group.id}>
                 <LayerGroupHeader
                   label={group.label}
@@ -236,13 +243,13 @@ export function LayersSidebar({
               </div>
             ))}
           </div>
-        </div>
       </IntelPanel>
 
       <WeatherPanel
         weather={weather}
         history={weatherHistory}
         onAirQualityOverlayChange={onAirQualityOverlayChange}
+        className="xl:max-h-[38%] xl:min-h-0 xl:shrink-0"
       />
       {FLIGHTS_ENABLED ? (
         <FlightPanel

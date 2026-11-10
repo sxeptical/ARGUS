@@ -35,6 +35,9 @@ type WeatherPanelProps = {
   weather: WeatherData;
   history: WeatherHistoryPoint[];
   onAirQualityOverlayChange?: (overlay: AirQualityOverlay | null) => void;
+  /** Extra classes on the panel section (e.g. a max height + internal
+      scroll in a height-constrained column). */
+  className?: string;
 };
 
 const TONE_CLASSES: Record<AirQualityTone, string> = {
@@ -95,6 +98,7 @@ export default function WeatherPanel({
   weather,
   history,
   onAirQualityOverlayChange,
+  className,
 }: WeatherPanelProps) {
   const [airWindow, setAirWindow] = useState<AirWindow>("1h");
   const [airPinned, setAirPinned] = usePersistentState(
@@ -138,7 +142,11 @@ export default function WeatherPanel({
     weather.uv === null ? "—" : `${weather.uv} (${weather.uvStatus})`;
 
   return (
-    <TerminalPanel title="WEATHER" contentClassName="min-h-40">
+    <TerminalPanel
+      title="WEATHER"
+      className={className}
+      contentClassName="min-h-40 xl:min-h-0"
+    >
       <div className="space-y-2">
         <ExpandableRow
           label="Temperature"

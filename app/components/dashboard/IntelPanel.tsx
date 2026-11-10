@@ -4,14 +4,30 @@ export function IntelPanel({
   title,
   badge,
   children,
+  className,
+  contentClassName,
+  headerContent,
 }: {
   title: string;
   badge: string;
   children: ReactNode;
+  /** Extra classes on the panel section (e.g. `xl:flex xl:flex-col`). */
+  className?: string;
+  /** When set, children are wrapped in a div with these classes (e.g. an
+      internal scroll area) — useful for panels that should pin their header
+      and scroll their body. */
+  contentClassName?: string;
+  /** Extra content rendered below the header row, inside the panel (e.g. a
+      filter input that stays pinned above the scrolling body). */
+  headerContent?: ReactNode;
 }) {
   return (
-    <section className="border border-line bg-surface p-2">
-      <div className="mb-2 flex items-center justify-between gap-3 border-b border-line px-1 pb-2">
+    <section className={`border border-line bg-surface p-2 ${className ?? ""}`}>
+      <div
+        className={`flex shrink-0 items-center justify-between gap-3 border-b border-line px-1 pb-2 ${
+          headerContent ? "" : "mb-2"
+        }`}
+      >
         <h2 className="text-[11px] font-semibold uppercase tracking-[0.12em] text-ink">
           {title}
         </h2>
@@ -19,7 +35,14 @@ export function IntelPanel({
           {badge}
         </span>
       </div>
-      {children}
+      {headerContent ? (
+        <div className="mb-2 shrink-0">{headerContent}</div>
+      ) : null}
+      {contentClassName ? (
+        <div className={contentClassName}>{children}</div>
+      ) : (
+        children
+      )}
     </section>
   );
 }
