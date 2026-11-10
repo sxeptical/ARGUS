@@ -10,8 +10,17 @@ const club = (overrides: Partial<CommunityClub> = {}): CommunityClub => ({
   address: "80 Punggol Field, Singapore 828815",
   lat: 1.3936,
   lng: 103.9135,
+  photos: [],
   ...overrides,
 });
+
+const commonsPhoto: CommunityClub["photos"][number] = {
+  thumb: "https://thumb.wikimedia.org/a.jpg",
+  page: "https://commons.wikimedia.org/wiki/File:A.jpg",
+  author: "Terence Ong",
+  license: "CC BY 2.5",
+  source: "commons",
+};
 
 const texts = (lines: ReadonlyArray<{ text: string }>) => lines.map((line) => line.text);
 
@@ -28,6 +37,13 @@ describe("community clubs bundle", () => {
     expect(new Set(COMMUNITY_CLUBS.map((c) => c.id)).size).toBe(COMMUNITY_CLUBS.length);
     expect(COMMUNITY_CLUBS.filter((c) => c.kind === "community-club").length).toBeGreaterThan(100);
     expect(COMMUNITY_CLUBS.filter((c) => c.kind === "passionwave").length).toBeGreaterThan(0);
+    // Most clubs have no Commons photos; the pipeline must never invent any.
+    expect(COMMUNITY_CLUBS.every((c) => c.photos.length <= 3)).toBe(true);
+    for (const photo of COMMUNITY_CLUBS.flatMap((c) => c.photos)) {
+      expect(photo.thumb).toMatch(/^https:\/\/(upload|thumb)\.wikimedia\.org\//);
+      expect(photo.license?.length).toBeGreaterThan(0);
+      expect(photo.author.length).toBeGreaterThan(0);
+    }
   });
 
   test("rejects malformed bundles", () => {
@@ -37,6 +53,7 @@ describe("community clubs bundle", () => {
     expect(validateCommunityClubsBundle([{ ...club(), id: "" }])).toBe(false);
     expect(validateCommunityClubsBundle([{ ...club(), name: "" }])).toBe(false);
     expect(validateCommunityClubsBundle([{ ...club(), lat: Number.NaN }])).toBe(false);
+    expect(validateCommunityClubsBundle([{ ...club(), photos: [{ ...commonsPhoto, thumb: "https://evil.example/a.jpg" }] }])).toBe(false);
   });
 });
 
@@ -56,6 +73,10 @@ describe("describeCommunityClub", () => {
       "PAssion WaVe outlet",
       "Source: People's Association via data.gov.sg (Singapore Open Data Licence)",
     ]);
+  });
+
+  test("credits Commons photos", () => {
+    expect(texts(describeCommunityClub(club({ photos: [commonsPhoto] })))).toContain("Photo: Terence Ong (CC BY 2.5) · Wikimedia Commons");
   });
 });
 

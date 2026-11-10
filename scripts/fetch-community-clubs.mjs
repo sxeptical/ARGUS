@@ -17,6 +17,7 @@
  */
 import { mkdir, writeFile } from "node:fs/promises";
 import { fetchJson, USER_AGENT } from "./lib/commons-photos.mjs";
+import { fetchPlacePhotos } from "./lib/place-photos.mjs";
 
 const CC_DATASET = "d_9de02d3fb33d96da1855f4fbef549a0f";
 const SG_BOUNDS = { minLat: 1.1, maxLat: 1.5, minLng: 103.5, maxLng: 104.1 };
@@ -73,11 +74,24 @@ for (const feature of features) {
 clubs.sort((a, b) => a.name.localeCompare(b.name, "en-SG"));
 if (clubs.length < 120) throw new Error(`Community club dataset returned only ${clubs.length} outlets`);
 
-const serialized = JSON.stringify(clubs);
+// Photos: the dataset's PHOTOURL/HYPERLINK are empty, so bridge each club to
+// a Wikidata item (OSM `amenity=community_centre` `wikidata` tag, else label
+// search) and take freely licensed Commons photos — see lib/place-photos.mjs.
+// No PA or other copyrighted imagery is ever used.
+const { photos, stats } = await fetchPlacePhotos(clubs, {
+  overpassQuery: `[out:json][timeout:90];area["ISO3166-1"="SG"]->.a;nwr["amenity"="community_centre"]["wikidata"](area.a);out center tags;`,
+  radiusM: 300,
+  searchNames: (club) => [club.name, club.name.replace(/\bCC\b/g, "Community Club")],
+});
+const withPhotos = clubs.map((club) => ({ ...club, photos: photos.get(club.id) ?? [] }));
+const photoCount = withPhotos.filter((club) => club.photos.length).length;
+
+const serialized = JSON.stringify(withPhotos);
 await mkdir("public", { recursive: true });
 await writeFile("public/community-clubs.json", serialized);
 console.log(
   `Community club bundle: ${clubs.length} outlets ` +
     `(${clubs.filter((club) => club.kind === "community-club").length} community clubs, ${clubs.filter((club) => club.kind === "passionwave").length} PAssion WaVe; ` +
-    `${skipped.length} skipped${skipped.length ? `: ${skipped.join("; ")}` : ""}), ${Buffer.byteLength(serialized)} bytes`,
+    `${skipped.length} skipped${skipped.length ? `: ${skipped.join("; ")}` : ""}; photos on ${photoCount} ` +
+    `(${stats.matched} matched to a Wikidata item, ${stats.searched} label searches)), ${Buffer.byteLength(serialized)} bytes`,
 );

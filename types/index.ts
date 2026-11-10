@@ -320,6 +320,8 @@ export interface CommunityClub {
   address: string | null;
   lat: number;
   lng: number;
+  /** Wikimedia Commons photos (credited per file), when the club has an item. */
+  photos: PlacePhoto[];
 }
 
 /**

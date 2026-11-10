@@ -1,4 +1,5 @@
 import communityClubsData from "@/public/community-clubs.json";
+import { isPhotoList } from "@/lib/amenities-data";
 import type { CommunityClub, CommunityClubKind } from "@/types";
 
 const COMMUNITY_CLUB_KINDS: ReadonlySet<string> = new Set([
@@ -17,7 +18,8 @@ const isCommunityClub = (value: unknown): value is CommunityClub => {
     COMMUNITY_CLUB_KINDS.has(club.kind) &&
     (club.address === null || typeof club.address === "string") &&
     Number.isFinite(club.lat) &&
-    Number.isFinite(club.lng)
+    Number.isFinite(club.lng) &&
+    isPhotoList(club.photos)
   );
 };
 

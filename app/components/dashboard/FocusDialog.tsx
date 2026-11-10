@@ -119,6 +119,7 @@ export function FocusDialog({
     return (
       <FocusShell kind={COMMUNITY_CLUB_KIND_LABEL[club.kind]} title={club.name} onClose={onClose}>
         <div className="space-y-2 p-4 text-xs">
+          <PlacePhotoGallery key={club.id} name={club.name} photos={club.photos} />
           <div>
             <KeyValue label="Type" value={COMMUNITY_CLUB_KIND_LABEL[club.kind]} />
             {club.address ? <KeyValue label="Address" value={club.address} /> : null}

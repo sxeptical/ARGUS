@@ -910,7 +910,7 @@ function useMapController({
     const handleCommunityClubEnter = (event: maplibregl.MapLayerMouseEvent) => {
       const id = event.features?.[0]?.properties?.id;
       const club = typeof id === "string" ? COMMUNITY_CLUBS_BY_ID.get(id) : undefined;
-      if (club) showHoverPopup(event.lngLat, club.kind === "passionwave" ? "PASSIONWAVE" : "COMMUNITY CLUB", "text-signal-community-club", describeCommunityClub(club));
+      if (club) showHoverPopup(event.lngLat, club.kind === "passionwave" ? "PASSIONWAVE" : "COMMUNITY CLUB", "text-signal-community-club", describeCommunityClub(club), club.photos.map((photo, index) => ({ src: photo.thumb, alt: `${club.name} photo ${index + 1}` })));
     };
     const handleMallClick = (event: maplibregl.MapLayerMouseEvent) => {
       if (geoFilterPickingRef.current) return;
