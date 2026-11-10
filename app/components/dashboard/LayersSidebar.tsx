@@ -21,6 +21,7 @@ import type { HeritageKindCount } from "@/lib/heritage";
 import { HERITAGE_KIND_LABEL } from "@/lib/heritage";
 import type { HealthcareKindCount } from "@/lib/healthcare";
 import { HEALTHCARE_KIND_LABEL } from "@/lib/healthcare";
+import type { SupermarketBrandCount } from "@/lib/supermarkets";
 import { FLIGHTS_ENABLED } from "@/lib/features";
 import type {
   FlightState,
@@ -46,6 +47,9 @@ export function LayersSidebar({
   healthcareKinds,
   healthcareKindCounts,
   onHealthcareKindsChange,
+  supermarketBrands,
+  supermarketBrandCounts,
+  onSupermarketBrandsChange,
   visibleSensorCount,
   weather,
   weatherHistory,
@@ -67,6 +71,9 @@ export function LayersSidebar({
   healthcareKinds: Record<string, boolean>;
   healthcareKindCounts: HealthcareKindCount[];
   onHealthcareKindsChange: (next: Record<string, boolean>) => void;
+  supermarketBrands: Record<string, boolean>;
+  supermarketBrandCounts: SupermarketBrandCount[];
+  onSupermarketBrandsChange: (next: Record<string, boolean>) => void;
   visibleSensorCount: number;
   weather: WeatherData;
   weatherHistory: WeatherHistoryPoint[];
@@ -173,6 +180,15 @@ export function LayersSidebar({
                           selected={healthcareKinds}
                           onChange={onHealthcareKindsChange}
                           accentClass="bg-signal-healthcare"
+                        />
+                      ) : null}
+                      {row.key === "supermarkets" && sensorVisibility.supermarkets ? (
+                        <LayerOptionFilter
+                          summaryLabel="Brands"
+                          options={supermarketBrandCounts.map(({ brand, count }) => ({ value: brand, label: brand, count }))}
+                          selected={supermarketBrands}
+                          onChange={onSupermarketBrandsChange}
+                          accentClass="bg-signal-supermarket"
                         />
                       ) : null}
                       </Fragment>

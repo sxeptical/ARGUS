@@ -57,6 +57,8 @@ import { describeHealthcare, filterHealthcareByKind } from "@/lib/healthcare";
 import { HEALTHCARE_SITES } from "@/lib/healthcare-data";
 import { describeLibrary } from "@/lib/libraries";
 import { LIBRARIES } from "@/lib/libraries-data";
+import { describeSupermarket, filterSupermarketsByBrand } from "@/lib/supermarkets";
+import { SUPERMARKETS } from "@/lib/supermarkets-data";
 import { PARK_LABELS_GEOJSON, PARKS_GEOJSON } from "@/lib/parks-data";
 import { describeParkFeature, PARK_KIND_TITLE } from "@/lib/parks";
 import { photosForPark } from "@/lib/park-photos";
@@ -72,6 +74,7 @@ import type {
   TrafficCamera,
   TrafficIncident,
   GymBrand,
+  SupermarketBrand,
   HealthcareKind,
   HeritageKind,
   ParkFeatureKind,
@@ -108,14 +111,16 @@ type MapProps = {
   heritageKinds?: Readonly<Record<HeritageKind, boolean>>;
   /** Which healthcare kinds are shown; unset kinds default to visible. */
   healthcareKinds?: Readonly<Record<HealthcareKind, boolean>>;
+  /** Which supermarket brands are shown; unset brands default to visible. */
+  supermarketBrands?: Readonly<Record<SupermarketBrand, boolean>>;
   searchTarget?: MapSearchTarget | null;
   onStopClick: (stop: BusStop) => void;
   onCameraClick: (camera: TrafficCamera) => void;
   onFlightClick: (flight: FlightState) => void;
   onMrtStationClick?: (stationName: string) => void;
   onParkClick: (feature: { kind: ParkFeatureKind; name: string; park?: string; type?: string; cycle?: boolean }) => void;
-  /** Opens the clicked mall/hawker centre/gym/community club/pharmacy/hotel/heritage/healthcare/library site in the focus dialog. */
-  onAmenityClick?: (target: { type: "mall" | "hawker" | "gym" | "community-club" | "pharmacy" | "hotel" | "heritage" | "healthcare" | "library"; id: string }) => void;
+  /** Opens the clicked mall/hawker centre/gym/community club/pharmacy/hotel/heritage/healthcare/library/supermarket site in the focus dialog. */
+  onAmenityClick?: (target: { type: "mall" | "hawker" | "gym" | "community-club" | "pharmacy" | "hotel" | "heritage" | "healthcare" | "library" | "supermarket"; id: string }) => void;
   mrtRouteSegments?: MrtRouteSegment[];
   busRouteOverlay?: BusRouteOverlay | null;
   /** Active radius filter, drawn as a circle; scopes MRT stations and parks. */
@@ -149,10 +154,11 @@ const MAP_COLORS = {
   heritage: "#d9c84f",
   healthcare: "#d9553f",
   library: "#5fd6a8",
+  supermarket: "#d95fb0",
   geoFilter: "#73b9d9",
 } as const;
 
-// Malls, hawker centres, gyms, community clubs, pharmacies, hotels, heritage, healthcare and libraries are static bundles: build their sources once.
+// Malls, hawker centres, gyms, community clubs, pharmacies, hotels, heritage, healthcare, libraries and supermarkets are static bundles: build their sources once.
 const MALLS_BY_ID = new globalThis.Map(MALLS.map((mall) => [mall.id, mall]));
 const HAWKERS_BY_ID = new globalThis.Map(HAWKER_CENTRES.map((hawker) => [hawker.id, hawker]));
 const GYMS_BY_ID = new globalThis.Map(GYMS.map((gym) => [gym.id, gym]));
@@ -162,6 +168,7 @@ const HOTELS_BY_ID = new globalThis.Map(HOTELS.map((hotel) => [hotel.id, hotel])
 const HERITAGE_BY_ID = new globalThis.Map(HERITAGE_SITES.map((site) => [site.id, site]));
 const HEALTHCARE_BY_ID = new globalThis.Map(HEALTHCARE_SITES.map((site) => [site.id, site]));
 const LIBRARIES_BY_ID = new globalThis.Map(LIBRARIES.map((library) => [library.id, library]));
+const SUPERMARKETS_BY_ID = new globalThis.Map(SUPERMARKETS.map((market) => [market.id, market]));
 const MALLS_GEOJSON = {
   type: "FeatureCollection" as const,
   features: MALLS.map((mall) => ({
@@ -240,6 +247,17 @@ const LIBRARIES_GEOJSON = {
     geometry: { type: "Point" as const, coordinates: [library.lng, library.lat] },
   })),
 };
+/** Supermarkets whose brand is on; the radius filter applies on top of this. */
+const buildSupermarketsGeoJson = (
+  brands: Readonly<Record<SupermarketBrand, boolean>> | undefined,
+) => ({
+  type: "FeatureCollection" as const,
+  features: filterSupermarketsByBrand(SUPERMARKETS, brands ?? {}).map((market) => ({
+    type: "Feature" as const,
+    properties: { id: market.id, name: market.name },
+    geometry: { type: "Point" as const, coordinates: [market.lng, market.lat] },
+  })),
+});
 /** Healthcare sites whose kind is on; the radius filter applies on top of this. */
 const buildHealthcareGeoJson = (
   kinds: Readonly<Record<HealthcareKind, boolean>> | undefined,
@@ -514,7 +532,7 @@ function filterMrtStations(
   };
 }
 
-/** Static point layers (park labels, malls, hawker centres, gyms, community clubs, pharmacies, hotels, heritage, healthcare, libraries) inside the radius. */
+/** Static point layers (park labels, malls, hawker centres, gyms, community clubs, pharmacies, hotels, heritage, healthcare, libraries, supermarkets) inside the radius. */
 function filterPointFeatures<C extends { features: Array<{ geometry: { type: "Point"; coordinates: number[] } }> }>(
   collection: C,
   filter: GeoFilter | null,
@@ -594,6 +612,7 @@ function useMapController({
   gymBrands,
   heritageKinds,
   healthcareKinds,
+  supermarketBrands,
   onStopClick,
   onCameraClick,
   onFlightClick,
@@ -631,6 +650,7 @@ function useMapController({
   const gymBrandsRef = useRef(gymBrands);
   const heritageKindsRef = useRef(heritageKinds);
   const healthcareKindsRef = useRef(healthcareKinds);
+  const supermarketBrandsRef = useRef(supermarketBrands);
   const geoFilterRef = useRef<GeoFilter | null>(geoFilter);
   const geoFilterPickingRef = useRef(geoFilterPicking);
   const onGeoFilterPickRef = useRef(onGeoFilterPick);
@@ -684,6 +704,14 @@ function useMapController({
   }, [healthcareKinds]);
 
   useEffect(() => {
+    supermarketBrandsRef.current = supermarketBrands;
+    const map = mapRef.current;
+    if (!map) return;
+    (map.getSource("supermarkets-data") as maplibregl.GeoJSONSource | undefined)
+      ?.setData(filterPointFeatures(buildSupermarketsGeoJson(supermarketBrands), geoFilterRef.current));
+  }, [supermarketBrands]);
+
+  useEffect(() => {
     onGeoFilterPickRef.current = onGeoFilterPick;
   }, [onGeoFilterPick]);
 
@@ -731,6 +759,8 @@ function useMapController({
       ?.setData(filterPointFeatures(buildHealthcareGeoJson(healthcareKindsRef.current), geoFilter));
     (map.getSource("libraries-data") as maplibregl.GeoJSONSource | undefined)
       ?.setData(filterPointFeatures(LIBRARIES_GEOJSON, geoFilter));
+    (map.getSource("supermarkets-data") as maplibregl.GeoJSONSource | undefined)
+      ?.setData(filterPointFeatures(buildSupermarketsGeoJson(supermarketBrandsRef.current), geoFilter));
   }, [geoFilter]);
 
   useEffect(() => {
@@ -787,6 +817,8 @@ function useMapController({
     setLayerVisibility("healthcare-label-layer", sensorVisibility.healthcare);
     setLayerVisibility("libraries-point-layer", sensorVisibility.libraries);
     setLayerVisibility("libraries-label-layer", sensorVisibility.libraries);
+    setLayerVisibility("supermarkets-point-layer", sensorVisibility.supermarkets);
+    setLayerVisibility("supermarkets-label-layer", sensorVisibility.supermarkets);
   }, [sensorVisibility]);
 
   useEffect(() => {
@@ -1086,6 +1118,17 @@ function useMapController({
       const id = event.features?.[0]?.properties?.id;
       if (typeof id !== "string") return;
       onAmenityClickRef.current?.({ type: "library", id });
+    };
+    const handleSupermarketEnter = (event: maplibregl.MapLayerMouseEvent) => {
+      const id = event.features?.[0]?.properties?.id;
+      const market = typeof id === "string" ? SUPERMARKETS_BY_ID.get(id) : undefined;
+      if (market) showHoverPopup(event.lngLat, "SUPERMARKET", "text-signal-supermarket", describeSupermarket(market));
+    };
+    const handleSupermarketClick = (event: maplibregl.MapLayerMouseEvent) => {
+      if (geoFilterPickingRef.current) return;
+      const id = event.features?.[0]?.properties?.id;
+      if (typeof id !== "string") return;
+      onAmenityClickRef.current?.({ type: "supermarket", id });
     };
     // Parks overlap their own connectors and trails, so one map-level hover
     // picks the topmost recreation feature rather than racing per-layer
@@ -1919,6 +1962,7 @@ function useMapController({
           ["hotels-data", "hotels", sensorVisibilityRef.current.hotels, MAP_COLORS.hotel, HOTELS_GEOJSON, handleHotelEnter, handleHotelClick],
           ["heritage-data", "heritage", sensorVisibilityRef.current.heritage, MAP_COLORS.heritage, buildHeritageGeoJson(heritageKindsRef.current), handleHeritageEnter, handleHeritageClick],
           ["libraries-data", "libraries", sensorVisibilityRef.current.libraries, MAP_COLORS.library, LIBRARIES_GEOJSON, handleLibraryEnter, handleLibraryClick],
+          ["supermarkets-data", "supermarkets", sensorVisibilityRef.current.supermarkets, MAP_COLORS.supermarket, buildSupermarketsGeoJson(supermarketBrandsRef.current), handleSupermarketEnter, handleSupermarketClick],
         ] as const) {
           const visibility = visible ? "visible" : "none";
           map.addSource(sourceId, { type: "geojson", data: filterPointFeatures(data, geoFilterRef.current) });

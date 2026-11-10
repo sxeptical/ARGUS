@@ -17,6 +17,7 @@ import type { HeritageKindCount } from "@/lib/heritage";
 import { HERITAGE_KIND_LABEL } from "@/lib/heritage";
 import type { HealthcareKindCount } from "@/lib/healthcare";
 import { HEALTHCARE_KIND_LABEL } from "@/lib/healthcare";
+import type { SupermarketBrandCount } from "@/lib/supermarkets";
 
 export function MobileLayersDrawer({
   sensorRows,
@@ -31,6 +32,9 @@ export function MobileLayersDrawer({
   healthcareKinds,
   healthcareKindCounts,
   onHealthcareKindsChange,
+  supermarketBrands,
+  supermarketBrandCounts,
+  onSupermarketBrandsChange,
   visibleSensorCount,
 }: {
   sensorRows: ReadonlyArray<SensorRow>;
@@ -45,6 +49,9 @@ export function MobileLayersDrawer({
   healthcareKinds: Record<string, boolean>;
   healthcareKindCounts: HealthcareKindCount[];
   onHealthcareKindsChange: (next: Record<string, boolean>) => void;
+  supermarketBrands: Record<string, boolean>;
+  supermarketBrandCounts: SupermarketBrandCount[];
+  onSupermarketBrandsChange: (next: Record<string, boolean>) => void;
   visibleSensorCount: number;
 }) {
   const [open, setOpen] = useState(false);
@@ -255,6 +262,15 @@ export function MobileLayersDrawer({
                             selected={healthcareKinds}
                             onChange={onHealthcareKindsChange}
                             accentClass="bg-signal-healthcare"
+                          />
+                        ) : null}
+                        {row.key === "supermarkets" && visible ? (
+                          <LayerOptionFilter
+                            summaryLabel="Brands"
+                            options={supermarketBrandCounts.map(({ brand, count }) => ({ value: brand, label: brand, count }))}
+                            selected={supermarketBrands}
+                            onChange={onSupermarketBrandsChange}
+                            accentClass="bg-signal-supermarket"
                           />
                         ) : null}
                         </Fragment>

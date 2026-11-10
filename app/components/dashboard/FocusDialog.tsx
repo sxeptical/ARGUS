@@ -13,6 +13,7 @@ import { HOTEL_SOURCE_HINT } from "@/lib/hotels";
 import { HERITAGE_KIND_LABEL, HERITAGE_SOURCE_HINT } from "@/lib/heritage";
 import { HEALTHCARE_KIND_LABEL, HEALTHCARE_SOURCE_HINT } from "@/lib/healthcare";
 import { LIBRARY_SOURCE_HINT } from "@/lib/libraries";
+import { SUPERMARKET_SOURCE_HINT } from "@/lib/supermarkets";
 import { formatAltitudeFeet, formatSpeedKmh } from "@/lib/formatters";
 import { photosForPark } from "@/lib/park-photos";
 import { PARK_KIND_TITLE } from "@/lib/parks";
@@ -205,6 +206,35 @@ export function FocusDialog({
             {library.address ? <KeyValue label="Address" value={library.address} /> : null}
           </div>
           <p className="text-[11px] leading-relaxed text-muted">{LIBRARY_SOURCE_HINT[library.source]}</p>
+        </div>
+      </FocusShell>
+    );
+  }
+
+  if (amenity?.type === "supermarket") {
+    const { market } = amenity;
+    return (
+      <FocusShell kind="Supermarket" title={market.name} onClose={onClose}>
+        <div className="space-y-2 p-4 text-xs">
+          <div>
+            {market.brand !== "Other" ? <KeyValue label="Brand" value={market.brand} /> : null}
+            {market.openingHours ? <KeyValue label="Hours" value={formatOpeningHours(market.openingHours) ?? market.openingHours} /> : null}
+            {market.address ? <KeyValue label="Address" value={market.address} /> : null}
+            {market.website ? (
+              <div className="flex gap-2 py-1">
+                <span className="data-label w-20 shrink-0">Website</span>
+                <a
+                  href={market.website}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="min-w-0 break-all text-info underline decoration-info/40 hover:decoration-info"
+                >
+                  {market.website}
+                </a>
+              </div>
+            ) : null}
+          </div>
+          <p className="text-[11px] leading-relaxed text-muted">{SUPERMARKET_SOURCE_HINT}</p>
         </div>
       </FocusShell>
     );

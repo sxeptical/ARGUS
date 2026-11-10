@@ -407,6 +407,35 @@ export interface PublicLibrary {
 }
 
 /**
+ * Supermarket from the static supermarket bundle (OpenStreetMap
+ * `shop=supermarket`), with `brand` normalised to the operator at build
+ * time ("Other" for chains without a known operator).
+ */
+export type SupermarketBrand =
+  | "NTUC FairPrice"
+  | "Cold Storage"
+  | "Sheng Siong"
+  | "Giant"
+  | "Prime"
+  | "Don Don Donki"
+  | "Ang Mo"
+  | "U Stars"
+  | "Hao Mart"
+  | "Scarlett"
+  | "Other";
+
+export interface Supermarket {
+  id: string;
+  name: string;
+  brand: SupermarketBrand;
+  address: string | null;
+  lat: number;
+  lng: number;
+  openingHours: string | null;
+  website: string | null;
+}
+
+/**
  * Retail pharmacy from the static pharmacy bundle (HSA via data.gov.sg).
  */
 export interface Pharmacy {
@@ -438,7 +467,7 @@ export interface AmenitiesBundle {
   malls: Mall[];
 }
 
-export type SearchResultType = "bus-stop" | "mrt" | "park" | "mall" | "hawker" | "gym" | "community-club" | "pharmacy" | "hotel" | "heritage" | "healthcare" | "library";
+export type SearchResultType = "bus-stop" | "mrt" | "park" | "mall" | "hawker" | "gym" | "community-club" | "pharmacy" | "hotel" | "heritage" | "healthcare" | "library" | "supermarket";
 
 export interface MapSearchResult {
   id: string;
