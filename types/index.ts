@@ -300,6 +300,17 @@ export interface CommunityClub {
   lng: number;
 }
 
+/**
+ * Retail pharmacy from the static pharmacy bundle (HSA via data.gov.sg).
+ */
+export interface Pharmacy {
+  id: string;
+  name: string;
+  address: string | null;
+  lat: number;
+  lng: number;
+}
+
 export interface MallStore {
   name: string;
   unit: string | null;
@@ -321,7 +332,7 @@ export interface AmenitiesBundle {
   malls: Mall[];
 }
 
-export type SearchResultType = "bus-stop" | "mrt" | "park" | "mall" | "hawker" | "gym" | "community-club";
+export type SearchResultType = "bus-stop" | "mrt" | "park" | "mall" | "hawker" | "gym" | "community-club" | "pharmacy";
 
 export interface MapSearchResult {
   id: string;

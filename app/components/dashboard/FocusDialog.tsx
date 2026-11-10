@@ -8,6 +8,7 @@ import { PlacePhotoGallery } from "@/app/components/dashboard/PlacePhotoGallery"
 import { describeHawkerClosure, formatOpeningHours } from "@/lib/amenities";
 import { GYM_CATEGORY_LABEL, GYM_SOURCE_HINT } from "@/lib/gyms";
 import { COMMUNITY_CLUB_KIND_LABEL, COMMUNITY_CLUB_SOURCE_HINT } from "@/lib/community-clubs";
+import { PHARMACY_SOURCE_HINT } from "@/lib/pharmacies";
 import { formatAltitudeFeet, formatSpeedKmh } from "@/lib/formatters";
 import { photosForPark } from "@/lib/park-photos";
 import { PARK_KIND_TITLE } from "@/lib/parks";
@@ -123,6 +124,20 @@ export function FocusDialog({
             {club.address ? <KeyValue label="Address" value={club.address} /> : null}
           </div>
           <p className="text-[11px] leading-relaxed text-muted">{COMMUNITY_CLUB_SOURCE_HINT}</p>
+        </div>
+      </FocusShell>
+    );
+  }
+
+  if (amenity?.type === "pharmacy") {
+    const { pharmacy } = amenity;
+    return (
+      <FocusShell kind="Pharmacy" title={pharmacy.name} onClose={onClose}>
+        <div className="space-y-2 p-4 text-xs">
+          <div>
+            {pharmacy.address ? <KeyValue label="Address" value={pharmacy.address} /> : null}
+          </div>
+          <p className="text-[11px] leading-relaxed text-muted">{PHARMACY_SOURCE_HINT}</p>
         </div>
       </FocusShell>
     );

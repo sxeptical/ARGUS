@@ -24,6 +24,7 @@ import { MRT_DISPLAY_LINE_COUNT } from "@/lib/mrt-network";
 import { HAWKER_CENTRES, MALLS } from "@/lib/amenities-data";
 import { GYMS } from "@/lib/gyms-data";
 import { COMMUNITY_CLUBS } from "@/lib/community-clubs-data";
+import { PHARMACIES } from "@/lib/pharmacies-data";
 import { DEFAULT_NOTIFICATION_PREFS } from "@/lib/notifications";
 import { PARKS_GEOJSON } from "@/lib/parks-data";
 import {
@@ -42,6 +43,7 @@ import type {
   Gym,
   HawkerCentre,
   Mall,
+  Pharmacy,
   TrafficCamera,
 } from "@/types";
 
@@ -58,14 +60,15 @@ export type SensorRow = {
 export type SensorStatsRow = Omit<SensorRow, "key" | "dot">;
 
 /** Which static amenity the map (or search) picked, by its bundle id. */
-export type AmenitySelectionTarget = { type: "mall" | "hawker" | "gym" | "community-club"; id: string };
+export type AmenitySelectionTarget = { type: "mall" | "hawker" | "gym" | "community-club" | "pharmacy"; id: string };
 
 /** A selected amenity resolved to its bundle record. */
 export type SelectedAmenity =
   | { type: "mall"; mall: Mall }
   | { type: "hawker"; hawker: HawkerCentre }
   | { type: "gym"; gym: Gym }
-  | { type: "community-club"; club: CommunityClub };
+  | { type: "community-club"; club: CommunityClub }
+  | { type: "pharmacy"; pharmacy: Pharmacy };
 
 export function useDashboardState() {
   // Declared before the sources: carparks and EV chargers only load while
@@ -172,6 +175,10 @@ export function useDashboardState() {
     () => withinRadius(COMMUNITY_CLUBS, geoFilter, (club) => [club.lng, club.lat]).length,
     [geoFilter],
   );
+  const pharmacyCount = useMemo(
+    () => withinRadius(PHARMACIES, geoFilter, (pharmacy) => [pharmacy.lng, pharmacy.lat]).length,
+    [geoFilter],
+  );
 
   const selectedCamera = useMemo(
     () =>
@@ -242,6 +249,11 @@ export function useDashboardState() {
         COMMUNITY_CLUBS.find((club) => club.id === selectedAmenityId.id) ?? null;
       return club ? { type: "community-club", club } : null;
     }
+    if (selectedAmenityId.type === "pharmacy") {
+      const pharmacy =
+        PHARMACIES.find((pharmacy) => pharmacy.id === selectedAmenityId.id) ?? null;
+      return pharmacy ? { type: "pharmacy", pharmacy } : null;
+    }
     const hawker =
       HAWKER_CENTRES.find((hawker) => hawker.id === selectedAmenityId.id) ??
       null;
@@ -278,6 +290,7 @@ export function useDashboardState() {
     hawkers: hawkerCount,
     gyms: gymCount,
     communityClubs: communityClubCount,
+    pharmacies: pharmacyCount,
   };
   const sensorRows: SensorRow[] = LAYERS.map((layer) => ({
     key: layer.key,
