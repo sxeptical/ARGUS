@@ -11,6 +11,7 @@ import { COMMUNITY_CLUB_KIND_LABEL, COMMUNITY_CLUB_SOURCE_HINT } from "@/lib/com
 import { PHARMACY_SOURCE_HINT } from "@/lib/pharmacies";
 import { HOTEL_SOURCE_HINT } from "@/lib/hotels";
 import { HERITAGE_KIND_LABEL, HERITAGE_SOURCE_HINT } from "@/lib/heritage";
+import { HEALTHCARE_KIND_LABEL, HEALTHCARE_SOURCE_HINT } from "@/lib/healthcare";
 import { formatAltitudeFeet, formatSpeedKmh } from "@/lib/formatters";
 import { photosForPark } from "@/lib/park-photos";
 import { PARK_KIND_TITLE } from "@/lib/parks";
@@ -170,6 +171,23 @@ export function FocusDialog({
             ) : null}
           </div>
           <p className="text-[11px] leading-relaxed text-muted">{HERITAGE_SOURCE_HINT[site.source]}</p>
+        </div>
+      </FocusShell>
+    );
+  }
+
+  if (amenity?.type === "healthcare") {
+    const { site } = amenity;
+    return (
+      <FocusShell kind={HEALTHCARE_KIND_LABEL[site.kind]} title={site.name} onClose={onClose}>
+        <div className="space-y-2 p-4 text-xs">
+          <PlacePhotoGallery key={site.id} name={site.name} photos={site.photos} />
+          <div>
+            {site.programmes.length ? <KeyValue label="Schemes" value={site.programmes.join(" · ")} /> : null}
+            {site.phone ? <KeyValue label="Telephone" value={site.phone} /> : null}
+            {site.address ? <KeyValue label="Address" value={site.address} /> : null}
+          </div>
+          <p className="text-[11px] leading-relaxed text-muted">{HEALTHCARE_SOURCE_HINT[site.source]}</p>
         </div>
       </FocusShell>
     );

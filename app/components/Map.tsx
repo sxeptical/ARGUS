@@ -53,6 +53,8 @@ import { describeHotel } from "@/lib/hotels";
 import { HOTELS } from "@/lib/hotels-data";
 import { describeHeritage, filterHeritageByKind } from "@/lib/heritage";
 import { HERITAGE_SITES } from "@/lib/heritage-data";
+import { describeHealthcare, filterHealthcareByKind } from "@/lib/healthcare";
+import { HEALTHCARE_SITES } from "@/lib/healthcare-data";
 import { PARK_LABELS_GEOJSON, PARKS_GEOJSON } from "@/lib/parks-data";
 import { describeParkFeature, PARK_KIND_TITLE } from "@/lib/parks";
 import { photosForPark } from "@/lib/park-photos";
@@ -68,6 +70,7 @@ import type {
   TrafficCamera,
   TrafficIncident,
   GymBrand,
+  HealthcareKind,
   HeritageKind,
   ParkFeatureKind,
 } from "@/types";
@@ -101,14 +104,16 @@ type MapProps = {
   gymBrands?: Readonly<Record<GymBrand, boolean>>;
   /** Which heritage kinds are shown; unset kinds default to visible. */
   heritageKinds?: Readonly<Record<HeritageKind, boolean>>;
+  /** Which healthcare kinds are shown; unset kinds default to visible. */
+  healthcareKinds?: Readonly<Record<HealthcareKind, boolean>>;
   searchTarget?: MapSearchTarget | null;
   onStopClick: (stop: BusStop) => void;
   onCameraClick: (camera: TrafficCamera) => void;
   onFlightClick: (flight: FlightState) => void;
   onMrtStationClick?: (stationName: string) => void;
   onParkClick: (feature: { kind: ParkFeatureKind; name: string; park?: string; type?: string; cycle?: boolean }) => void;
-  /** Opens the clicked mall/hawker centre/gym/community club/pharmacy/hotel/heritage site in the focus dialog. */
-  onAmenityClick?: (target: { type: "mall" | "hawker" | "gym" | "community-club" | "pharmacy" | "hotel" | "heritage"; id: string }) => void;
+  /** Opens the clicked mall/hawker centre/gym/community club/pharmacy/hotel/heritage/healthcare site in the focus dialog. */
+  onAmenityClick?: (target: { type: "mall" | "hawker" | "gym" | "community-club" | "pharmacy" | "hotel" | "heritage" | "healthcare"; id: string }) => void;
   mrtRouteSegments?: MrtRouteSegment[];
   busRouteOverlay?: BusRouteOverlay | null;
   /** Active radius filter, drawn as a circle; scopes MRT stations and parks. */
@@ -140,10 +145,11 @@ const MAP_COLORS = {
   pharmacy: "#f0715f",
   hotel: "#5f9fe8",
   heritage: "#d9c84f",
+  healthcare: "#d9553f",
   geoFilter: "#73b9d9",
 } as const;
 
-// Malls, hawker centres, gyms, community clubs, pharmacies, hotels and heritage are static bundles: build their sources once.
+// Malls, hawker centres, gyms, community clubs, pharmacies, hotels, heritage and healthcare are static bundles: build their sources once.
 const MALLS_BY_ID = new globalThis.Map(MALLS.map((mall) => [mall.id, mall]));
 const HAWKERS_BY_ID = new globalThis.Map(HAWKER_CENTRES.map((hawker) => [hawker.id, hawker]));
 const GYMS_BY_ID = new globalThis.Map(GYMS.map((gym) => [gym.id, gym]));
@@ -151,6 +157,7 @@ const COMMUNITY_CLUBS_BY_ID = new globalThis.Map(COMMUNITY_CLUBS.map((club) => [
 const PHARMACIES_BY_ID = new globalThis.Map(PHARMACIES.map((pharmacy) => [pharmacy.id, pharmacy]));
 const HOTELS_BY_ID = new globalThis.Map(HOTELS.map((hotel) => [hotel.id, hotel]));
 const HERITAGE_BY_ID = new globalThis.Map(HERITAGE_SITES.map((site) => [site.id, site]));
+const HEALTHCARE_BY_ID = new globalThis.Map(HEALTHCARE_SITES.map((site) => [site.id, site]));
 const MALLS_GEOJSON = {
   type: "FeatureCollection" as const,
   features: MALLS.map((mall) => ({
@@ -216,6 +223,17 @@ const buildHeritageGeoJson = (
 ) => ({
   type: "FeatureCollection" as const,
   features: filterHeritageByKind(HERITAGE_SITES, kinds ?? {}).map((site) => ({
+    type: "Feature" as const,
+    properties: { id: site.id, name: site.name },
+    geometry: { type: "Point" as const, coordinates: [site.lng, site.lat] },
+  })),
+});
+/** Healthcare sites whose kind is on; the radius filter applies on top of this. */
+const buildHealthcareGeoJson = (
+  kinds: Readonly<Record<HealthcareKind, boolean>> | undefined,
+) => ({
+  type: "FeatureCollection" as const,
+  features: filterHealthcareByKind(HEALTHCARE_SITES, kinds ?? {}).map((site) => ({
     type: "Feature" as const,
     properties: { id: site.id, name: site.name },
     geometry: { type: "Point" as const, coordinates: [site.lng, site.lat] },
@@ -484,7 +502,7 @@ function filterMrtStations(
   };
 }
 
-/** Static point layers (park labels, malls, hawker centres, gyms, community clubs, pharmacies, hotels, heritage) inside the radius. */
+/** Static point layers (park labels, malls, hawker centres, gyms, community clubs, pharmacies, hotels, heritage, healthcare) inside the radius. */
 function filterPointFeatures<C extends { features: Array<{ geometry: { type: "Point"; coordinates: number[] } }> }>(
   collection: C,
   filter: GeoFilter | null,
@@ -563,6 +581,7 @@ function useMapController({
   sensorVisibility,
   gymBrands,
   heritageKinds,
+  healthcareKinds,
   onStopClick,
   onCameraClick,
   onFlightClick,
@@ -599,6 +618,7 @@ function useMapController({
   const sensorVisibilityRef = useRef(sensorVisibility);
   const gymBrandsRef = useRef(gymBrands);
   const heritageKindsRef = useRef(heritageKinds);
+  const healthcareKindsRef = useRef(healthcareKinds);
   const geoFilterRef = useRef<GeoFilter | null>(geoFilter);
   const geoFilterPickingRef = useRef(geoFilterPicking);
   const onGeoFilterPickRef = useRef(onGeoFilterPick);
@@ -644,6 +664,14 @@ function useMapController({
   }, [heritageKinds]);
 
   useEffect(() => {
+    healthcareKindsRef.current = healthcareKinds;
+    const map = mapRef.current;
+    if (!map) return;
+    (map.getSource("healthcare-data") as maplibregl.GeoJSONSource | undefined)
+      ?.setData(filterPointFeatures(buildHealthcareGeoJson(healthcareKinds), geoFilterRef.current));
+  }, [healthcareKinds]);
+
+  useEffect(() => {
     onGeoFilterPickRef.current = onGeoFilterPick;
   }, [onGeoFilterPick]);
 
@@ -687,6 +715,8 @@ function useMapController({
       ?.setData(filterPointFeatures(HOTELS_GEOJSON, geoFilter));
     (map.getSource("heritage-data") as maplibregl.GeoJSONSource | undefined)
       ?.setData(filterPointFeatures(buildHeritageGeoJson(heritageKindsRef.current), geoFilter));
+    (map.getSource("healthcare-data") as maplibregl.GeoJSONSource | undefined)
+      ?.setData(filterPointFeatures(buildHealthcareGeoJson(healthcareKindsRef.current), geoFilter));
   }, [geoFilter]);
 
   useEffect(() => {
@@ -739,6 +769,8 @@ function useMapController({
     setLayerVisibility("hotels-label-layer", sensorVisibility.hotels);
     setLayerVisibility("heritage-point-layer", sensorVisibility.heritage);
     setLayerVisibility("heritage-label-layer", sensorVisibility.heritage);
+    setLayerVisibility("healthcare-point-layer", sensorVisibility.healthcare);
+    setLayerVisibility("healthcare-label-layer", sensorVisibility.healthcare);
   }, [sensorVisibility]);
 
   useEffect(() => {
@@ -1016,6 +1048,17 @@ function useMapController({
       const id = event.features?.[0]?.properties?.id;
       if (typeof id !== "string") return;
       onAmenityClickRef.current?.({ type: "heritage", id });
+    };
+    const handleHealthcareEnter = (event: maplibregl.MapLayerMouseEvent) => {
+      const id = event.features?.[0]?.properties?.id;
+      const site = typeof id === "string" ? HEALTHCARE_BY_ID.get(id) : undefined;
+      if (site) showHoverPopup(event.lngLat, "HEALTHCARE", "text-signal-healthcare", describeHealthcare(site), site.photos.map((photo, index) => ({ src: photo.thumb, alt: `${site.name} photo ${index + 1}` })));
+    };
+    const handleHealthcareClick = (event: maplibregl.MapLayerMouseEvent) => {
+      if (geoFilterPickingRef.current) return;
+      const id = event.features?.[0]?.properties?.id;
+      if (typeof id !== "string") return;
+      onAmenityClickRef.current?.({ type: "healthcare", id });
     };
     // Parks overlap their own connectors and trails, so one map-level hover
     // picks the topmost recreation feature rather than racing per-layer
@@ -1859,6 +1902,20 @@ function useMapController({
           } });
           map.addLayer({ id: `${prefix}-label-layer`, type: "symbol", source: sourceId, minzoom: 14, layout: { visibility, "text-font": MAP_FONT, "text-field": ["get", "name"], "text-size": 10, "text-offset": [0, 1.1], "text-anchor": "top" }, paint: { "text-color": color as maplibregl.DataDrivenPropertyValueSpecification<string>, "text-halo-color": MAP_COLORS.paper, "text-halo-width": 1 } });
           layerListenerCleanups.push(registerLayerMouseListener(map, "click", `${prefix}-point-layer`, onClick), registerLayerMouseListener(map, "mouseenter", `${prefix}-point-layer`, onEnter), registerLayerMouseListener(map, "mouseleave", `${prefix}-point-layer`, handleHoverPopupLeave), registerLayerMouseListener(map, "mouseenter", `${prefix}-point-layer`, handleInteractiveLayerEnter), registerLayerMouseListener(map, "mouseleave", `${prefix}-point-layer`, handleInteractiveLayerLeave));
+        }
+        // Healthcare is denser than any other static bundle (1,400+ points),
+        // so it only draws from city zoom with street-level labels.
+        {
+          const visibility = sensorVisibilityRef.current.healthcare ? "visible" : "none";
+          map.addSource("healthcare-data", { type: "geojson", data: filterPointFeatures(buildHealthcareGeoJson(healthcareKindsRef.current), geoFilterRef.current) });
+          map.addLayer({ id: "healthcare-point-layer", type: "circle", source: "healthcare-data", minzoom: 11, layout: { visibility }, paint: {
+            "circle-color": MAP_COLORS.healthcare,
+            "circle-radius": ["interpolate", ["linear"], ["zoom"], 11, 2.5, 15, 5.5],
+            "circle-stroke-color": MAP_COLORS.paper,
+            "circle-stroke-width": 1.5,
+          } });
+          map.addLayer({ id: "healthcare-label-layer", type: "symbol", source: "healthcare-data", minzoom: 15, layout: { visibility, "text-font": MAP_FONT, "text-field": ["get", "name"], "text-size": 10, "text-offset": [0, 1.1], "text-anchor": "top" }, paint: { "text-color": MAP_COLORS.healthcare, "text-halo-color": MAP_COLORS.paper, "text-halo-width": 1 } });
+          layerListenerCleanups.push(registerLayerMouseListener(map, "click", "healthcare-point-layer", handleHealthcareClick), registerLayerMouseListener(map, "mouseenter", "healthcare-point-layer", handleHealthcareEnter), registerLayerMouseListener(map, "mouseleave", "healthcare-point-layer", handleHoverPopupLeave), registerLayerMouseListener(map, "mouseenter", "healthcare-point-layer", handleInteractiveLayerEnter), registerLayerMouseListener(map, "mouseleave", "healthcare-point-layer", handleInteractiveLayerLeave));
         }
       } catch (error) {
         console.warn("MRT layer failed to initialize", error);

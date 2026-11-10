@@ -19,6 +19,8 @@ import type { SensorKey } from "@/lib/layers";
 import type { GymBrandCount } from "@/lib/gyms";
 import type { HeritageKindCount } from "@/lib/heritage";
 import { HERITAGE_KIND_LABEL } from "@/lib/heritage";
+import type { HealthcareKindCount } from "@/lib/healthcare";
+import { HEALTHCARE_KIND_LABEL } from "@/lib/healthcare";
 import { FLIGHTS_ENABLED } from "@/lib/features";
 import type {
   FlightState,
@@ -41,6 +43,9 @@ export function LayersSidebar({
   heritageKinds,
   heritageKindCounts,
   onHeritageKindsChange,
+  healthcareKinds,
+  healthcareKindCounts,
+  onHealthcareKindsChange,
   visibleSensorCount,
   weather,
   weatherHistory,
@@ -59,6 +64,9 @@ export function LayersSidebar({
   heritageKinds: Record<string, boolean>;
   heritageKindCounts: HeritageKindCount[];
   onHeritageKindsChange: (next: Record<string, boolean>) => void;
+  healthcareKinds: Record<string, boolean>;
+  healthcareKindCounts: HealthcareKindCount[];
+  onHealthcareKindsChange: (next: Record<string, boolean>) => void;
   visibleSensorCount: number;
   weather: WeatherData;
   weatherHistory: WeatherHistoryPoint[];
@@ -156,6 +164,15 @@ export function LayersSidebar({
                           selected={heritageKinds}
                           onChange={onHeritageKindsChange}
                           accentClass="bg-signal-heritage"
+                        />
+                      ) : null}
+                      {row.key === "healthcare" && sensorVisibility.healthcare ? (
+                        <LayerOptionFilter
+                          summaryLabel="Types"
+                          options={healthcareKindCounts.map(({ kind, count }) => ({ value: kind, label: HEALTHCARE_KIND_LABEL[kind], count }))}
+                          selected={healthcareKinds}
+                          onChange={onHealthcareKindsChange}
+                          accentClass="bg-signal-healthcare"
                         />
                       ) : null}
                       </Fragment>

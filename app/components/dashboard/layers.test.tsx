@@ -39,6 +39,7 @@ const layerCounts: Record<SensorKey, number> = {
   pharmacies: 249,
   hotels: 468,
   heritage: 249,
+  healthcare: 1460,
 };
 
 const allRows: SensorRow[] = LAYERS.map((layer) => ({
@@ -168,6 +169,7 @@ describe("buildLayerGroups", () => {
       "pharmacies",
       "hotels",
       "heritage",
+      "healthcare",
     ]);
   });
 
@@ -243,6 +245,9 @@ describe("layer surfaces render", () => {
         heritageKinds={{}}
         heritageKindCounts={[]}
         onHeritageKindsChange={() => {}}
+        healthcareKinds={{}}
+        healthcareKindCounts={[]}
+        onHealthcareKindsChange={() => {}}
         visibleSensorCount={4}
         weather={weather}
         weatherHistory={[]}
@@ -271,6 +276,9 @@ describe("layer surfaces render", () => {
         heritageKinds={{}}
         heritageKindCounts={[]}
         onHeritageKindsChange={() => {}}
+        healthcareKinds={{}}
+        healthcareKindCounts={[]}
+        onHealthcareKindsChange={() => {}}
         visibleSensorCount={4}
       />,
     );
@@ -278,7 +286,7 @@ describe("layer surfaces render", () => {
       expect(markup).toContain(htmlEscape(group.label));
     }
     expect(markup).toContain("MRT &amp; LRT");
-    expect(markup).toContain("4/14 visible");
+    expect(markup).toContain("4/15 visible");
   });
 });
 

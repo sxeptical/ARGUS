@@ -29,6 +29,8 @@ import { PHARMACIES } from "@/lib/pharmacies-data";
 import { HOTELS } from "@/lib/hotels-data";
 import { HERITAGE_SITES, DEFAULT_HERITAGE_KIND_VISIBILITY } from "@/lib/heritage-data";
 import { filterHeritageByKind, orderedHeritageKindCounts } from "@/lib/heritage";
+import { HEALTHCARE_SITES, DEFAULT_HEALTHCARE_KIND_VISIBILITY } from "@/lib/healthcare-data";
+import { filterHealthcareByKind, orderedHealthcareKindCounts } from "@/lib/healthcare";
 import { DEFAULT_NOTIFICATION_PREFS } from "@/lib/notifications";
 import { PARKS_GEOJSON } from "@/lib/parks-data";
 import {
@@ -36,6 +38,7 @@ import {
   GEO_FILTER_RADIUS_KEY,
   GYM_BRANDS_KEY,
   HERITAGE_KINDS_KEY,
+  HEALTHCARE_KINDS_KEY,
   NOTIFICATION_PREFS_KEY,
   parseGeoFilterCenter,
   parseGeoFilterRadius,
@@ -50,6 +53,8 @@ import type {
   Gym,
   GymBrand,
   HawkerCentre,
+  HealthcareKind,
+  HealthcareSite,
   HeritageKind,
   HeritageSite,
   Hotel,
@@ -71,7 +76,7 @@ export type SensorRow = {
 export type SensorStatsRow = Omit<SensorRow, "key" | "dot">;
 
 /** Which static amenity the map (or search) picked, by its bundle id. */
-export type AmenitySelectionTarget = { type: "mall" | "hawker" | "gym" | "community-club" | "pharmacy" | "hotel" | "heritage"; id: string };
+export type AmenitySelectionTarget = { type: "mall" | "hawker" | "gym" | "community-club" | "pharmacy" | "hotel" | "heritage" | "healthcare"; id: string };
 
 /** A selected amenity resolved to its bundle record. */
 export type SelectedAmenity =
@@ -81,7 +86,8 @@ export type SelectedAmenity =
   | { type: "community-club"; club: CommunityClub }
   | { type: "pharmacy"; pharmacy: Pharmacy }
   | { type: "hotel"; hotel: Hotel }
-  | { type: "heritage"; site: HeritageSite };
+  | { type: "heritage"; site: HeritageSite }
+  | { type: "healthcare"; site: HealthcareSite };
 
 export function useDashboardState() {
   // Declared before the sources: carparks and EV chargers only load while
@@ -110,6 +116,12 @@ export function useDashboardState() {
     HERITAGE_KINDS_KEY,
     DEFAULT_HERITAGE_KIND_VISIBILITY,
     (stored) => parseSensorVisibility(stored, DEFAULT_HERITAGE_KIND_VISIBILITY),
+  );
+  // Also declared before the sources: the healthcare layer and its count follow it.
+  const [healthcareKinds, setHealthcareKinds] = usePersistentState<Record<HealthcareKind, boolean>>(
+    HEALTHCARE_KINDS_KEY,
+    DEFAULT_HEALTHCARE_KIND_VISIBILITY,
+    (stored) => parseSensorVisibility(stored, DEFAULT_HEALTHCARE_KIND_VISIBILITY),
   );
   const data = useDashboardSources(
     {
@@ -226,6 +238,17 @@ export function useDashboardState() {
     [setHeritageKinds],
   );
   const heritageKindCountList = useMemo(() => orderedHeritageKindCounts(HERITAGE_SITES), []);
+  const healthcareCount = useMemo(
+    () => withinRadius(filterHealthcareByKind(HEALTHCARE_SITES, healthcareKinds), geoFilter, (site) => [site.lng, site.lat]).length,
+    [geoFilter, healthcareKinds],
+  );
+
+  const toggleHealthcareKind = useCallback(
+    (kind: HealthcareKind, on: boolean) =>
+      setHealthcareKinds((previous) => ({ ...previous, [kind]: on })),
+    [setHealthcareKinds],
+  );
+  const healthcareKindCountList = useMemo(() => orderedHealthcareKindCounts(HEALTHCARE_SITES), []);
 
   const selectedCamera = useMemo(
     () =>
@@ -309,6 +332,10 @@ export function useDashboardState() {
       const site = HERITAGE_SITES.find((site) => site.id === selectedAmenityId.id) ?? null;
       return site ? { type: "heritage", site } : null;
     }
+    if (selectedAmenityId.type === "healthcare") {
+      const site = HEALTHCARE_SITES.find((site) => site.id === selectedAmenityId.id) ?? null;
+      return site ? { type: "healthcare", site } : null;
+    }
     const hawker =
       HAWKER_CENTRES.find((hawker) => hawker.id === selectedAmenityId.id) ??
       null;
@@ -348,6 +375,7 @@ export function useDashboardState() {
     pharmacies: pharmacyCount,
     hotels: hotelCount,
     heritage: heritageCount,
+    healthcare: healthcareCount,
   };
   const sensorRows: SensorRow[] = LAYERS.map((layer) => ({
     key: layer.key,
@@ -432,6 +460,10 @@ export function useDashboardState() {
     heritageKinds,
     setHeritageKinds,
     toggleHeritageKind,
+    healthcareKindCountList,
+    healthcareKinds,
+    setHealthcareKinds,
+    toggleHealthcareKind,
     clearGeoFilter,
     pickGeoFilterCenter,
     setGeoFilterPicking,

@@ -60,6 +60,7 @@
   --signal-pharmacy: oklch(0.72 0.19 15);
   --signal-hotel: oklch(0.72 0.12 215);
   --signal-heritage: oklch(0.82 0.14 100);
+  --signal-healthcare: oklch(0.66 0.2 28);
 
   --space-1: 0.25rem;
   --space-2: 0.5rem;
@@ -112,6 +113,7 @@
   --color-signal-pharmacy: var(--signal-pharmacy);
   --color-signal-hotel: var(--signal-hotel);
   --color-signal-heritage: var(--signal-heritage);
+  --color-signal-healthcare: var(--signal-healthcare);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-jetbrains-mono);
   --font-display: var(--font-geist-sans);

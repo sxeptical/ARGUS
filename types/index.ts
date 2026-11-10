@@ -365,6 +365,30 @@ export interface HeritageSite {
 }
 
 /**
+ * Healthcare point from the static healthcare bundle: MOH CHAS GP clinics
+ * (data.gov.sg, content vintage September 2021) plus OpenStreetMap
+ * hospitals and dental clinics. `programmes` is the CHAS/CDMP/ISP
+ * participation recorded for CHAS clinics (empty for OSM records).
+ */
+export type HealthcareKind = "gp" | "hospital" | "dental";
+
+export type HealthcareSource = "chas" | "osm";
+
+export interface HealthcareSite {
+  id: string;
+  name: string;
+  kind: HealthcareKind;
+  address: string | null;
+  phone: string | null;
+  programmes: string[];
+  lat: number;
+  lng: number;
+  /** Wikimedia Commons photos (hospitals only), credited per file. */
+  photos: PlacePhoto[];
+  source: HealthcareSource;
+}
+
+/**
  * Retail pharmacy from the static pharmacy bundle (HSA via data.gov.sg).
  */
 export interface Pharmacy {
@@ -396,7 +420,7 @@ export interface AmenitiesBundle {
   malls: Mall[];
 }
 
-export type SearchResultType = "bus-stop" | "mrt" | "park" | "mall" | "hawker" | "gym" | "community-club" | "pharmacy" | "hotel" | "heritage";
+export type SearchResultType = "bus-stop" | "mrt" | "park" | "mall" | "hawker" | "gym" | "community-club" | "pharmacy" | "hotel" | "heritage" | "healthcare";
 
 export interface MapSearchResult {
   id: string;
