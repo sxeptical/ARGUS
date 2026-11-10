@@ -242,6 +242,35 @@ export interface Mall {
  * One shop in a mall's directory (public/mall-stores/<mallId>.json). `level`
  * is a normalized key ("B2", "L1", "B2M") or a named area ("Tower 3").
  */
+/**
+ * Fitness facility from the static gym bundle (All The Places, OpenStreetMap,
+ * or SportSG via data.gov.sg). `category` is a display hint derived from the
+ * source activity tags; `public` gyms are ActiveSG / SportSG facilities.
+ */
+export type GymCategory =
+  | "gym"
+  | "yoga"
+  | "pilates"
+  | "martial-arts"
+  | "crossfit"
+  | "climbing"
+  | "public";
+
+export type GymSource = "alltheplaces" | "osm" | "sportsg";
+
+export interface Gym {
+  id: string;
+  name: string;
+  brand: string | null;
+  category: GymCategory;
+  address: string | null;
+  lat: number;
+  lng: number;
+  openingHours: string | null;
+  website: string | null;
+  source: GymSource;
+}
+
 export interface MallStore {
   name: string;
   unit: string | null;
@@ -263,7 +292,7 @@ export interface AmenitiesBundle {
   malls: Mall[];
 }
 
-export type SearchResultType = "bus-stop" | "mrt" | "park" | "mall" | "hawker";
+export type SearchResultType = "bus-stop" | "mrt" | "park" | "mall" | "hawker" | "gym";
 
 export interface MapSearchResult {
   id: string;

@@ -22,6 +22,7 @@ import {
 } from "@/lib/layers";
 import { MRT_DISPLAY_LINE_COUNT } from "@/lib/mrt-network";
 import { HAWKER_CENTRES, MALLS } from "@/lib/amenities-data";
+import { GYMS } from "@/lib/gyms-data";
 import { DEFAULT_NOTIFICATION_PREFS } from "@/lib/notifications";
 import { PARKS_GEOJSON } from "@/lib/parks-data";
 import {
@@ -36,6 +37,7 @@ import {
 import type { ParkFeatureKind } from "@/types";
 import type {
   FlightState,
+  Gym,
   HawkerCentre,
   Mall,
   TrafficCamera,
@@ -54,12 +56,13 @@ export type SensorRow = {
 export type SensorStatsRow = Omit<SensorRow, "key" | "dot">;
 
 /** Which static amenity the map (or search) picked, by its bundle id. */
-export type AmenitySelectionTarget = { type: "mall" | "hawker"; id: string };
+export type AmenitySelectionTarget = { type: "mall" | "hawker" | "gym"; id: string };
 
 /** A selected amenity resolved to its bundle record. */
 export type SelectedAmenity =
   | { type: "mall"; mall: Mall }
-  | { type: "hawker"; hawker: HawkerCentre };
+  | { type: "hawker"; hawker: HawkerCentre }
+  | { type: "gym"; gym: Gym };
 
 export function useDashboardState() {
   // Declared before the sources: carparks and EV chargers only load while
@@ -158,6 +161,10 @@ export function useDashboardState() {
     () => withinRadius(HAWKER_CENTRES, geoFilter, (h) => [h.lng, h.lat]).length,
     [geoFilter],
   );
+  const gymCount = useMemo(
+    () => withinRadius(GYMS, geoFilter, (g) => [g.lng, g.lat]).length,
+    [geoFilter],
+  );
 
   const selectedCamera = useMemo(
     () =>
@@ -219,6 +226,10 @@ export function useDashboardState() {
         MALLS.find((mall) => mall.id === selectedAmenityId.id) ?? null;
       return mall ? { type: "mall", mall } : null;
     }
+    if (selectedAmenityId.type === "gym") {
+      const gym = GYMS.find((gym) => gym.id === selectedAmenityId.id) ?? null;
+      return gym ? { type: "gym", gym } : null;
+    }
     const hawker =
       HAWKER_CENTRES.find((hawker) => hawker.id === selectedAmenityId.id) ??
       null;
@@ -253,6 +264,7 @@ export function useDashboardState() {
     evChargers: evChargers.length,
     malls: mallCount,
     hawkers: hawkerCount,
+    gyms: gymCount,
   };
   const sensorRows: SensorRow[] = LAYERS.map((layer) => ({
     key: layer.key,

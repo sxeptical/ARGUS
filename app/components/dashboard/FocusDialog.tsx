@@ -6,6 +6,7 @@ import { KeyValue } from "@/app/components/dashboard/IntelPanel";
 import { hasStoreDirectory, MallStoreDirectory } from "@/app/components/dashboard/MallDirectory";
 import { PlacePhotoGallery } from "@/app/components/dashboard/PlacePhotoGallery";
 import { formatOpeningHours } from "@/lib/amenities";
+import { GYM_CATEGORY_LABEL, GYM_SOURCE_HINT } from "@/lib/gyms";
 import { formatAltitudeFeet, formatSpeedKmh } from "@/lib/formatters";
 import { photosForPark } from "@/lib/park-photos";
 import { PARK_KIND_TITLE } from "@/lib/parks";
@@ -74,6 +75,36 @@ export function FocusDialog({
             {hawker.stalls !== null ? <KeyValue label="Stalls" value={`${hawker.stalls.toLocaleString("en-SG")} cooked food`} /> : null}
             {hawker.address ? <KeyValue label="Address" value={hawker.address} /> : null}
           </div>
+        </div>
+      </FocusShell>
+    );
+  }
+
+  if (amenity?.type === "gym") {
+    const { gym } = amenity;
+    return (
+      <FocusShell kind="Gym" title={gym.name} onClose={onClose}>
+        <div className="space-y-2 p-4 text-xs">
+          <div>
+            <KeyValue label="Type" value={GYM_CATEGORY_LABEL[gym.category]} />
+            {gym.brand ? <KeyValue label="Brand" value={gym.brand} /> : null}
+            {gym.openingHours ? <KeyValue label="Hours" value={formatOpeningHours(gym.openingHours) ?? gym.openingHours} /> : null}
+            {gym.address ? <KeyValue label="Address" value={gym.address} /> : null}
+            {gym.website ? (
+              <div className="flex gap-2 py-1">
+                <span className="data-label w-20 shrink-0">Website</span>
+                <a
+                  href={gym.website}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="min-w-0 break-all text-info underline decoration-info/40 hover:decoration-info"
+                >
+                  {gym.website}
+                </a>
+              </div>
+            ) : null}
+          </div>
+          <p className="text-[11px] leading-relaxed text-muted">{GYM_SOURCE_HINT[gym.source]}</p>
         </div>
       </FocusShell>
     );

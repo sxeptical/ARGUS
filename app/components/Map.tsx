@@ -43,6 +43,8 @@ import {
 } from "@/lib/mobility";
 import { describeHawkerCentre, describeMall } from "@/lib/amenities";
 import { HAWKER_CENTRES, MALLS } from "@/lib/amenities-data";
+import { describeGym } from "@/lib/gyms";
+import { GYMS } from "@/lib/gyms-data";
 import { PARK_LABELS_GEOJSON, PARKS_GEOJSON } from "@/lib/parks-data";
 import { describeParkFeature, PARK_KIND_TITLE } from "@/lib/parks";
 import { photosForPark } from "@/lib/park-photos";
@@ -91,8 +93,8 @@ type MapProps = {
   onFlightClick: (flight: FlightState) => void;
   onMrtStationClick?: (stationName: string) => void;
   onParkClick: (feature: { kind: ParkFeatureKind; name: string; park?: string; type?: string; cycle?: boolean }) => void;
-  /** Opens the clicked mall/hawker centre in the focus dialog. */
-  onAmenityClick?: (target: { type: "mall" | "hawker"; id: string }) => void;
+  /** Opens the clicked mall/hawker centre/gym in the focus dialog. */
+  onAmenityClick?: (target: { type: "mall" | "hawker" | "gym"; id: string }) => void;
   mrtRouteSegments?: MrtRouteSegment[];
   busRouteOverlay?: BusRouteOverlay | null;
   /** Active radius filter, drawn as a circle; scopes MRT stations and parks. */
@@ -119,12 +121,14 @@ const MAP_COLORS = {
   ev: "#4fd6e6",
   mall: "#e879c6",
   hawker: "#f0b060",
+  gym: "#c084fc",
   geoFilter: "#73b9d9",
 } as const;
 
-// Malls and hawker centres are a static bundle: build their sources once.
+// Malls, hawker centres and gyms are static bundles: build their sources once.
 const MALLS_BY_ID = new globalThis.Map(MALLS.map((mall) => [mall.id, mall]));
 const HAWKERS_BY_ID = new globalThis.Map(HAWKER_CENTRES.map((hawker) => [hawker.id, hawker]));
+const GYMS_BY_ID = new globalThis.Map(GYMS.map((gym) => [gym.id, gym]));
 const MALLS_GEOJSON = {
   type: "FeatureCollection" as const,
   features: MALLS.map((mall) => ({
@@ -139,6 +143,14 @@ const HAWKERS_GEOJSON = {
     type: "Feature" as const,
     properties: { id: hawker.id, name: hawker.name, status: hawker.status },
     geometry: { type: "Point" as const, coordinates: [hawker.lng, hawker.lat] },
+  })),
+};
+const GYMS_GEOJSON = {
+  type: "FeatureCollection" as const,
+  features: GYMS.map((gym) => ({
+    type: "Feature" as const,
+    properties: { id: gym.id, name: gym.name },
+    geometry: { type: "Point" as const, coordinates: [gym.lng, gym.lat] },
   })),
 };
 
@@ -404,7 +416,7 @@ function filterMrtStations(
   };
 }
 
-/** Static point layers (park labels, malls, hawker centres) inside the radius. */
+/** Static point layers (park labels, malls, hawker centres, gyms) inside the radius. */
 function filterPointFeatures<C extends { features: Array<{ geometry: { type: "Point"; coordinates: number[] } }> }>(
   collection: C,
   filter: GeoFilter | null,
@@ -555,7 +567,7 @@ function useMapController({
   }, [geoFilterPicking]);
 
   // Live feeds arrive pre-filtered via props; the static MRT station, park,
-  // mall and hawker sources are filtered here, and the circle is redrawn.
+  // mall, hawker centre and gym sources are filtered here, and the circle is redrawn.
   useEffect(() => {
     geoFilterRef.current = geoFilter;
     const map = mapRef.current;
@@ -576,6 +588,8 @@ function useMapController({
       ?.setData(filterPointFeatures(MALLS_GEOJSON, geoFilter));
     (map.getSource("hawkers-data") as maplibregl.GeoJSONSource | undefined)
       ?.setData(filterPointFeatures(HAWKERS_GEOJSON, geoFilter));
+    (map.getSource("gyms-data") as maplibregl.GeoJSONSource | undefined)
+      ?.setData(filterPointFeatures(GYMS_GEOJSON, geoFilter));
   }, [geoFilter]);
 
   useEffect(() => {
@@ -618,6 +632,8 @@ function useMapController({
     setLayerVisibility("malls-label-layer", sensorVisibility.malls);
     setLayerVisibility("hawkers-point-layer", sensorVisibility.hawkers);
     setLayerVisibility("hawkers-label-layer", sensorVisibility.hawkers);
+    setLayerVisibility("gyms-point-layer", sensorVisibility.gyms);
+    setLayerVisibility("gyms-label-layer", sensorVisibility.gyms);
   }, [sensorVisibility]);
 
   useEffect(() => {
@@ -829,6 +845,11 @@ function useMapController({
       const hawker = typeof id === "string" ? HAWKERS_BY_ID.get(id) : undefined;
       if (hawker) showHoverPopup(event.lngLat, "HAWKER CENTRE", "text-signal-hawker", describeHawkerCentre(hawker), hawker.photos.map((photo, index) => ({ src: photo.thumb, alt: `${hawker.name} photo ${index + 1}` })));
     };
+    const handleGymEnter = (event: maplibregl.MapLayerMouseEvent) => {
+      const id = event.features?.[0]?.properties?.id;
+      const gym = typeof id === "string" ? GYMS_BY_ID.get(id) : undefined;
+      if (gym) showHoverPopup(event.lngLat, "GYM", "text-signal-gym", describeGym(gym));
+    };
     const handleMallClick = (event: maplibregl.MapLayerMouseEvent) => {
       if (geoFilterPickingRef.current) return;
       const id = event.features?.[0]?.properties?.id;
@@ -840,6 +861,12 @@ function useMapController({
       const id = event.features?.[0]?.properties?.id;
       if (typeof id !== "string") return;
       onAmenityClickRef.current?.({ type: "hawker", id });
+    };
+    const handleGymClick = (event: maplibregl.MapLayerMouseEvent) => {
+      if (geoFilterPickingRef.current) return;
+      const id = event.features?.[0]?.properties?.id;
+      if (typeof id !== "string") return;
+      onAmenityClickRef.current?.({ type: "gym", id });
     };
     // Parks overlap their own connectors and trails, so one map-level hover
     // picks the topmost recreation feature rather than racing per-layer
@@ -1667,6 +1694,7 @@ function useMapController({
         for (const [sourceId, prefix, visible, color, data, onEnter, onClick] of [
           ["malls-data", "malls", sensorVisibilityRef.current.malls, MAP_COLORS.mall, MALLS_GEOJSON, handleMallEnter, handleMallClick],
           ["hawkers-data", "hawkers", sensorVisibilityRef.current.hawkers, ["match", ["get", "status"], "planned", MAP_COLORS.muted, MAP_COLORS.hawker], HAWKERS_GEOJSON, handleHawkerEnter, handleHawkerClick],
+          ["gyms-data", "gyms", sensorVisibilityRef.current.gyms, MAP_COLORS.gym, GYMS_GEOJSON, handleGymEnter, handleGymClick],
         ] as const) {
           const visibility = visible ? "visible" : "none";
           map.addSource(sourceId, { type: "geojson", data: filterPointFeatures(data, geoFilterRef.current) });

@@ -1,0 +1,273 @@
+#!/usr/bin/env bun
+/**
+ * Authoring-time data pipeline (not run in CI or deployment). Builds the
+ * static gym bundle from:
+ *  - All The Places (CC0) brand store locators: Anytime Fitness, F45
+ *    Training, CrossFit, Snap Fitness, and Virgin Active (Singapore).
+ *    Filtered to `addr:country === "SG"` inside the Singapore bbox, so
+ *    Johor entries that fall inside the bbox (R&F Mall, Sunway Big Box,
+ *    CrossFit Johor Bahru) are excluded.
+ *  - OpenStreetMap `leisure=fitness_centre` (Overpass API, ODbL).
+ *    `access=private` entries and mistagged non-gyms are dropped; OSM
+ *    points for a covered brand within ~150 m of an All The Places point
+ *    are dropped as the same outlet, and OSM ActiveSG points within
+ *    ~300 m of a public SportSG venue are dropped as the same gym.
+ *  - SportSG Sport Facilities (data.gov.sg, Singapore Open Data Licence).
+ *    Only venues with a gym are kept: Sport Centres and ActiveSG Gym
+ *    venues ("Woodlands SC" is the Woodlands Sport Centre abbreviation).
+ *    Swimming complexes, stadiums, courts, fields, and other non-gym
+ *    venues are excluded.
+ *
+ * This is a separate script and output (`public/gyms.json`) from
+ * `scripts/fetch-amenities.mjs`, following the parks pattern: rerunning it
+ * never refetches hawker centres, malls, or their photos.
+ */
+import { mkdir, writeFile } from "node:fs/promises";
+import { fetchJson, USER_AGENT } from "./lib/commons-photos.mjs";
+
+const ATP_RUNS_URL = "https://data.alltheplaces.xyz/runs/latest.json";
+const ATP_OUTPUT_BASE = "https://alltheplaces-data.openaddresses.io/runs";
+const OVERPASS_URL = "https://overpass-api.de/api/interpreter";
+const SPORTSG_DATASET = "d_9b87bab59d036a60fad2a91530e10773";
+const SG_BOUNDS = { minLat: 1.1, maxLat: 1.5, minLng: 103.5, maxLng: 104.1 };
+
+const inSingapore = (lat, lng) =>
+  Number.isFinite(lat) && Number.isFinite(lng) &&
+  lat >= SG_BOUNDS.minLat && lat <= SG_BOUNDS.maxLat && lng >= SG_BOUNDS.minLng && lng <= SG_BOUNDS.maxLng;
+const round = (value) => Math.round(value * 1e6) / 1e6;
+const text = (value) => (typeof value === "string" && value.trim() ? value.trim() : null);
+const normalizeName = (name) =>
+  name.toLowerCase().replace(/&/g, "and").replace(/\bsingapore\b/g, "").replace(/[^a-z0-9]/g, "");
+
+// Equirectangular metres; accurate to well under 1% for sub-km dedupe. The
+// geo-filter library does the same for its radius checks.
+const distMetres = (a, b) => {
+  const dLat = (b.lat - a.lat) * Math.PI / 180;
+  const dLng = ((b.lng - a.lng) * Math.PI) / 180 * Math.cos((a.lat * Math.PI) / 180);
+  return Math.hypot(dLat * 6371000, dLng * 6371000);
+};
+
+const ATP_SPIDERS = [
+  { spider: "anytime_fitness", brand: "Anytime Fitness", category: "gym" },
+  { spider: "f45_training", brand: "F45 Training", category: "gym" },
+  { spider: "cross_fit", brand: "CrossFit", category: "crossfit" },
+  { spider: "snap_fitness", brand: "Snap Fitness", category: "gym" },
+  { spider: "virgin_active_sg", brand: "Virgin Active", category: "gym" },
+];
+
+// OSM name/brand substrings that All The Places already covers authoritatively.
+const COVERED_BRAND_KEYS = ["anytime", "snap", "f45", "virgin", "crossfit"];
+const coveredKey = (value) => {
+  const haystack = normalizeName(String(value ?? ""));
+  return COVERED_BRAND_KEYS.find((key) => haystack.includes(key)) ?? null;
+};
+
+// Mistagged `leisure=fitness_centre` names that are not gyms, and condominium
+// facilities (same generic name with no address). Documented, closed list:
+// keep this small; legitimate gyms with odd names stay in.
+const EXCLUDED_OSM_NAMES = new Set([
+  "fitness corner", // condo gyms: 18 address-less nodes clustered in Woodlands
+  "sg pho house", // restaurant
+  "watersports kayak", // kayak rental
+  "g spa", // spa
+  "parc riviera gym", // condominium gym
+  "twin view gym", // condominium gym
+  "gym", // single generic word, no identity
+  "lulemon athletica", // retail store
+  "fas", // Football Association of Singapore
+]);
+
+const categoryForSport = (sport) => {
+  const sports = String(sport ?? "")
+    .toLowerCase()
+    .split(/[;,\s]+/)
+    .filter(Boolean);
+  if (sports.includes("yoga")) return "yoga";
+  if (sports.includes("pilates")) return "pilates";
+  if (sports.some((s) => ["taekwondo", "muay_thai", "thai_boxing", "thai_kickboxing", "kickboxing", "boxing", "martial_arts"].includes(s))) return "martial-arts";
+  if (sports.includes("climbing")) return "climbing";
+  return "gym";
+};
+
+const websiteOf = (raw) => {
+  const website = text(raw);
+  if (!website) return null;
+  return /^https?:\/\//i.test(website) ? website : `https://${website}`;
+};
+
+async function fetchAtp() {
+  const latest = await fetchJson(ATP_RUNS_URL, { headers: { "User-Agent": USER_AGENT } });
+  const runId = latest?.run_id;
+  if (!runId) throw new Error("All The Places latest.json has no run_id");
+
+  const gyms = [];
+  for (const { spider, brand, category } of ATP_SPIDERS) {
+    const url = `${ATP_OUTPUT_BASE}/${runId}/output/${spider}.geojson`;
+    const data = await fetchJson(url, { headers: { "User-Agent": USER_AGENT } });
+    let kept = 0;
+    for (const feature of data?.features ?? []) {
+      const props = feature.properties ?? {};
+      const [lng, lat] = feature.geometry?.coordinates ?? [];
+      if (!inSingapore(lat, lng)) continue;
+      if (props["addr:country"] !== "SG") continue;
+      // Display the branch ("Marymount CC"); fall back to the place name so
+      // CrossFit / Snap names that already carry the branch stay as tagged.
+      const branch = text(props.branch);
+      const placeName = text(props.name);
+      let name = branch ?? placeName ?? brand;
+      // Strip a redundant brand prefix ("Anytime Fitness - Woodlands").
+      if (name.toLowerCase().startsWith(brand.toLowerCase())) {
+        const stripped = name.slice(brand.length).replace(/^[\s\-:·—]+/, "").trim();
+        if (stripped) name = stripped;
+      }
+      const street = text(props["addr:street_address"]) ?? text(props["addr:full"]);
+      const postcode = text(props["addr:postcode"]);
+      let address;
+      if (!street) address = postcode ? `Singapore ${postcode}` : null;
+      else if (postcode && !street.includes(postcode)) {
+        // `addr:street_address` sometimes already ends in "Singapore";
+        // append the postcode bare there instead of duplicating it.
+        address = /singapore/i.test(street) ? `${street} ${postcode}` : `${street}, Singapore ${postcode}`;
+      } else address = street;
+      // Some `addr:full` values end in a duplicated ", Singapore" after the
+      // postcode (".., Singapore 159949, Singapore"); keep the first only.
+      if (address && /singapore.*,\s*singapore\s*$/i.test(address)) address = address.replace(/,\s*Singapore\s*$/i, "");
+      const ref = String(props.ref ?? "").replace(/[^A-Za-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 80);
+      gyms.push({
+        id: `atp-${spider}-${ref || kept}`,
+        name,
+        brand,
+        category,
+        address,
+        lat: round(lat),
+        lng: round(lng),
+        openingHours: text(props.opening_hours),
+        website: websiteOf(props.website),
+        source: "alltheplaces",
+      });
+      kept += 1;
+    }
+    console.log(`All The Places ${spider}: ${kept} Singapore gyms`);
+  }
+  return gyms;
+}
+
+// Sport Centres all have a gym; "Woodlands SC" is the Woodlands Sport Centre
+// abbreviation. ActiveSG Gym venues are gyms by name.
+const keepsSportsgVenue = (venue) =>
+  /sport centre/i.test(venue) || /activesg gym/i.test(venue) || venue === "Woodlands SC";
+
+async function fetchSportsg() {
+  const poll = await fetchJson(`https://api-open.data.gov.sg/v1/public/api/datasets/${SPORTSG_DATASET}/poll-download`);
+  const url = poll?.data?.url;
+  if (!url) throw new Error(`No presigned URL returned for ${SPORTSG_DATASET}`);
+  const data = await fetchJson(url, { headers: { "User-Agent": USER_AGENT } });
+  const features = data?.features ?? [];
+  const gyms = [];
+  for (const feature of features) {
+    if (feature.geometry?.type !== "Point") continue;
+    const props = feature.properties ?? {};
+    const venue = text(props.VENUE);
+    if (!venue || !keepsSportsgVenue(venue)) continue;
+    const [lng, lat] = feature.geometry.coordinates ?? [];
+    if (!inSingapore(lat, lng)) continue;
+    const street = [text(props.ADDRESSBLOCKHOUSENUMBER), text(props.ADDRESSSTREETNAME)].filter(Boolean).join(" ");
+    const postcode = text(props.POSTAL_CODE);
+    gyms.push({
+      id: `sportsg-${normalizeName(venue)}`,
+      name: venue,
+      brand: /activesg/i.test(venue) ? "ActiveSG" : "SportSG",
+      category: "public",
+      address: street ? `${street}${postcode ? `, Singapore ${postcode}` : ""}` : null,
+      lat: round(lat),
+      lng: round(lng),
+      openingHours: null,
+      website: null,
+      source: "sportsg",
+    });
+  }
+  console.log(`SportSG: ${gyms.length} of ${features.length} venues kept (Sport Centres + ActiveSG Gyms)`);
+  return gyms;
+}
+
+async function fetchOsm() {
+  const query = `[out:json][timeout:90];area["ISO3166-1"="SG"]->.a;nwr["leisure"="fitness_centre"]["name"](area.a);out center tags;`;
+  const osm = await fetchJson(OVERPASS_URL, {
+    method: "POST",
+    headers: { "User-Agent": USER_AGENT, "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ data: query }),
+  });
+  const elements = osm?.elements ?? [];
+  console.log(`OpenStreetMap: ${elements.length} fitness_centre elements`);
+  return elements;
+}
+
+const osmToGym = (element) => {
+  const tags = element.tags ?? {};
+  const name = text(tags.name);
+  const lat = element.lat ?? element.center?.lat;
+  const lng = element.lon ?? element.center?.lon;
+  if (!name || !inSingapore(lat, lng)) return null;
+  if (tags.access === "private") return null;
+  if (EXCLUDED_OSM_NAMES.has(name.toLowerCase())) return null;
+  const isActiveSg = /activesg/i.test(name);
+  const street = [text(tags["addr:housenumber"]), text(tags["addr:street"])].filter(Boolean).join(" ");
+  const postcode = text(tags["addr:postcode"]);
+  return {
+    id: `osm-${element.type}-${element.id}`,
+    name,
+    brand: text(tags.brand) ?? (isActiveSg ? "ActiveSG" : null),
+    category: isActiveSg ? "public" : categoryForSport(tags.sport),
+    address: street ? `${street}${postcode ? `, Singapore ${postcode}` : ""}` : null,
+    lat: round(lat),
+    lng: round(lng),
+    openingHours: text(tags.opening_hours),
+    website: websiteOf(tags.website ?? tags["contact:website"]),
+    source: "osm",
+  };
+};
+
+const [atpGyms, sportsgGyms, osmElements] = await Promise.all([fetchAtp(), fetchSportsg(), fetchOsm()]);
+
+// OSM: drop junk, then node/way duplicates of the same name within 100 m
+// (IQ Fightclub, ATP Fitness). Co-located tenants with different names are
+// distinct gyms, so — unlike malls — same-spot alone does not dedupe.
+const osmGymsRaw = osmElements.map(osmToGym).filter(Boolean);
+const osmGyms = [];
+for (const gym of [...osmGymsRaw].sort((a, b) => (a.id.startsWith("osm-node") ? 0 : 1) - (b.id.startsWith("osm-node") ? 0 : 1))) {
+  const duplicate = osmGyms.some(
+    (kept) => normalizeName(kept.name) === normalizeName(gym.name) && distMetres(kept, gym) <= 100,
+  );
+  if (!duplicate) osmGyms.push(gym);
+}
+
+// Drop covered-brand OSM points matching an All The Places point.
+const osmAfterAtp = osmGyms.filter((gym) => {
+  const key = coveredKey(`${gym.brand ?? ""} ${gym.name}`);
+  if (!key) return true;
+  return !atpGyms.some((atp) => coveredKey(atp.brand) === key && distMetres(atp, gym) <= 150);
+});
+
+// Drop OSM ActiveSG gyms matching a public SportSG venue. The threshold is
+// wider than the brand-storefront one because sport centres are large
+// complexes whose stored point can sit well offset from the gym inside.
+// An OSM gym at an ActiveSG Gym venue (e.g. Jurong Lake Gardens Gym) is the
+// same gym; independent commercial gyms near other Sport Centres stay.
+const osmKept = osmAfterAtp.filter((gym) => {
+  const isOsmActiveSg = /activesg/i.test(gym.name);
+  return !sportsgGyms.some((sportsg) => {
+    if (distMetres(sportsg, gym) > 300) return false;
+    return isOsmActiveSg || (/activesg/i.test(sportsg.name) && /gym/i.test(gym.name));
+  });
+});
+
+const gyms = [...atpGyms, ...osmKept, ...sportsgGyms].sort((a, b) => a.name.localeCompare(b.name, "en-SG"));
+if (gyms.length < 300) throw new Error(`Gym sources returned only ${gyms.length} gyms`);
+
+const serialized = JSON.stringify(gyms);
+await mkdir("public", { recursive: true });
+await writeFile("public/gyms.json", serialized);
+console.log(
+  `Gyms bundle: ${gyms.length} gyms (${atpGyms.length} All The Places, ${osmKept.length} OpenStreetMap, ` +
+    `${sportsgGyms.length} SportSG; OSM raw ${osmElements.length}, junk/duped ${osmElements.length - osmKept.length}), ${Buffer.byteLength(serialized)} bytes`,
+);
