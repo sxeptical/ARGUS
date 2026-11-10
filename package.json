@@ -10,24 +10,23 @@
     "start": "next start",
     "lint": "eslint",
     "test": "bun test",
-    "typecheck": "node node_modules/@typescript/native/bin/tsc --noEmit",
+    "typecheck": "tsc --noEmit",
     "verify": "bun run typecheck && bun run lint && bun test && bun run build"
   },
   "dependencies": {
-    "@effect/platform": "^0.96.3",
     "@vercel/analytics": "^2.0.1",
-    "effect": "^3.22.4",
     "maplibre-gl": "^6.16.0",
     "next": "16.3.5",
     "react": "19.2.8",
     "react-dom": "19.2.8",
-    "swr": "^2.5.1"
+    "swr": "^2.5.1",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.3.4",
     "@types/node": "^26.6.6",
     "@types/react": "^19.3.0",
-    "@typescript/native": "npm:typescript@^7.0.2",
+    "@types/react-dom": "^19.3.0",
     "bun-types": "^1.4.4",
     "eslint": "^9.39.5",
     "eslint-config-next": "16.3.5",

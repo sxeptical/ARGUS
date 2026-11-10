@@ -2,341 +2,301 @@
  * External API schemas and their derived client contracts. Schemas validate
  * only consumed fields and ignore extra upstream properties.
  */
-import { Schema } from "effect";
+import { z } from "zod";
 
-// ---------- Domain types used by upstream response schemas ----------
+const numberOrString = z.union([z.number(), z.string()]);
 
-export const BusStopSchema = Schema.Struct({
-  BusStopCode: Schema.String,
-  RoadName: Schema.String,
-  Description: Schema.String,
-  Latitude: Schema.Number,
-  Longitude: Schema.Number,
+// ---------- LTA bus stops, arrivals, and routes ----------
+
+const BusStopSchema = z.object({
+  BusStopCode: z.string(),
+  RoadName: z.string(),
+  Description: z.string(),
+  Latitude: z.number(),
+  Longitude: z.number(),
+});
+export type BusStop = z.infer<typeof BusStopSchema>;
+
+const BusTimingSchema = z.object({
+  OriginCode: z.string(),
+  DestinationCode: z.string(),
+  EstimatedArrival: z.string(),
+  Latitude: z.string(),
+  Longitude: z.string(),
+  VisitNumber: z.string(),
+  Load: z.string(),
+  Feature: z.string(),
+  Type: z.string(),
 });
 
-const BusTimingSchema = Schema.Struct({
-  OriginCode: Schema.String,
-  DestinationCode: Schema.String,
-  EstimatedArrival: Schema.String,
-  Latitude: Schema.String,
-  Longitude: Schema.String,
-  VisitNumber: Schema.String,
-  Load: Schema.String,
-  Feature: Schema.String,
-  Type: Schema.String,
-});
-
-export const BusArrivalSchema = Schema.Struct({
-  ServiceNo: Schema.String,
-  Operator: Schema.String,
+const BusArrivalSchema = z.object({
+  ServiceNo: z.string(),
+  Operator: z.string(),
   NextBus: BusTimingSchema,
-  NextBus2: Schema.optional(BusTimingSchema),
-  NextBus3: Schema.optional(BusTimingSchema),
+  NextBus2: BusTimingSchema.optional(),
+  NextBus3: BusTimingSchema.optional(),
+});
+export type BusArrival = z.infer<typeof BusArrivalSchema>;
+
+export const LtaBusStopsResponseSchema = z.object({
+  value: z.array(BusStopSchema),
 });
 
-// ---------- Upstream response wrappers ----------
-
-export const LtaBusStopsResponseSchema = Schema.Struct({
-  value: Schema.Array(BusStopSchema),
-});
-
-export const LtaBusArrivalsResponseSchema = Schema.Struct({
-  Services: Schema.Array(BusArrivalSchema),
+export const LtaBusArrivalsResponseSchema = z.object({
+  Services: z.array(BusArrivalSchema),
 });
 
 /**
  * LTA BusRoutes row. Direction and StopSequence may arrive as number or
  * string depending on upstream serialization; normalize in the client.
  */
-export const LtaBusRouteRowSchema = Schema.Struct({
-  ServiceNo: Schema.String,
-  Operator: Schema.optional(Schema.String),
-  Direction: Schema.Union(Schema.Number, Schema.String),
-  StopSequence: Schema.Union(Schema.Number, Schema.String),
-  BusStopCode: Schema.String,
-  Distance: Schema.optional(Schema.Union(Schema.Number, Schema.String, Schema.Null)),
-  WD_FirstBus: Schema.optional(Schema.String),
-  WD_LastBus: Schema.optional(Schema.String),
-  SAT_FirstBus: Schema.optional(Schema.String),
-  SAT_LastBus: Schema.optional(Schema.String),
-  SUN_FirstBus: Schema.optional(Schema.String),
-  SUN_LastBus: Schema.optional(Schema.String),
+const LtaBusRouteRowSchema = z.object({
+  ServiceNo: z.string(),
+  Direction: numberOrString,
+  StopSequence: numberOrString,
+  BusStopCode: z.string(),
 });
 
-export const LtaBusRoutesResponseSchema = Schema.Struct({
-  value: Schema.Array(LtaBusRouteRowSchema),
+export const LtaBusRoutesResponseSchema = z.object({
+  value: z.array(LtaBusRouteRowSchema),
 });
 
-export const BusRouteStopSchema = Schema.Struct({
-  busStopCode: Schema.String,
-  description: Schema.String,
-  latitude: Schema.Number,
-  longitude: Schema.Number,
-  stopSequence: Schema.Number,
-});
+// ---------- Bus route response built by /api/bus-routes ----------
 
-export const BusRouteDirectionSchema = Schema.Struct({
-  direction: Schema.Number,
-  preferred: Schema.Boolean,
-  selectedStopIndex: Schema.NullOr(Schema.Number),
-  originCode: Schema.String,
-  destinationCode: Schema.String,
-  stops: Schema.Array(BusRouteStopSchema),
-  path: Schema.Array(Schema.Tuple(Schema.Number, Schema.Number)),
-  selectedPathIndex: Schema.NullOr(Schema.Number),
-});
+export type BusRouteStop = {
+  busStopCode: string;
+  description: string;
+  latitude: number;
+  longitude: number;
+  stopSequence: number;
+};
 
-export const BusRouteResponseSchema = Schema.Struct({
-  serviceNo: Schema.String,
-  directions: Schema.Array(BusRouteDirectionSchema),
-});
+export type BusRouteDirection = {
+  direction: number;
+  preferred: boolean;
+  selectedStopIndex: number | null;
+  originCode: string;
+  destinationCode: string;
+  stops: BusRouteStop[];
+  path: Array<[number, number]>;
+  selectedPathIndex: number | null;
+};
 
-export const RawTrafficImageSchema = Schema.Struct({
-  CameraID: Schema.String,
-  Latitude: Schema.Number,
-  Longitude: Schema.Number,
-  ImageLink: Schema.String,
-});
+export type BusRouteResponse = {
+  serviceNo: string;
+  directions: BusRouteDirection[];
+};
 
-export type RawTrafficImage = Schema.Schema.Type<
-  typeof RawTrafficImageSchema
->;
+// ---------- LTA traffic cameras and incidents ----------
 
-const TrafficImageCamerasEntrySchema = Schema.Struct({
-  Cameras: Schema.Array(RawTrafficImageSchema),
+const RawTrafficImageSchema = z.object({
+  CameraID: z.string(),
+  Latitude: z.number(),
+  Longitude: z.number(),
+  ImageLink: z.string(),
 });
+export type RawTrafficImage = z.infer<typeof RawTrafficImageSchema>;
 
 /** Accept both Traffic-Imagesv2 wrapper shapes. */
-export const LtaTrafficImagesResponseSchema = Schema.Union(
-  Schema.Struct({ value: Schema.Array(RawTrafficImageSchema) }),
-  Schema.Struct({ value: Schema.Array(TrafficImageCamerasEntrySchema) }),
-);
+export const LtaTrafficImagesResponseSchema = z.union([
+  z.object({ value: z.array(RawTrafficImageSchema) }),
+  z.object({
+    value: z.array(z.object({ Cameras: z.array(RawTrafficImageSchema) })),
+  }),
+]);
 
-export const RawTrafficIncidentSchema = Schema.Struct({
-  Type: Schema.String,
-  Latitude: Schema.Number,
-  Longitude: Schema.Number,
-  Message: Schema.String,
+const RawTrafficIncidentSchema = z.object({
+  Type: z.string(),
+  Latitude: z.number(),
+  Longitude: z.number(),
+  Message: z.string(),
 });
-export type RawTrafficIncident = Schema.Schema.Type<typeof RawTrafficIncidentSchema>;
-export const LtaTrafficIncidentsResponseSchema = Schema.Struct({
-  value: Schema.Array(RawTrafficIncidentSchema),
+export type RawTrafficIncident = z.infer<typeof RawTrafficIncidentSchema>;
+
+export const LtaTrafficIncidentsResponseSchema = z.object({
+  value: z.array(RawTrafficIncidentSchema),
 });
-export type LtaTrafficIncidentsResponse = Schema.Schema.Type<typeof LtaTrafficIncidentsResponseSchema>;
 
 // ---------- LTA Carpark Availability ----------
 
 /** One row per (carpark, lot type); `Location` is a "lat lng" string. */
-export const RawCarparkAvailabilitySchema = Schema.Struct({
-  CarParkID: Schema.String,
-  Area: Schema.String,
-  Development: Schema.String,
-  Location: Schema.String,
-  AvailableLots: Schema.Number,
-  LotType: Schema.String,
-  Agency: Schema.String,
+const RawCarparkAvailabilitySchema = z.object({
+  CarParkID: z.string(),
+  Area: z.string(),
+  Development: z.string(),
+  Location: z.string(),
+  AvailableLots: z.number(),
+  LotType: z.string(),
+  Agency: z.string(),
 });
-export type RawCarparkAvailability = Schema.Schema.Type<typeof RawCarparkAvailabilitySchema>;
-export const LtaCarparkAvailabilityResponseSchema = Schema.Struct({
-  value: Schema.Array(RawCarparkAvailabilitySchema),
+export type RawCarparkAvailability = z.infer<
+  typeof RawCarparkAvailabilitySchema
+>;
+
+export const LtaCarparkAvailabilityResponseSchema = z.object({
+  value: z.array(RawCarparkAvailabilitySchema),
 });
 
 // ---------- LTA EV Charging Points (batch) ----------
 
 /** `/EVCBatch` returns a short-lived presigned link to the full snapshot. */
-export const LtaEvcBatchResponseSchema = Schema.Struct({
-  value: Schema.Array(Schema.Struct({ Link: Schema.String })),
+export const LtaEvcBatchResponseSchema = z.object({
+  value: z.array(z.object({ Link: z.string() })),
 });
 
-const EvChargerIdSchema = Schema.Struct({
-  status: Schema.optional(Schema.String),
+const EvPlugTypeSchema = z.object({
+  plugType: z.string().optional(),
+  current: z.string().optional(),
+  powerRating: z.string().optional(),
+  evIds: z.array(z.object({ status: z.string().optional() })),
 });
-const EvPlugTypeSchema = Schema.Struct({
-  plugType: Schema.optional(Schema.String),
-  current: Schema.optional(Schema.String),
-  powerRating: Schema.optional(Schema.String),
-  evIds: Schema.Array(EvChargerIdSchema),
+
+const EvChargingPointSchema = z.object({
+  operator: z.string().optional(),
+  plugTypes: z.array(EvPlugTypeSchema),
 });
-const EvChargingPointSchema = Schema.Struct({
-  operator: Schema.optional(Schema.String),
-  plugTypes: Schema.Array(EvPlugTypeSchema),
-});
+
 /** The batch file spells longitude as `longtitude`; accept either. */
-export const RawEvLocationSchema = Schema.Struct({
-  name: Schema.String,
-  address: Schema.String,
-  latitude: Schema.optional(Schema.NullOr(Schema.Number)),
-  longtitude: Schema.optional(Schema.NullOr(Schema.Number)),
-  longitude: Schema.optional(Schema.NullOr(Schema.Number)),
-  postalCode: Schema.optional(Schema.String),
-  chargingPoints: Schema.Array(EvChargingPointSchema),
+const RawEvLocationSchema = z.object({
+  name: z.string(),
+  address: z.string(),
+  latitude: z.number().nullish(),
+  longtitude: z.number().nullish(),
+  longitude: z.number().nullish(),
+  chargingPoints: z.array(EvChargingPointSchema),
 });
-export type RawEvLocation = Schema.Schema.Type<typeof RawEvLocationSchema>;
-export const LtaEvBatchFileSchema = Schema.Struct({
-  evLocationsData: Schema.Array(RawEvLocationSchema),
+export type RawEvLocation = z.infer<typeof RawEvLocationSchema>;
+
+export const LtaEvBatchFileSchema = z.object({
+  evLocationsData: z.array(RawEvLocationSchema),
 });
 
 // ---------- LTA Train Service Alerts ----------
-
-const TrainAlertMessageSchema = Schema.Struct({
-  Content: Schema.optional(Schema.NullOr(Schema.String)),
-});
 
 /**
  * One affected segment of a disrupted line. `Line` is an LTA code
  * (e.g. "EWL", "CCL"); `Stations` are station codes, documented by LTA as a
  * comma-separated string (e.g. "NE9,NE8") and also accepted as an array.
- * `Direction` and `Stations` have been observed absent on some alerts.
+ * `Stations` has been observed absent on some alerts.
  */
-const TrainAlertSegmentSchema = Schema.Struct({
-  Line: Schema.optional(Schema.NullOr(Schema.String)),
-  Direction: Schema.optional(Schema.NullOr(Schema.String)),
-  Stations: Schema.optional(
-    Schema.NullOr(Schema.Union(Schema.String, Schema.Array(Schema.String))),
-  ),
+const TrainAlertSegmentSchema = z.object({
+  Line: z.string().nullish(),
+  Stations: z.union([z.string(), z.array(z.string())]).nullish(),
 });
 
-export const LtaTrainServiceAlertSchema = Schema.Struct({
-  Status: Schema.optional(Schema.Union(Schema.Number, Schema.String)),
-  StatusDescription: Schema.optional(Schema.NullOr(Schema.String)),
-  Message: Schema.optional(Schema.NullOr(Schema.Array(TrainAlertMessageSchema))),
-  AffectedSegments: Schema.optional(
-    Schema.NullOr(Schema.Array(TrainAlertSegmentSchema)),
-  ),
-  Start_time: Schema.optional(Schema.NullOr(Schema.String)),
-  End_time: Schema.optional(Schema.NullOr(Schema.String)),
+const LtaTrainServiceAlertSchema = z.object({
+  Status: numberOrString.optional(),
+  Message: z.array(z.object({ Content: z.string().nullish() })).nullish(),
+  AffectedSegments: z.array(TrainAlertSegmentSchema).nullish(),
+  Start_time: z.string().nullish(),
+  End_time: z.string().nullish(),
 });
-
-export type LtaTrainServiceAlert = Schema.Schema.Type<
-  typeof LtaTrainServiceAlertSchema
->;
+export type LtaTrainServiceAlert = z.infer<typeof LtaTrainServiceAlertSchema>;
 
 /** Accept `value` as either an alert array or a single all-clear alert. */
-export const LtaTrainServiceAlertsResponseSchema = Schema.Union(
-  Schema.Struct({ value: Schema.Array(LtaTrainServiceAlertSchema) }),
-  Schema.Struct({ value: LtaTrainServiceAlertSchema }),
-);
+export const LtaTrainServiceAlertsResponseSchema = z.union([
+  z.object({ value: z.array(LtaTrainServiceAlertSchema) }),
+  z.object({ value: LtaTrainServiceAlertSchema }),
+]);
+export type LtaTrainServiceAlertsResponse = z.infer<
+  typeof LtaTrainServiceAlertsResponseSchema
+>;
 
-const ForecastEntrySchema = Schema.Struct({
-  area: Schema.String,
-  forecast: Schema.String,
+// ---------- Data.gov.sg v1 ----------
+
+const timestamps = {
+  timestamp: z.string().optional(),
+  update_timestamp: z.string().optional(),
+};
+
+export const DataGovForecastResponseSchema = z.object({
+  items: z
+    .array(
+      z.object({
+        ...timestamps,
+        forecasts: z
+          .array(z.object({ area: z.string(), forecast: z.string() }))
+          .optional(),
+      }),
+    )
+    .optional(),
 });
 
-const ForecastItemSchema = Schema.Struct({
-  timestamp: Schema.optional(Schema.String),
-  update_timestamp: Schema.optional(Schema.String),
-  forecasts: Schema.optional(Schema.Array(ForecastEntrySchema)),
+const RegionalReadingSchema = z.object({
+  national: z.number().optional(),
+  north: z.number().optional(),
+  east: z.number().optional(),
+  west: z.number().optional(),
+  central: z.number().optional(),
+  south: z.number().optional(),
 });
 
-export const DataGovForecastResponseSchema = Schema.Struct({
-  area_metadata: Schema.optional(Schema.Array(Schema.Struct({ name: Schema.String }))),
-  items: Schema.optional(Schema.Array(ForecastItemSchema)),
+export const DataGovPsiResponseSchema = z.object({
+  items: z
+    .array(
+      z.object({
+        ...timestamps,
+        readings: z
+          .object({ psi_twenty_four_hourly: RegionalReadingSchema.optional() })
+          .optional(),
+      }),
+    )
+    .optional(),
 });
 
-const RegionalReadingSchema = Schema.Struct({
-  national: Schema.optional(Schema.Number),
-  north: Schema.optional(Schema.Number),
-  east: Schema.optional(Schema.Number),
-  west: Schema.optional(Schema.Number),
-  central: Schema.optional(Schema.Number),
-  south: Schema.optional(Schema.Number),
+/** Air temperature and relative humidity share this station-readings shape. */
+export const DataGovStationReadingsResponseSchema = z.object({
+  items: z
+    .array(
+      z.object({
+        ...timestamps,
+        readings: z.array(z.object({ value: z.number() })).optional(),
+      }),
+    )
+    .optional(),
 });
-
-const PsiReadingSchema = Schema.Struct({
-  psi_twenty_four_hourly: Schema.optional(RegionalReadingSchema),
-});
-
-const PsiItemSchema = Schema.Struct({
-  timestamp: Schema.optional(Schema.String),
-  update_timestamp: Schema.optional(Schema.String),
-  readings: Schema.optional(PsiReadingSchema),
-});
-
-export const DataGovPsiResponseSchema = Schema.Struct({
-  items: Schema.optional(Schema.Array(PsiItemSchema)),
-});
-
-const TemperatureReadingSchema = Schema.Struct({ value: Schema.Number });
-
-const TemperatureItemSchema = Schema.Struct({
-  timestamp: Schema.optional(Schema.String),
-  update_timestamp: Schema.optional(Schema.String),
-  readings: Schema.optional(Schema.Array(TemperatureReadingSchema)),
-});
-
-export const DataGovTemperatureResponseSchema = Schema.Struct({
-  items: Schema.optional(Schema.Array(TemperatureItemSchema)),
-});
-
-/** Relative humidity currently uses the air-temperature response shape. */
-export const DataGovHumidityResponseSchema = DataGovTemperatureResponseSchema;
 
 // ---------- Data.gov.sg v2 ----------
 
-export const DataGovPm25ResponseSchema = Schema.Struct({
-  data: Schema.Struct({
-    items: Schema.Array(
-      Schema.Struct({
-        timestamp: Schema.optional(Schema.String),
-        updatedTimestamp: Schema.optional(Schema.String),
-        readings: Schema.Struct({
-          pm25_one_hourly: Schema.optional(RegionalReadingSchema),
+export const DataGovPm25ResponseSchema = z.object({
+  data: z.object({
+    items: z.array(
+      z.object({
+        timestamp: z.string().optional(),
+        updatedTimestamp: z.string().optional(),
+        readings: z.object({
+          pm25_one_hourly: RegionalReadingSchema.optional(),
         }),
       }),
     ),
   }),
 });
 
-const DataGovUvIndexSchema = Schema.Struct({
-  hour: Schema.String,
-  value: Schema.Number,
-});
-
-export const DataGovUvResponseSchema = Schema.Struct({
-  code: Schema.Number,
-  data: Schema.Struct({
-    records: Schema.Array(
-      Schema.Struct({
-        date: Schema.String,
-        updatedTimestamp: Schema.String,
-        timestamp: Schema.String,
-        index: Schema.Array(DataGovUvIndexSchema),
+export const DataGovUvResponseSchema = z.object({
+  data: z.object({
+    records: z.array(
+      z.object({
+        updatedTimestamp: z.string(),
+        timestamp: z.string(),
+        index: z.array(z.object({ hour: z.string(), value: z.number() })),
       }),
     ),
   }),
 });
 
-const DataGovFourDayForecastSchema = Schema.Struct({
-  day: Schema.String,
-  timestamp: Schema.String,
-  forecast: Schema.Struct({
-    text: Schema.String,
-    summary: Schema.optional(Schema.String),
-    code: Schema.String,
-  }),
-  temperature: Schema.Struct({ low: Schema.Number, high: Schema.Number }),
-  relativeHumidity: Schema.optional(
-    Schema.Struct({
-      high: Schema.Number,
-      low: Schema.Number,
-      unit: Schema.optional(Schema.String),
-    }),
-  ),
-  wind: Schema.optional(
-    Schema.Struct({
-      direction: Schema.String,
-      speed: Schema.Struct({ low: Schema.Number, high: Schema.Number }),
-    }),
-  ),
-});
-
-export const DataGovFourDayResponseSchema = Schema.Struct({
-  code: Schema.Number,
-  data: Schema.Struct({
-    records: Schema.Array(
-      Schema.Struct({
-        timestamp: Schema.String,
-        forecasts: Schema.Array(DataGovFourDayForecastSchema),
+export const DataGovFourDayResponseSchema = z.object({
+  data: z.object({
+    records: z.array(
+      z.object({
+        timestamp: z.string(),
+        forecasts: z.array(
+          z.object({
+            day: z.string(),
+            timestamp: z.string(),
+            forecast: z.object({ text: z.string() }),
+            temperature: z.object({ low: z.number(), high: z.number() }),
+          }),
+        ),
       }),
     ),
   }),
@@ -344,139 +304,85 @@ export const DataGovFourDayResponseSchema = Schema.Struct({
 
 // ---------- Aviationstack ----------
 
-const AviationStackLiveSchema = Schema.Struct({
-  updated: Schema.optional(Schema.NullOr(Schema.String)),
-  latitude: Schema.optional(Schema.NullOr(Schema.Number)),
-  longitude: Schema.optional(Schema.NullOr(Schema.Number)),
-  altitude: Schema.optional(Schema.NullOr(Schema.Number)),
-  direction: Schema.optional(Schema.NullOr(Schema.Number)),
-  speed_horizontal: Schema.optional(Schema.NullOr(Schema.Number)),
-  speed_vertical: Schema.optional(Schema.NullOr(Schema.Number)),
-  is_ground: Schema.optional(Schema.NullOr(Schema.Boolean)),
+const AviationStackEndpointSchema = z.object({
+  airport: z.string().nullish(),
+  iata: z.string().nullish(),
+  icao: z.string().nullish(),
 });
 
-const AviationStackEndpointSchema = Schema.Struct({
-  airport: Schema.optional(Schema.NullOr(Schema.String)),
-  iata: Schema.optional(Schema.NullOr(Schema.String)),
-  icao: Schema.optional(Schema.NullOr(Schema.String)),
+const AviationStackFlightSchema = z.object({
+  departure: AviationStackEndpointSchema.nullish(),
+  arrival: AviationStackEndpointSchema.nullish(),
+  airline: z
+    .object({ name: z.string().nullish(), iata: z.string().nullish() })
+    .nullish(),
+  flight: z
+    .object({
+      number: z.string().nullish(),
+      iata: z.string().nullish(),
+      icao: z.string().nullish(),
+    })
+    .nullish(),
+  aircraft: z
+    .object({
+      registration: z.string().nullish(),
+      icao24: z.string().nullish(),
+    })
+    .nullish(),
+  live: z
+    .object({
+      updated: z.string().nullish(),
+      latitude: z.number().nullish(),
+      longitude: z.number().nullish(),
+      altitude: z.number().nullish(),
+      direction: z.number().nullish(),
+      speed_horizontal: z.number().nullish(),
+      speed_vertical: z.number().nullish(),
+      is_ground: z.boolean().nullish(),
+    })
+    .nullish(),
 });
+export type AviationStackFlight = z.infer<typeof AviationStackFlightSchema>;
 
-const AviationStackAirlineSchema = Schema.Struct({
-  name: Schema.optional(Schema.NullOr(Schema.String)),
-  iata: Schema.optional(Schema.NullOr(Schema.String)),
-});
-
-const AviationStackFlightIdentifierSchema = Schema.Struct({
-  number: Schema.optional(Schema.NullOr(Schema.String)),
-  iata: Schema.optional(Schema.NullOr(Schema.String)),
-  icao: Schema.optional(Schema.NullOr(Schema.String)),
-});
-
-const AviationStackAircraftSchema = Schema.Struct({
-  registration: Schema.optional(Schema.NullOr(Schema.String)),
-  icao24: Schema.optional(Schema.NullOr(Schema.String)),
-});
-
-export const AviationStackFlightSchema = Schema.Struct({
-  departure: Schema.optional(Schema.NullOr(AviationStackEndpointSchema)),
-  arrival: Schema.optional(Schema.NullOr(AviationStackEndpointSchema)),
-  airline: Schema.optional(Schema.NullOr(AviationStackAirlineSchema)),
-  flight: Schema.optional(Schema.NullOr(AviationStackFlightIdentifierSchema)),
-  aircraft: Schema.optional(Schema.NullOr(AviationStackAircraftSchema)),
-  live: Schema.optional(Schema.NullOr(AviationStackLiveSchema)),
-});
-
-export type AviationStackFlight = Schema.Schema.Type<
-  typeof AviationStackFlightSchema
->;
-
-const AviationStackErrorInfoSchema = Schema.Struct({
-  code: Schema.optional(Schema.Union(Schema.String, Schema.Number)),
-  type: Schema.optional(Schema.String),
-  info: Schema.optional(Schema.String),
-});
-
-export const AviationStackResponseSchema = Schema.Struct({
-  data: Schema.optional(Schema.Array(AviationStackFlightSchema)),
-  error: Schema.optional(AviationStackErrorInfoSchema),
+export const AviationStackResponseSchema = z.object({
+  data: z.array(AviationStackFlightSchema).optional(),
+  error: z
+    .object({
+      code: numberOrString.optional(),
+      type: z.string().optional(),
+      info: z.string().optional(),
+    })
+    .optional(),
 });
 
 // ---------- OpenSky ----------
 
+const nullableString = z.string().nullable();
+const nullableNumber = z.number().nullable();
+const nullableBoolean = z.boolean().nullable();
+
 /** OpenSky state vectors are fixed positional 18-tuples. */
-const OpenSkyNullableString = Schema.NullOr(Schema.String);
-const OpenSkyNullableNumber = Schema.NullOr(Schema.Number);
-const OpenSkyNullableBoolean = Schema.NullOr(Schema.Boolean);
+const OpenSkyStateSchema = z.tuple([
+  nullableString, // 0  icao24
+  nullableString, // 1  callsign
+  nullableString, // 2  origin_country
+  nullableNumber, // 3  time_position
+  nullableNumber, // 4  last_contact
+  nullableNumber, // 5  longitude
+  nullableNumber, // 6  latitude
+  nullableNumber, // 7  baro_altitude
+  nullableBoolean, // 8  on_ground
+  nullableNumber, // 9  velocity
+  nullableNumber, // 10 true_track
+  nullableNumber, // 11 vertical_rate
+  z.unknown(), // 12 sensors
+  nullableNumber, // 13 geo_altitude
+  nullableString, // 14 squawk
+  nullableBoolean, // 15 spi
+  nullableNumber, // 16 position_source
+  nullableNumber, // 17 category
+]);
 
-export const OpenSkyStateSchema = Schema.Tuple(
-  OpenSkyNullableString, // 0  icao24
-  OpenSkyNullableString, // 1  callsign
-  OpenSkyNullableString, // 2  origin_country
-  OpenSkyNullableNumber, // 3  time_position
-  OpenSkyNullableNumber, // 4  last_contact
-  OpenSkyNullableNumber, // 5  longitude
-  OpenSkyNullableNumber, // 6  latitude
-  OpenSkyNullableNumber, // 7  baro_altitude
-  OpenSkyNullableBoolean, // 8  on_ground
-  OpenSkyNullableNumber, // 9  velocity
-  OpenSkyNullableNumber, // 10 true_track
-  OpenSkyNullableNumber, // 11 vertical_rate
-  Schema.Unknown, // 12  sensors
-  OpenSkyNullableNumber, // 13  geo_altitude
-  OpenSkyNullableString, // 14  squawk
-  OpenSkyNullableBoolean, // 15  spi
-  OpenSkyNullableNumber, // 16  position_source
-  OpenSkyNullableNumber, // 17  category
-);
-
-export const OpenSkyResponseSchema = Schema.Struct({
-  time: Schema.Number,
-  states: Schema.NullOr(Schema.Array(OpenSkyStateSchema)),
+export const OpenSkyResponseSchema = z.object({
+  states: z.array(OpenSkyStateSchema).nullable(),
 });
-
-// ---------- Schema-derived contracts ----------
-
-export type BusStop = Schema.Schema.Type<typeof BusStopSchema>;
-export type BusArrival = Schema.Schema.Type<typeof BusArrivalSchema>;
-export type BusRouteStop = Schema.Schema.Type<typeof BusRouteStopSchema>;
-export type BusRouteDirection = Schema.Schema.Type<
-  typeof BusRouteDirectionSchema
->;
-export type BusRouteResponse = Schema.Schema.Type<
-  typeof BusRouteResponseSchema
->;
-export type LtaBusStopsResponse = Schema.Schema.Type<
-  typeof LtaBusStopsResponseSchema
->;
-export type LtaBusArrivalsResponse = Schema.Schema.Type<
-  typeof LtaBusArrivalsResponseSchema
->;
-export type LtaBusRoutesResponse = Schema.Schema.Type<
-  typeof LtaBusRoutesResponseSchema
->;
-export type LtaTrafficImagesResponse = Schema.Schema.Type<
-  typeof LtaTrafficImagesResponseSchema
->;
-export type LtaTrainServiceAlertsResponse = Schema.Schema.Type<
-  typeof LtaTrainServiceAlertsResponseSchema
->;
-export type DataGovForecastResponse = Schema.Schema.Type<
-  typeof DataGovForecastResponseSchema
->;
-export type DataGovPsiResponse = Schema.Schema.Type<
-  typeof DataGovPsiResponseSchema
->;
-export type DataGovTemperatureResponse = Schema.Schema.Type<
-  typeof DataGovTemperatureResponseSchema
->;
-export type DataGovUvResponse = Schema.Schema.Type<
-  typeof DataGovUvResponseSchema
->;
-export type DataGovFourDayResponse = Schema.Schema.Type<
-  typeof DataGovFourDayResponseSchema
->;
-export type AviationStackResponse = Schema.Schema.Type<
-  typeof AviationStackResponseSchema
->;
-export type OpenSkyState = Schema.Schema.Type<typeof OpenSkyStateSchema>;
-export type OpenSkyResponse = Schema.Schema.Type<typeof OpenSkyResponseSchema>;

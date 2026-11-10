@@ -5,7 +5,7 @@ import { useState } from "react";
 import type { PlacePhoto } from "@/types";
 
 /**
- * Photo viewer for the Target Focus panel: one large photo, thumbnails to
+ * Photo viewer for the focus dialog: one large photo, thumbnails to
  * switch, and the credit the active photo's licence requires (with a link to
  * its Commons page). Parents key it by place so it resets per selection.
  */
@@ -67,6 +67,7 @@ export function PlacePhotoGallery({ name, photos }: { name: string; photos: Read
         ) : (
           <>
             Photo: {active.author}
+            {active.year ? ` · ${active.year}` : ""}
             {active.license ? ` · ${active.license}` : ""} ·{" "}
             {active.page ? (
               <a href={active.page} target="_blank" rel="noopener noreferrer" className="underline decoration-line-strong underline-offset-2 hover:text-ink">

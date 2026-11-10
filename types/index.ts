@@ -216,6 +216,8 @@ export interface PlacePhoto {
   author: string;
   license: string | null;
   source: "commons" | "nea";
+  /** Year the photo was taken (Commons DateTimeOriginal), when known. */
+  year?: number | null;
 }
 
 /**
@@ -234,6 +236,26 @@ export interface Mall {
   fnb: number | null;
   nearestMrt: string | null;
   photos: PlacePhoto[];
+}
+
+/**
+ * One shop in a mall's directory (public/mall-stores/<mallId>.json). `level`
+ * is a normalized key ("B2", "L1", "B2M") or a named area ("Tower 3").
+ */
+export interface MallStore {
+  name: string;
+  unit: string | null;
+  level: string | null;
+  category: string | null;
+  fnb: boolean;
+  halal: boolean;
+  website: string | null;
+}
+
+/** public/mall-stores/index.json: which map malls have a store directory. */
+export interface MallStoreIndex {
+  fetchedAt: string;
+  malls: Record<string, { stores: number; listName: string }>;
 }
 
 export interface AmenitiesBundle {

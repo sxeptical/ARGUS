@@ -3,10 +3,8 @@
  * AviationStack allows partial endpoint failures; OpenSky is used only when
  * all primary endpoints fail. Snapshot reads never overwrite cached data.
  */
-import { HttpClient } from "@effect/platform";
-import { Effect } from "effect";
-import { Cache } from "@/lib/cache";
-import { ExternalApiError, type UpstreamError } from "@/lib/errors";
+import { cache } from "@/lib/cache";
+import { ExternalApiError } from "@/lib/errors";
 import {
   AviationStackResponseSchema,
   OpenSkyResponseSchema,
@@ -31,23 +29,23 @@ const CHANGI_COORDS = { lat: 1.3644, lon: 103.9915 };
 const SG_AIRPORT_ICAO = new Set(["WSSS", "WSSL"]);
 const SG_AIRPORT_IATA = new Set(["SIN", "XSP"]);
 
-const getAviationStackApiKey = (): Effect.Effect<string, ExternalApiError> =>
-  Effect.gen(function* () {
-    const apiKey = process.env.AVIATIONSTACK_API_KEY?.trim();
-    if (
-      !apiKey ||
-      apiKey.toLowerCase().includes("your_aviationstack_key")
-    ) {
-      return yield* Effect.fail(
-        new ExternalApiError({
-          service: "aviationstack",
-          message: "Missing AVIATIONSTACK_API_KEY",
-          status: 401,
-        }),
-      );
-    }
-    return apiKey;
-  });
+const getAviationStackApiKey = (): string => {
+  const apiKey = process.env.AVIATIONSTACK_API_KEY?.trim();
+  if (!apiKey || apiKey.toLowerCase().includes("your_aviationstack_key")) {
+    throw new ExternalApiError({
+      service: "aviationstack",
+      message: "Missing AVIATIONSTACK_API_KEY",
+      status: 401,
+    });
+  }
+  return apiKey;
+};
+
+/** `[]` when a provider is unavailable; timeouts and bad payloads propagate. */
+const emptyOnExternalApiError = (error: unknown): FlightState[] => {
+  if (error instanceof ExternalApiError) return [];
+  throw error;
+};
 
 // ---------- Direction classification ----------
 
@@ -182,83 +180,72 @@ const toFlightStateFromAviationStack = (
   };
 };
 
-const fetchFlightsFromAviationStack = (): Effect.Effect<
-  FlightState[],
-  UpstreamError,
-  HttpClient.HttpClient
-> =>
-  Effect.gen(function* () {
-    const apiKey = yield* getAviationStackApiKey();
-    const endpoints = [
-      { dep_icao: "WSSS" },
-      { arr_icao: "WSSS" },
-      { dep_icao: "WSSL" },
-      { arr_icao: "WSSL" },
-    ] as const;
-
-    const batches = yield* Effect.all(
-      endpoints.map((filter) =>
-        Effect.gen(function* () {
-          const params = new URLSearchParams({
-            access_key: apiKey,
-            limit: "100",
-            ...filter,
-          });
-          const response = yield* httpGetJson(
-            "aviationstack",
-            `${AVIATIONSTACK_BASE_URL}/flights?${params.toString()}`,
-            { Accept: "application/json" },
-            AviationStackResponseSchema,
-            FLIGHT_TIMEOUT_MS,
-          );
-          if (response.error) {
-            return yield* Effect.fail(
-              new ExternalApiError({
-                service: "aviationstack",
-                message: `Aviationstack error${
-                  response.error.code ? ` ${response.error.code}` : ""
-                }: ${
-                  response.error.info ??
-                  response.error.type ??
-                  "unknown"
-                }`,
-                status: 502,
-              }),
-            );
-          }
-          return response.data ?? [];
-        }).pipe(Effect.either),
-      ),
-      { concurrency: "unbounded" },
-    );
-
-    const succeeded = batches.flatMap((batch) =>
-      batch._tag === "Right" ? [batch.right] : [],
-    );
-    if (succeeded.length === 0) {
-      return yield* Effect.fail(
-        new ExternalApiError({
-          service: "aviationstack",
-          status: 502,
-          message: "All AviationStack endpoints failed",
-        }),
-      );
-    }
-
-    const deduped = new Map<string, FlightState>();
-    for (const item of succeeded.flat()) {
-      const flight = toFlightStateFromAviationStack(item);
-      if (!flight) continue;
-      const existing = deduped.get(flight.icao24);
-      const existingTs = existing?.lastContact ?? 0;
-      const currentTs = flight.lastContact ?? 0;
-      if (!existing || currentTs >= existingTs) {
-        deduped.set(flight.icao24, flight);
-      }
-    }
-
-    return [...deduped.values()];
+const fetchAviationStackEndpoint = async (
+  apiKey: string,
+  filter: Record<string, string>,
+): Promise<AviationStackFlight[]> => {
+  const params = new URLSearchParams({
+    access_key: apiKey,
+    limit: "100",
+    ...filter,
   });
+  const response = await httpGetJson(
+    "aviationstack",
+    `${AVIATIONSTACK_BASE_URL}/flights?${params.toString()}`,
+    { Accept: "application/json" },
+    AviationStackResponseSchema,
+    FLIGHT_TIMEOUT_MS,
+  );
+  if (response.error) {
+    throw new ExternalApiError({
+      service: "aviationstack",
+      message: `Aviationstack error${
+        response.error.code ? ` ${response.error.code}` : ""
+      }: ${response.error.info ?? response.error.type ?? "unknown"}`,
+      status: 502,
+    });
+  }
+  return response.data ?? [];
+};
+
+const fetchFlightsFromAviationStack = async (): Promise<FlightState[]> => {
+  const apiKey = getAviationStackApiKey();
+  // Endpoints fail independently; only all of them failing is an error.
+  const filters: Array<Record<string, string>> = [
+    { dep_icao: "WSSS" },
+    { arr_icao: "WSSS" },
+    { dep_icao: "WSSL" },
+    { arr_icao: "WSSL" },
+  ];
+  const batches = await Promise.allSettled(
+    filters.map((filter) => fetchAviationStackEndpoint(apiKey, filter)),
+  );
+
+  const succeeded = batches.flatMap((batch) =>
+    batch.status === "fulfilled" ? [batch.value] : [],
+  );
+  if (succeeded.length === 0) {
+    throw new ExternalApiError({
+      service: "aviationstack",
+      status: 502,
+      message: "All AviationStack endpoints failed",
+    });
+  }
+
+  const deduped = new Map<string, FlightState>();
+  for (const item of succeeded.flat()) {
+    const flight = toFlightStateFromAviationStack(item);
+    if (!flight) continue;
+    const existing = deduped.get(flight.icao24);
+    const existingTs = existing?.lastContact ?? 0;
+    const currentTs = flight.lastContact ?? 0;
+    if (!existing || currentTs >= existingTs) {
+      deduped.set(flight.icao24, flight);
+    }
+  }
+
+  return [...deduped.values()];
+};
 
 // ---------- OpenSky (fallback) ----------
 
@@ -312,87 +299,52 @@ const toFlightStateFromOpenSky = (
   };
 };
 
-const fetchFlightsFromOpenSky = (): Effect.Effect<
-  FlightState[],
-  UpstreamError,
-  HttpClient.HttpClient
-> => {
+const fetchFlightsFromOpenSky = async (): Promise<FlightState[]> => {
   const params = new URLSearchParams({
     lamin: String(SG_BOUNDS.lamin),
     lomin: String(SG_BOUNDS.lomin),
     lamax: String(SG_BOUNDS.lamax),
     lomax: String(SG_BOUNDS.lomax),
   });
-  return Effect.gen(function* () {
-    // A 404 from the states endpoint means "no aircraft in bounds" — a
-    // valid empty result rather than a provider failure.
-    const response = yield* httpGetJson(
-      "opensky",
-      `${OPENSKY_BASE_URL}/states/all?${params.toString()}`,
-      { Accept: "application/json" },
-      OpenSkyResponseSchema,
-      FLIGHT_TIMEOUT_MS,
-    ).pipe(
-      Effect.catchTag("ExternalApiError", (e) =>
-        e.status === 404
-          ? Effect.succeed({ time: 0, states: null })
-          : Effect.fail(e),
-      ),
-    );
-
-    const states = response.states ?? [];
-    return states
-      .map((row) => toFlightStateFromOpenSky(row))
-      .filter((flight): flight is FlightState => flight !== null);
-  });
+  // An ExternalApiError here (including the 404 OpenSky sends for "no
+  // aircraft in bounds") is handled by the caller as an empty result.
+  const response = await httpGetJson(
+    "opensky",
+    `${OPENSKY_BASE_URL}/states/all?${params.toString()}`,
+    { Accept: "application/json" },
+    OpenSkyResponseSchema,
+    FLIGHT_TIMEOUT_MS,
+  );
+  return (response.states ?? [])
+    .map((row) => toFlightStateFromOpenSky(row))
+    .filter((flight): flight is FlightState => flight !== null);
 };
 
 // ---------- Public client ----------
 
-export const getFlights = (): Effect.Effect<
-  FlightState[],
-  UpstreamError,
-  Cache | HttpClient.HttpClient
-> =>
-  Effect.gen(function* () {
-    const cache = yield* Cache;
-    return yield* cache.get(
-      "flights-sg",
-      FLIGHTS_CACHE_TTL_MS,
-      Effect.gen(function* () {
-        // Only swallow ExternalApiError (the provider is unavailable or
-        // returned an empty-but-valid result). Timeout and schema failures
-        // propagate so the route can report 504/502.
-        const primary = yield* fetchFlightsFromAviationStack().pipe(
-          Effect.catchTag("ExternalApiError", () =>
-            Effect.succeed<FlightState[]>([]),
-          ),
-        );
-        let flights = primary;
+export const getFlights = (): Promise<FlightState[]> =>
+  cache.get("flights-sg", FLIGHTS_CACHE_TTL_MS, async () => {
+    let flights = await fetchFlightsFromAviationStack().catch(
+      emptyOnExternalApiError,
+    );
+    if (flights.length === 0) {
+      flights = await fetchFlightsFromOpenSky().catch(emptyOnExternalApiError);
+    }
 
-        if (flights.length === 0) {
-          flights = yield* fetchFlightsFromOpenSky().pipe(
-            Effect.catchTag("ExternalApiError", () =>
-              Effect.succeed<FlightState[]>([]),
-            ),
-          );
-        }
+    const sorted = flights
+      .sort((a, b) => (b.velocity ?? 0) - (a.velocity ?? 0))
+      .slice(0, 120);
 
-        const sorted = flights
-          .sort((a, b) => (b.velocity ?? 0) - (a.velocity ?? 0))
-          .slice(0, 120);
+    if (sorted.length > 0) {
+      cache.set(FLIGHTS_FALLBACK_KEY, sorted);
+      return sorted;
+    }
 
-        if (sorted.length > 0) {
-          yield* cache.set(FLIGHTS_FALLBACK_KEY, sorted);
-          return sorted;
-        }
-
-        // Read the last-good snapshot without replacing it on failure.
-        const snapshot = yield* cache.peek<FlightState[]>(
-          FLIGHTS_FALLBACK_KEY,
-          FLIGHTS_FALLBACK_MAX_AGE_MS,
-        );
-        return snapshot ?? [];
-      }),
+    // Read the last-good snapshot without replacing it on failure.
+    return (
+      cache.peek<FlightState[]>(
+        FLIGHTS_FALLBACK_KEY,
+        FLIGHTS_FALLBACK_MAX_AGE_MS,
+      ) ?? []
     );
   });

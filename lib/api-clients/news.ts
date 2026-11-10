@@ -2,9 +2,8 @@
  * Merges Singapore RSS feeds with bounded, abortable downloads. Individual
  * feed failures are tolerated; the source fails when every feed fails.
  */
-import { Cache } from "@/lib/cache";
-import { Effect } from "effect";
-import { ExternalApiError, type UpstreamError } from "@/lib/errors";
+import { cache } from "@/lib/cache";
+import { ExternalApiError } from "@/lib/errors";
 import type { NewsItem } from "@/types";
 import { withTimeout } from "./http";
 
@@ -198,89 +197,52 @@ async function fetchRssBody(
   return readBodyWithLimit(response, maxBytes);
 }
 
-const fetchRssText = (url: string): Effect.Effect<string, UpstreamError> =>
-  withTimeout(
-    "rss",
-    Effect.tryPromise({
-      try: (signal) => fetchRssBody(url, MAX_RSS_BYTES, signal),
-      catch: (error) =>
-        new ExternalApiError({
-          service: "rss",
-          status: 502,
-          message:
-            error instanceof Error
-              ? `RSS fetch failed: ${error.message}`
-              : "RSS fetch failed",
-        }),
-    }),
-    RSS_TIMEOUT_MS,
-  ).pipe(
-    Effect.flatMap((text) =>
-      text === null
-        ? Effect.fail(
-            new ExternalApiError({
-              service: "rss",
-              status: 502,
-              message: `RSS feed exceeded ${MAX_RSS_BYTES} bytes: ${url}`,
-            }),
-          )
-        : Effect.succeed(text),
-    ),
+const fetchRssText = async (url: string): Promise<string> => {
+  const text = await withTimeout("rss", RSS_TIMEOUT_MS, (signal) =>
+    fetchRssBody(url, MAX_RSS_BYTES, signal),
   );
+  if (text === null) {
+    throw new Error(`RSS feed exceeded ${MAX_RSS_BYTES} bytes: ${url}`);
+  }
+  return text;
+};
 
 // ---------- Public client ----------
 
-export const getNews = (): Effect.Effect<NewsItem[], UpstreamError, Cache> =>
-  Effect.gen(function* () {
-    const cache = yield* Cache;
-    return yield* cache.get(
-      "news",
-      15 * 60 * 1000,
-      Effect.gen(function* () {
-        const results = yield* Effect.all(
-          rssFeeds.map((feed) =>
-            Effect.either(
-              fetchRssText(feed.url).pipe(
-                Effect.map((xml) => parseRssItems(xml, feed.source)),
-              ),
-            ),
-          ),
-          { concurrency: 2 },
-        );
-
-        const succeeded = results.flatMap((result) =>
-          result._tag === "Right" ? [result.right] : [],
-        );
-        if (succeeded.length === 0) {
-          return yield* Effect.fail(
-            new ExternalApiError({
-              service: "rss",
-              status: 502,
-              message: "All news feeds failed",
-            }),
-          );
-        }
-
-        const relevant = (succeeded.flat() as ParsedRssItem[]).filter(
-          isSingaporeRelevant,
-        );
-        let merged: NewsItem[] = relevant.map((item) => ({
-          title: item.title,
-          source: item.source,
-          url: item.url,
-          publishedAt: item.publishedAt,
-        }));
-
-        const seen = new Set<string>();
-        merged = merged.filter((item) => {
-          if (seen.has(item.url)) return false;
-          seen.add(item.url);
-          return true;
-        });
-
-        return merged
-          .sort((a, b) => +new Date(b.publishedAt) - +new Date(a.publishedAt))
-          .slice(0, 20);
-      }),
+export const getNews = (): Promise<NewsItem[]> =>
+  cache.get("news", 15 * 60 * 1000, async () => {
+    // Feeds fail independently; only all of them failing is an error.
+    const results = await Promise.allSettled(
+      rssFeeds.map(async (feed) =>
+        parseRssItems(await fetchRssText(feed.url), feed.source),
+      ),
     );
+    const succeeded = results.flatMap((result) =>
+      result.status === "fulfilled" ? [result.value] : [],
+    );
+    if (succeeded.length === 0) {
+      throw new ExternalApiError({
+        service: "rss",
+        status: 502,
+        message: "All news feeds failed",
+      });
+    }
+
+    const seen = new Set<string>();
+    return succeeded
+      .flat()
+      .filter(isSingaporeRelevant)
+      .filter((item) => {
+        if (seen.has(item.url)) return false;
+        seen.add(item.url);
+        return true;
+      })
+      .map((item) => ({
+        title: item.title,
+        source: item.source,
+        url: item.url,
+        publishedAt: item.publishedAt,
+      }))
+      .sort((a, b) => +new Date(b.publishedAt) - +new Date(a.publishedAt))
+      .slice(0, 20);
   });

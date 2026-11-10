@@ -8,8 +8,11 @@ on:
 
 jobs:
   opencode:
+    # The job has write access, so only people who can already push may
+    # trigger it; anyone else can comment `/oc` on a public repo.
     if: |
       github.event.comment.user.type != 'Bot' &&
+      contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association) &&
       (
         contains(github.event.comment.body, '/oc') ||
         contains(github.event.comment.body, '/opencode')

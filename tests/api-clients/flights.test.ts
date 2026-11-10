@@ -1,12 +1,12 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { FetchHttpClient } from "@effect/platform";
-import { Effect } from "effect";
-import { Cache, CacheLive } from "@/lib/cache";
+import { cache } from "@/lib/cache";
 import { SchemaParseError } from "@/lib/errors";
 import { getFlights } from "@/lib/api-clients/flights";
-import type { FlightState } from "@/types";
-
-type FetchImpl = (input: string | URL | Request) => Promise<Response>;
+import {
+  rejection,
+  withFetch,
+  type FetchStub,
+} from "../helpers/upstream";
 
 const API_KEY = "test-key-123";
 const originalKey = process.env.AVIATIONSTACK_API_KEY;
@@ -23,20 +23,8 @@ afterEach(() => {
   }
 });
 
-const runGetFlights = (
-  fetchImpl: FetchImpl,
-  cache: Cache = Effect.runSync(Cache.pipe(Effect.provide(CacheLive))),
-) =>
-  Effect.runPromiseExit(
-    getFlights().pipe(
-      Effect.provideService(Cache, cache),
-      Effect.provide(FetchHttpClient.layer),
-      Effect.provideService(
-        FetchHttpClient.Fetch,
-        fetchImpl as unknown as typeof fetch,
-      ),
-    ),
-  );
+const runGetFlights = (fetchImpl: FetchStub) =>
+  withFetch(fetchImpl, getFlights);
 
 const flight = (
   icao24: string,
@@ -109,16 +97,10 @@ const openSkyRow = (
 const success = async (value: unknown) => Response.json(value);
 const fail = async (status: number) => new Response("unavailable", { status });
 
-function flightStates(exit: Awaited<ReturnType<typeof runGetFlights>>) {
-  expect(exit._tag).toBe("Success");
-  if (exit._tag !== "Success") return [] as FlightState[];
-  return exit.value;
-}
-
 describe("getFlights fallback chain", () => {
   test("serves AviationStack results without calling OpenSky", async () => {
     let openSkyCalls = 0;
-    const exit = await runGetFlights(async (input) => {
+    const result = await runGetFlights(async (input) => {
       const url = String(input);
       if (url.includes("api.aviationstack.com")) {
         return success({ data: [flight("76C0A1")] });
@@ -127,7 +109,7 @@ describe("getFlights fallback chain", () => {
       return success({ time: 1, states: null });
     });
 
-    const flights = flightStates(exit);
+    const flights = result;
     expect(flights).toHaveLength(1);
     expect(flights[0].icao24).toBe("76C0A1");
     // AviationStack reports km/h; the client normalizes to m/s.
@@ -139,7 +121,7 @@ describe("getFlights fallback chain", () => {
   });
 
   test("falls back to OpenSky when AviationStack returns no flights", async () => {
-    const exit = await runGetFlights(async (input) => {
+    const result = await runGetFlights(async (input) => {
       const url = String(input);
       if (url.includes("api.aviationstack.com")) {
         return success({ data: [] });
@@ -147,7 +129,7 @@ describe("getFlights fallback chain", () => {
       return success({ time: 1, states: [openSkyRow("76C0A1")] });
     });
 
-    const flights = flightStates(exit);
+    const flights = result;
     expect(flights).toHaveLength(1);
     expect(flights[0].icao24).toBe("76C0A1");
     expect(flights[0].callsign).toBe("SIA321");
@@ -156,20 +138,20 @@ describe("getFlights fallback chain", () => {
   });
 
   test("falls back to OpenSky when every AviationStack endpoint fails", async () => {
-    const exit = await runGetFlights(async (input) => {
+    const result = await runGetFlights(async (input) => {
       if (String(input).includes("api.aviationstack.com")) {
         return fail(503);
       }
       return success({ time: 1, states: [openSkyRow("76C0A1")] });
     });
 
-    const flights = flightStates(exit);
+    const flights = result;
     expect(flights).toHaveLength(1);
     expect(flights[0].icao24).toBe("76C0A1");
   });
 
   test("treats an empty result from both providers as a valid empty feed", async () => {
-    const exit = await runGetFlights(async (input) => {
+    const result = await runGetFlights(async (input) => {
       if (String(input).includes("api.aviationstack.com")) {
         return success({ data: [] });
       }
@@ -177,15 +159,13 @@ describe("getFlights fallback chain", () => {
       return new Response("not found", { status: 404 });
     });
 
-    expect(exit._tag).toBe("Success");
-    if (exit._tag === "Success") expect(exit.value).toEqual([]);
+    expect(result).toEqual([]);
   });
 
   test("serves the last-good snapshot when both providers are empty and never overwrites it", async () => {
-    const cache = Effect.runSync(Cache.pipe(Effect.provide(CacheLive)));
     let serveEmpty = false;
 
-    const fetchImpl: FetchImpl = async (input) => {
+    const fetchImpl: FetchStub = async (input) => {
       const url = String(input);
       if (url.includes("api.aviationstack.com")) {
         return success(serveEmpty ? { data: [] } : { data: [flight("76C0A1")] });
@@ -193,47 +173,34 @@ describe("getFlights fallback chain", () => {
       return success({ time: 1, states: null });
     };
 
-    const program = Effect.gen(function* () {
-      const first = yield* getFlights();
-      yield* cache.clear("flights-sg");
+    const { first, second, third } = await withFetch(fetchImpl, async () => {
+      const first = await getFlights();
+      cache.clear("flights-sg");
       serveEmpty = true;
-      const second = yield* getFlights();
-      yield* cache.clear("flights-sg");
-      const third = yield* getFlights();
+      const second = await getFlights();
+      cache.clear("flights-sg");
+      const third = await getFlights();
       return { first, second, third };
     });
 
-    const exit = await Effect.runPromiseExit(
-      program.pipe(
-        Effect.provideService(Cache, cache),
-        Effect.provide(FetchHttpClient.layer),
-        Effect.provideService(
-          FetchHttpClient.Fetch,
-          fetchImpl as unknown as typeof fetch,
-        ),
-      ),
-    );
-
-    expect(exit._tag).toBe("Success");
-    if (exit._tag !== "Success") return;
-    expect(exit.value.first).toHaveLength(1);
+    expect(first).toHaveLength(1);
     // An outage returns the last-good snapshot.
-    expect(exit.value.second).toEqual(exit.value.first);
+    expect(second).toEqual(first);
     // Further outages leave the snapshot intact.
-    expect(exit.value.third).toEqual(exit.value.first);
+    expect(third).toEqual(first);
   });
 
   test("propagates a schema failure from the OpenSky fallback", async () => {
-    const exit = await runGetFlights(async (input) => {
-      if (String(input).includes("api.aviationstack.com")) {
-        return fail(503);
-      }
-      return new Response("not json at all", { status: 200 });
-    });
+    const error = await rejection(
+      runGetFlights(async (input) => {
+        if (String(input).includes("api.aviationstack.com")) {
+          return fail(503);
+        }
+        return new Response("not json at all", { status: 200 });
+      }),
+    );
 
-    expect(exit._tag).toBe("Failure");
-    if (exit._tag !== "Failure" || exit.cause._tag !== "Fail") return;
-    expect(exit.cause.error).toBeInstanceOf(SchemaParseError);
+    expect(error).toBeInstanceOf(SchemaParseError);
   });
 
   test("sorts by velocity and caps at 120 flights", async () => {
@@ -242,14 +209,13 @@ describe("getFlights fallback chain", () => {
         speedKmh: i + 1,
       }),
     );
-    const exit = await runGetFlights(async (input) => {
+    const result = await runGetFlights(async (input) => {
       if (String(input).includes("api.aviationstack.com")) {
         return success({ data: flights });
       }
       throw new Error("OpenSky must not be called");
     });
 
-    const result = flightStates(exit);
     expect(result).toHaveLength(120);
     // Fastest flight first, the slowest of the 150 dropped by the cap.
     expect(result[0].velocity).toBeCloseTo(150 / 3.6, 1);
@@ -259,14 +225,14 @@ describe("getFlights fallback chain", () => {
   test("dedupes by icao24 keeping the newest lastContact", async () => {
     const older = flight("76C0A1", { updated: "2026-09-03T00:00:00.000Z" });
     const newer = flight("76C0A1", { updated: "2026-09-03T01:00:00.000Z" });
-    const exit = await runGetFlights(async (input) => {
+    const result = await runGetFlights(async (input) => {
       if (String(input).includes("api.aviationstack.com")) {
         return success({ data: [older, newer] });
       }
       throw new Error("OpenSky must not be called");
     });
 
-    const flights = flightStates(exit);
+    const flights = result;
     expect(flights).toHaveLength(1);
     expect(flights[0].lastContact).toBe(
       Math.floor(Date.parse("2026-09-03T01:00:00.000Z") / 1000),
@@ -288,7 +254,7 @@ describe("getFlights fallback chain", () => {
       direction: null,
     });
 
-    const exit = await runGetFlights(async (input) => {
+    const result = await runGetFlights(async (input) => {
       if (String(input).includes("api.aviationstack.com")) {
         return success({
           data: [inbound, outbound, transitSgToSg],
@@ -297,7 +263,7 @@ describe("getFlights fallback chain", () => {
       throw new Error("OpenSky must not be called");
     });
 
-    const flights = flightStates(exit);
+    const flights = result;
     const byIcao = new Map(flights.map((f) => [f.icao24, f.direction]));
     expect(byIcao.get("76C0A1")).toBe("inbound");
     expect(byIcao.get("76C0A2")).toBe("outbound");
@@ -310,14 +276,14 @@ describe("getFlights fallback chain", () => {
     const crossing = flight("76C0A3", { direction: 90 });
     const noTrack = flight("76C0A4", { direction: null });
 
-    const exit = await runGetFlights(async (input) => {
+    const result = await runGetFlights(async (input) => {
       if (String(input).includes("api.aviationstack.com")) {
         return success({ data: [headingNorth, headingAway, crossing, noTrack] });
       }
       throw new Error("OpenSky must not be called");
     });
 
-    const flights = flightStates(exit);
+    const flights = result;
     const byIcao = new Map(flights.map((f) => [f.icao24, f.direction]));
     expect(byIcao.get("76C0A1")).toBe("inbound");
     expect(byIcao.get("76C0A2")).toBe("outbound");

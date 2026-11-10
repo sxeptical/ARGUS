@@ -123,8 +123,6 @@ function useSource<T>(source: SourceDefinition | null, refreshWhenHidden = false
     dedupingInterval: 5_000,
     errorRetryCount: 3,
     errorRetryInterval: 5_000,
-    loadingTimeout: 20_000,
-    onLoadingSlow: () => {},
   });
 }
 

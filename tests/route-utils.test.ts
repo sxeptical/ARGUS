@@ -1,13 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { Effect } from "effect";
 import {
   BadRequestError,
   ExternalApiError,
   SchemaParseError,
   TimeoutError,
-  type AppError,
 } from "@/lib/errors";
-import type { AppContext } from "@/lib/effect-runtime";
 import {
   BUS_SERVICE_NO_RE,
   BUS_STOP_ID_RE,
@@ -18,9 +15,7 @@ import {
 
 const options = { maxRequests: 120, serviceLabel: "Test feed" };
 
-const viaHandle = (
-  produce: () => Effect.Effect<unknown, AppError, AppContext>,
-) =>
+const viaHandle = (produce: () => unknown) =>
   handle(
     new Request("https://example.test/feed"),
     crypto.randomUUID(),
@@ -118,9 +113,7 @@ describe("requiredQueryParam / optionalQueryParam", () => {
 
 describe("handle", () => {
   test("returns the produced value as JSON on success", async () => {
-    const response = await viaHandle(() =>
-      Effect.succeed({ ok: true, items: [1, 2] }),
-    );
+    const response = await viaHandle(async () => ({ ok: true, items: [1, 2] }));
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ ok: true, items: [1, 2] });
   });
@@ -129,7 +122,7 @@ describe("handle", () => {
 describe("handle error mapping", () => {
   const cases: Array<{
     name: string;
-    error: AppError;
+    error: Error;
     status: number;
     body: { error: string };
     retryAfter?: string;
@@ -164,12 +157,12 @@ describe("handle error mapping", () => {
     {
       name: "ExternalApiError 404 -> 404 with the upstream message",
       error: new ExternalApiError({
-        service: "opensky",
-        message: "opensky returned 404",
+        service: "busrouter",
+        message: "busrouter returned 404",
         status: 404,
       }),
       status: 404,
-      body: { error: "opensky returned 404" },
+      body: { error: "busrouter returned 404" },
     },
     {
       name: "ExternalApiError 503 -> 502 bad gateway",
@@ -207,7 +200,7 @@ describe("handle error mapping", () => {
 
   test("maps every app error to its HTTP status, headers, and body", async () => {
     for (const { name, error, status, body, retryAfter } of cases) {
-      const response = await viaHandle(() => Effect.fail(error));
+      const response = await viaHandle(() => Promise.reject(error));
       expect(response.status, name).toBe(status);
       if (retryAfter !== undefined) {
         expect(response.headers.get("Retry-After"), name).toBe(retryAfter);
@@ -236,8 +229,8 @@ describe("handle producer contract violations", () => {
     expect(await response.json()).toEqual({ error: "Internal server error" });
   });
 
-  test("a program that dies -> 500", async () => {
-    const response = await viaHandle(() => Effect.die("boom"));
+  test("a producer that rejects with an unknown error -> 500", async () => {
+    const response = await viaHandle(() => Promise.reject("boom"));
     expect(response.status).toBe(500);
     expect(await response.json()).toEqual({ error: "Internal server error" });
   });
@@ -255,7 +248,7 @@ describe("handle rate limiting", () => {
       { maxRequests: 1, serviceLabel: "Test feed" },
       () => {
         invoked += 1;
-        return Effect.succeed("ok");
+        return "ok";
       },
     );
     expect(first.status).toBe(200);
@@ -267,7 +260,7 @@ describe("handle rate limiting", () => {
       { maxRequests: 1, serviceLabel: "Test feed" },
       () => {
         invoked += 1;
-        return Effect.succeed("ok");
+        return "ok";
       },
     );
     expect(second.status).toBe(429);

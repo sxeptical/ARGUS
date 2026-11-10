@@ -1,268 +1,196 @@
 import { describe, expect, test } from "bun:test";
-import { Effect } from "effect";
-import { Cache, CacheLive } from "@/lib/cache";
+import { createCache } from "@/lib/cache";
 
-describe("Cache", () => {
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+describe("cache", () => {
   describe("failed producer retry", () => {
-    test("a failed producer is retried on the next get (not permanently cached)", () => {
-      const cache = Effect.runSync(
-        Cache.pipe(Effect.provide(CacheLive)),
-      );
-
+    test("a failed producer is retried on the next get (not permanently cached)", async () => {
+      const cache = createCache();
       let attempts = 0;
-      const flakyProducer = Effect.gen(function* () {
+      const flakyProducer = async () => {
         attempts += 1;
-        if (attempts < 3) {
-          return yield* Effect.fail("transient error" as const);
-        }
+        if (attempts < 3) throw new Error("transient error");
         return "recovered";
-      });
+      };
 
-      const result1 = Effect.runSyncExit(
-        cache.get("flaky", 60_000, flakyProducer),
+      await expect(cache.get("flaky", 60_000, flakyProducer)).rejects.toThrow(
+        "transient error",
       );
-      expect(result1._tag).toBe("Failure");
-
-      const result2 = Effect.runSyncExit(
-        cache.get("flaky", 60_000, flakyProducer),
+      await expect(cache.get("flaky", 60_000, flakyProducer)).rejects.toThrow(
+        "transient error",
       );
-      expect(result2._tag).toBe("Failure");
-
-      const result3 = Effect.runSync(
-        cache.get("flaky", 60_000, flakyProducer),
-      );
-      expect(result3).toBe("recovered");
+      expect(await cache.get("flaky", 60_000, flakyProducer)).toBe("recovered");
       expect(attempts).toBe(3);
     });
 
+    test("a producer that throws synchronously rejects instead of escaping", async () => {
+      const cache = createCache();
+      const producer = (): Promise<string> => {
+        throw new Error("sync boom");
+      };
+      await expect(cache.get("sync", 60_000, producer)).rejects.toThrow(
+        "sync boom",
+      );
+    });
   });
 
   describe("concurrent callers", () => {
     test("concurrent callers for the same key share one successful producer", async () => {
-      const program = Effect.gen(function* () {
-        const cache = yield* Cache;
+      const cache = createCache();
+      let producerRuns = 0;
+      const slowProducer = async () => {
+        producerRuns += 1;
+        await sleep(30);
+        return "shared-value";
+      };
 
-        let producerRuns = 0;
-        const slowProducer = Effect.gen(function* () {
-          producerRuns += 1;
-          yield* Effect.sleep("30 millis");
-          return "shared-value";
-        });
-
-        const results = yield* Effect.all(
-          [
-            cache.get("conc-key", 60_000, slowProducer),
-            cache.get("conc-key", 60_000, slowProducer),
-            cache.get("conc-key", 60_000, slowProducer),
-          ],
-          { concurrency: "unbounded" },
-        );
-
-        return { producerRuns, results };
-      });
-
-      const { producerRuns, results } = await Effect.runPromise(
-        program.pipe(Effect.provide(CacheLive)),
-      );
+      const results = await Promise.all([
+        cache.get("conc-key", 60_000, slowProducer),
+        cache.get("conc-key", 60_000, slowProducer),
+        cache.get("conc-key", 60_000, slowProducer),
+      ]);
 
       expect(producerRuns).toBe(1);
       expect(results).toEqual(["shared-value", "shared-value", "shared-value"]);
     });
 
-    test("concurrent failures are cleaned up and allow retry", async () => {
-      const program = Effect.gen(function* () {
-        const cache = yield* Cache;
+    test("concurrent failures share one producer, are cleaned up, and allow retry", async () => {
+      const cache = createCache();
+      let calls = 0;
+      const flakyConcurrent = async () => {
+        calls += 1;
+        await sleep(10);
+        if (calls === 1) throw new Error("concurrent-boom");
+        return "concurrent-ok";
+      };
 
-        let calls = 0;
-        const flakyConcurrent = Effect.gen(function* () {
-          calls += 1;
-          yield* Effect.sleep("10 millis");
-          if (calls === 1) {
-            return yield* Effect.fail("concurrent-boom" as const);
-          }
-          return "concurrent-ok";
-        });
+      const settled = await Promise.allSettled([
+        cache.get("conc-fail", 60_000, flakyConcurrent),
+        cache.get("conc-fail", 60_000, flakyConcurrent),
+        cache.get("conc-fail", 60_000, flakyConcurrent),
+      ]);
+      expect(settled.map((result) => result.status)).toEqual([
+        "rejected",
+        "rejected",
+        "rejected",
+      ]);
+      expect(calls).toBe(1);
 
-        const exit1 = yield* Effect.exit(
-          Effect.all(
-            [
-              cache.get("conc-fail", 60_000, flakyConcurrent),
-              cache.get("conc-fail", 60_000, flakyConcurrent),
-              cache.get("conc-fail", 60_000, flakyConcurrent),
-            ],
-            { concurrency: "unbounded" },
-          ),
-        );
-
-        const val = yield* cache.get("conc-fail", 60_000, flakyConcurrent);
-
-        return { exitTag: exit1._tag, val, calls };
-      });
-
-      const { exitTag, val, calls } = await Effect.runPromise(
-        program.pipe(Effect.provide(CacheLive)),
+      expect(await cache.get("conc-fail", 60_000, flakyConcurrent)).toBe(
+        "concurrent-ok",
       );
-
-      expect(exitTag).toBe("Failure");
-      expect(val).toBe("concurrent-ok");
-      expect(calls).toBeGreaterThanOrEqual(2);
+      expect(calls).toBe(2);
     });
   });
 
   describe("TTL caching", () => {
-    test("successful value is cached within TTL", () => {
-      const cache = Effect.runSync(
-        Cache.pipe(Effect.provide(CacheLive)),
-      );
-
+    test("successful value is cached within TTL", async () => {
+      const cache = createCache();
       let calls = 0;
-      const producer = Effect.sync(() => {
+      const producer = async () => {
         calls += 1;
         return "cached-val";
-      });
+      };
 
-      const v1 = Effect.runSync(cache.get("ttl-key", 60_000, producer));
-      const v2 = Effect.runSync(cache.get("ttl-key", 60_000, producer));
-
-      expect(v1).toBe("cached-val");
-      expect(v2).toBe("cached-val");
+      expect(await cache.get("ttl-key", 60_000, producer)).toBe("cached-val");
+      expect(await cache.get("ttl-key", 60_000, producer)).toBe("cached-val");
       expect(calls).toBe(1);
     });
 
-    test("value expires after TTL and producer runs again", () => {
-      const cache = Effect.runSync(
-        Cache.pipe(Effect.provide(CacheLive)),
-      );
-
+    test("value expires after TTL and producer runs again", async () => {
+      const cache = createCache();
       let calls = 0;
-      const producer = Effect.sync(() => {
+      const producer = async () => {
         calls += 1;
         return "expire-val";
-      });
+      };
 
-      Effect.runSync(cache.get("expire-key", 1, producer));
-      const start = Date.now();
-      while (Date.now() - start < 5) {
-        // Let the TTL expire.
-      }
-      Effect.runSync(cache.get("expire-key", 1, producer));
+      await cache.get("expire-key", 1, producer);
+      await sleep(5);
+      await cache.get("expire-key", 1, producer);
 
       expect(calls).toBe(2);
     });
   });
 
-  describe("set + get round-trip", () => {
-    test("set then get returns the set value", () => {
-      const cache = Effect.runSync(
-        Cache.pipe(Effect.provide(CacheLive)),
-      );
-
-      Effect.runSync(cache.set("set-key", 99));
-      const v = Effect.runSync(
-        cache.get("set-key", 60_000, Effect.sync(() => 0)),
-      );
-      expect(v).toBe(99);
+  describe("set", () => {
+    test("set then get returns the set value without running the producer", async () => {
+      const cache = createCache();
+      cache.set("set-key", 99);
+      expect(await cache.get("set-key", 60_000, async () => 0)).toBe(99);
     });
   });
 
   describe("peek", () => {
-    test("reads a fresh value without running or caching a producer", () => {
-      const cache = Effect.runSync(Cache.pipe(Effect.provide(CacheLive)));
-      Effect.runSync(cache.set("snapshot", [1, 2, 3]));
+    test("reads a fresh value without running or caching a producer", async () => {
+      const cache = createCache();
+      await cache.get("snapshot", 60_000, async () => [1, 2, 3]);
 
-      expect(Effect.runSync(cache.peek<number[]>("snapshot", 60_000))).toEqual([
-        1, 2, 3,
-      ]);
-      expect(Effect.runSync(cache.peek("missing", 60_000))).toBeNull();
+      expect(cache.peek<number[]>("snapshot", 60_000)).toEqual([1, 2, 3]);
+      expect(cache.peek("missing", 60_000)).toBeNull();
     });
 
-    test("returns null for an expired value without overwriting it", () => {
-      const cache = Effect.runSync(Cache.pipe(Effect.provide(CacheLive)));
-      Effect.runSync(cache.set("old-snapshot", "last-good"));
-      const start = Date.now();
-      while (Date.now() - start < 5) {
-        // Let the one-millisecond max age expire.
-      }
+    test("returns null for an expired value without overwriting it", async () => {
+      const cache = createCache();
+      await cache.get("old-snapshot", 60_000, async () => "last-good");
+      await sleep(5);
 
-      expect(Effect.runSync(cache.peek<string>("old-snapshot", 1))).toBeNull();
+      expect(cache.peek<string>("old-snapshot", 1)).toBeNull();
       // An expired peek must not overwrite the stored value.
-      expect(
-        Effect.runSync(cache.peek<string>("old-snapshot", 60_000)),
-      ).toBe("last-good");
+      expect(cache.peek<string>("old-snapshot", 60_000)).toBe("last-good");
     });
   });
 
   describe("clear", () => {
-    test("clearing a specific key forces a fresh producer call", () => {
-      const cache = Effect.runSync(
-        Cache.pipe(Effect.provide(CacheLive)),
-      );
-
+    test("clearing a specific key forces a fresh producer call", async () => {
+      const cache = createCache();
       let calls = 0;
-      const producer = Effect.sync(() => {
+      const producer = async () => {
         calls += 1;
         return "cleared";
-      });
+      };
 
-      Effect.runSync(cache.get("clear-key", 60_000, producer));
+      await cache.get("clear-key", 60_000, producer);
       expect(calls).toBe(1);
 
-      Effect.runSync(cache.clear("clear-key"));
+      cache.clear("clear-key");
 
-      Effect.runSync(cache.get("clear-key", 60_000, producer));
+      await cache.get("clear-key", 60_000, producer);
       expect(calls).toBe(2);
     });
   });
 
   describe("instance isolation", () => {
-    test("two CacheLive instances do not share in-flight producers for the same key", async () => {
-      const cache1 = Effect.runSync(Cache.pipe(Effect.provide(CacheLive)));
-      const cache2 = Effect.runSync(Cache.pipe(Effect.provide(CacheLive)));
+    test("two caches do not share in-flight producers for the same key", async () => {
+      const cache1 = createCache();
+      const cache2 = createCache();
 
-      const results = await Effect.runPromise(
-        Effect.all(
-          [
-            cache1.get(
-              "shared-key",
-              60_000,
-              Effect.gen(function* () {
-                yield* Effect.sleep("30 millis");
-                return "from-one";
-              }),
-            ),
-            cache2.get(
-              "shared-key",
-              60_000,
-              Effect.gen(function* () {
-                yield* Effect.sleep("30 millis");
-                return "from-two";
-              }),
-            ),
-          ],
-          { concurrency: "unbounded" },
-        ),
-      );
+      const results = await Promise.all([
+        cache1.get("shared-key", 60_000, async () => {
+          await sleep(30);
+          return "from-one";
+        }),
+        cache2.get("shared-key", 60_000, async () => {
+          await sleep(30);
+          return "from-two";
+        }),
+      ]);
 
       expect(results).toEqual(["from-one", "from-two"]);
     });
 
-    test("clearing one instance does not drop another instance's in-flight producer", async () => {
-      const cache1 = Effect.runSync(Cache.pipe(Effect.provide(CacheLive)));
-      const cache2 = Effect.runSync(Cache.pipe(Effect.provide(CacheLive)));
+    test("clearing one cache does not drop another cache's in-flight producer", async () => {
+      const cache1 = createCache();
+      const cache2 = createCache();
 
-      const second = Effect.runPromise(
-        cache2.get(
-          "shared-key",
-          60_000,
-          Effect.gen(function* () {
-            yield* Effect.sleep("40 millis");
-            return "still-two";
-          }),
-        ),
-      );
+      const second = cache2.get("shared-key", 60_000, async () => {
+        await sleep(40);
+        return "still-two";
+      });
 
-      await Effect.runPromise(Effect.sleep("5 millis"));
-      Effect.runSync(cache1.clear("shared-key"));
+      await sleep(5);
+      cache1.clear("shared-key");
 
       expect(await second).toBe("still-two");
     });

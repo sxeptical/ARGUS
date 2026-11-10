@@ -1,8 +1,4 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { FetchHttpClient } from "@effect/platform";
-import { Effect } from "effect";
-import { Schema } from "effect";
-import { CacheLive } from "@/lib/cache";
 import { ExternalApiError } from "@/lib/errors";
 import {
   LtaTrafficIncidentsResponseSchema,
@@ -19,6 +15,7 @@ import {
   normalizeTrafficIncidents,
   normalizeTrainServiceAlerts,
 } from "@/lib/api-clients/lta";
+import { rejection, withFetch, type FetchStub } from "../helpers/upstream";
 
 const rows = (count: number) =>
   Array.from({ length: count }, (_, i) => ({ id: i }));
@@ -40,15 +37,12 @@ afterEach(() => {
 describe("collectLtaPages", () => {
   test("walks pages until a short page ends the collection", async () => {
     const skips: number[] = [];
-    const pages = await Effect.runPromise(
-      collectLtaPages(
-        (skip) =>
-          Effect.sync(() => {
-            skips.push(skip);
-            return { value: skip === 0 ? rows(500) : rows(3) };
-          }),
-        { pageSize: 500, maxPages: 10, service: "lta" },
-      ),
+    const pages = await collectLtaPages(
+      async (skip) => {
+        skips.push(skip);
+        return { value: skip === 0 ? rows(500) : rows(3) };
+      },
+      { pageSize: 500, maxPages: 10, service: "lta" },
     );
 
     expect(pages).toHaveLength(503);
@@ -56,49 +50,35 @@ describe("collectLtaPages", () => {
   });
 
   test("an empty or null page stops the walk", async () => {
-    const empty = await Effect.runPromise(
-      collectLtaPages(
-        () => Effect.succeed({ value: [] }),
-        { pageSize: 500, maxPages: 10, service: "lta" },
-      ),
-    );
+    const empty = await collectLtaPages(async () => ({ value: [] }), { pageSize: 500, maxPages: 10, service: "lta" });
     expect(empty).toEqual([]);
 
-    const nullPage = await Effect.runPromise(
-      collectLtaPages(
-        () => Effect.succeed(null),
-        { pageSize: 500, maxPages: 10, service: "lta" },
-      ),
-    );
+    const nullPage = await collectLtaPages(async () => null, { pageSize: 500, maxPages: 10, service: "lta" });
     expect(nullPage).toEqual([]);
   });
 
   test("fails when the safety cap is reached without an end marker", async () => {
-    const exit = await Effect.runPromiseExit(
-      collectLtaPages(
-        () => Effect.succeed({ value: rows(500) }),
-        { pageSize: 500, maxPages: 3, service: "lta" },
-      ),
+    const error = await rejection(
+      collectLtaPages(async () => ({ value: rows(500) }), {
+        pageSize: 500,
+        maxPages: 3,
+        service: "lta",
+      }),
     );
 
-    expect(exit._tag).toBe("Failure");
-    if (exit._tag !== "Failure" || exit.cause._tag !== "Fail") return;
-    expect(exit.cause.error).toBeInstanceOf(ExternalApiError);
-    expect(exit.cause.error.status).toBe(502);
-    expect(exit.cause.error.message).toContain("safety cap");
+    expect(error).toBeInstanceOf(ExternalApiError);
+    expect((error as ExternalApiError).status).toBe(502);
+    expect((error as ExternalApiError).message).toContain("safety cap");
   });
 
   test("fetches pages in concurrent batches at the requested skip offsets", async () => {
     const skips: number[] = [];
-    const pages = await Effect.runPromise(
-      collectLtaPages(
-        (skip) =>
-          Effect.sync(() => {
-            skips.push(skip);
-            return { value: skip < 2000 ? rows(500) : rows(1) };
-          }),
-        { pageSize: 500, maxPages: 5, service: "lta", concurrency: 3 },
-      ),
+    const pages = await collectLtaPages(
+      async (skip) => {
+        skips.push(skip);
+        return { value: skip < 2000 ? rows(500) : rows(1) };
+      },
+      { pageSize: 500, maxPages: 5, service: "lta", concurrency: 3 },
     );
 
     expect(skips).toEqual([0, 500, 1000, 1500, 2000]);
@@ -106,23 +86,12 @@ describe("collectLtaPages", () => {
   });
 });
 
-const runCameras = (
-  fetchImpl: (input: string | URL | Request) => Promise<Response>,
-) =>
-  Effect.runPromiseExit(
-    getTrafficCameras().pipe(
-      Effect.provide(CacheLive),
-      Effect.provide(FetchHttpClient.layer),
-      Effect.provideService(
-        FetchHttpClient.Fetch,
-        fetchImpl as unknown as typeof fetch,
-      ),
-    ),
-  );
+const runCameras = (fetchImpl: FetchStub) =>
+  withFetch(fetchImpl, getTrafficCameras);
 
 describe("getTrafficCameras", () => {
   test("keeps only cameras whose image URL is on the allowlisted host", async () => {
-    const exit = await runCameras(async () =>
+    const result = await runCameras(async () =>
       Response.json({
         value: [
           {
@@ -142,15 +111,13 @@ describe("getTrafficCameras", () => {
       }),
     );
 
-    expect(exit._tag).toBe("Success");
-    if (exit._tag !== "Success") return;
-    expect(exit.value).toHaveLength(1);
-    expect(exit.value[0].location).toBe("Camera A001");
-    expect(exit.value[0].CameraID).toBe("A001");
+    expect(result).toHaveLength(1);
+    expect(result[0].location).toBe("Camera A001");
+    expect(result[0].CameraID).toBe("A001");
   });
 
   test("flattens the wrapped { Cameras: [...] } response shape", async () => {
-    const exit = await runCameras(async () =>
+    const result = await runCameras(async () =>
       Response.json({
         value: [
           {
@@ -177,18 +144,15 @@ describe("getTrafficCameras", () => {
       }),
     );
 
-    expect(exit._tag).toBe("Success");
-    if (exit._tag !== "Success") return;
-    expect(exit.value).toHaveLength(2);
+    expect(result).toHaveLength(2);
   });
 
   test("treats a 404 as an empty feed rather than a failure", async () => {
-    const exit = await runCameras(async () =>
+    const result = await runCameras(async () =>
       new Response("not found", { status: 404 }),
     );
 
-    expect(exit._tag).toBe("Success");
-    if (exit._tag === "Success") expect(exit.value).toEqual([]);
+    expect(result).toEqual([]);
   });
 });
 
@@ -199,34 +163,14 @@ describe("getTrafficIncidents", () => {
         { Type: "Accident", Latitude: 1.3, Longitude: 103.8, Message: "Crash on CTE" },
       ],
     };
-    expect(Schema.decodeUnknownSync(LtaTrafficIncidentsResponseSchema)(payload).value).toHaveLength(1);
+    expect(LtaTrafficIncidentsResponseSchema.parse(payload).value).toHaveLength(1);
     expect(normalizeTrafficIncidents([...payload.value, { Type: "Obstacle", Latitude: Number.NaN, Longitude: 103.81, Message: "Bad row" }])).toHaveLength(1);
-    const exit = await Effect.runPromiseExit(
-      getTrafficIncidents().pipe(
-        Effect.provide(CacheLive),
-        Effect.provide(FetchHttpClient.layer),
-        Effect.provideService(FetchHttpClient.Fetch, (async () => Response.json(payload)) as unknown as typeof fetch),
-      ),
-    );
-    expect(exit._tag).toBe("Success");
-    if (exit._tag !== "Success") return;
-    expect(exit.value).toHaveLength(1);
-    expect(exit.value[0]).toMatchObject({ type: "Accident", lat: 1.3, lng: 103.8, message: "Crash on CTE" });
-    expect(exit.value[0].id).toMatch(/^[a-f0-9]{16}$/);
+    const result = await withFetch(async () => Response.json(payload), getTrafficIncidents);
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({ type: "Accident", lat: 1.3, lng: 103.8, message: "Crash on CTE" });
+    expect(result[0].id).toMatch(/^[a-f0-9]{16}$/);
   });
 });
-
-const runWithFetch = <A, E>(
-  effect: Effect.Effect<A, E, import("@/lib/cache").Cache | import("@effect/platform").HttpClient.HttpClient>,
-  fetchImpl: (input: string | URL | Request, init?: RequestInit) => Promise<Response>,
-) =>
-  Effect.runPromiseExit(
-    effect.pipe(
-      Effect.provide(CacheLive),
-      Effect.provide(FetchHttpClient.layer),
-      Effect.provideService(FetchHttpClient.Fetch, fetchImpl as unknown as typeof fetch),
-    ),
-  );
 
 const carparkRow = (overrides: Record<string, unknown> = {}) => ({
   CarParkID: "TPMN",
@@ -257,7 +201,7 @@ describe("normalizeCarparkAvailability", () => {
 describe("getCarparkAvailability", () => {
   test("walks every DataMall page before normalizing", async () => {
     const urls: string[] = [];
-    const exit = await runWithFetch(getCarparkAvailability(), async (input) => {
+    const result = await withFetch(async (input) => {
       const url = String(input instanceof Request ? input.url : input);
       urls.push(url);
       const skip = Number(new URL(url).searchParams.get("$skip"));
@@ -265,10 +209,8 @@ describe("getCarparkAvailability", () => {
       return Response.json({
         value: Array.from({ length: count }, (_, i) => carparkRow({ CarParkID: `${skip + i}` })),
       });
-    });
-    expect(exit._tag).toBe("Success");
-    if (exit._tag !== "Success") return;
-    expect(exit.value).toHaveLength(502);
+    }, getCarparkAvailability);
+    expect(result).toHaveLength(502);
     expect(urls.every((url) => url.includes("/CarParkAvailabilityv2"))).toBe(true);
   });
 });
@@ -320,16 +262,14 @@ describe("getEvChargingLocations", () => {
 
   test("follows the trusted batch link without forwarding the AccountKey", async () => {
     const requests: Array<{ url: string; accountKey: string | null }> = [];
-    const exit = await runWithFetch(getEvChargingLocations(), async (input, init) => {
+    const result = await withFetch(async (input, init) => {
       const request = input instanceof Request ? input : new Request(String(input), init);
       requests.push({ url: request.url, accountKey: request.headers.get("AccountKey") });
       return request.url.includes("/EVCBatch")
         ? Response.json({ value: [{ Link: batchLink }] })
         : new Response(JSON.stringify({ LastUpdatedTime: "2026-10-21 16:30:00", evLocationsData: [evLocation] }), { headers: { "content-type": "text/plain" } });
-    });
-    expect(exit._tag).toBe("Success");
-    if (exit._tag !== "Success") return;
-    expect(exit.value).toHaveLength(1);
+    }, getEvChargingLocations);
+    expect(result).toHaveLength(1);
     expect(requests).toHaveLength(2);
     expect(requests[0].accountKey).toBe("test-lta-key");
     expect(requests[1]).toEqual({ url: batchLink, accountKey: null });
@@ -337,11 +277,11 @@ describe("getEvChargingLocations", () => {
 
   test("refuses a batch link outside the LTA dataset bucket", async () => {
     let calls = 0;
-    const exit = await runWithFetch(getEvChargingLocations(), async () => {
+    const error = await rejection(withFetch(async () => {
       calls += 1;
       return Response.json({ value: [{ Link: "https://evil.example/EVBatch.json" }] });
-    });
-    expect(exit._tag).toBe("Failure");
+    }, getEvChargingLocations));
+    expect(error).toBeInstanceOf(ExternalApiError);
     expect(calls).toBe(1);
   });
 });
@@ -352,10 +292,9 @@ describe("normalizeTrainServiceAlerts", () => {
       value: [
         {
           Status: 2,
-          StatusDescription: "Disrupted",
           Message: [{ Content: "No train service between Buona Vista" }],
           AffectedSegments: [
-            { Line: "EWL", Direction: "Both", Stations: ["EW21", "EW22"] },
+            { Line: "EWL", Stations: ["EW21", "EW22"] },
             { Line: "NEL", Stations: ["NE1"] },
             { Line: "NEL", Stations: ["NE7"] },
             { Line: "PEL", Stations: ["PE1"] },
@@ -409,7 +348,7 @@ describe("normalizeTrainServiceAlerts", () => {
 
   test("decodes the comma-separated Stations string from LTA's documented sample", () => {
     // API User Guide v6.11, Annex C, Sample Scenario #1.
-    const payload = Schema.decodeUnknownSync(LtaTrainServiceAlertsResponseSchema)({
+    const payload = LtaTrainServiceAlertsResponseSchema.parse({
       value: {
         Status: 2,
         AffectedSegments: [

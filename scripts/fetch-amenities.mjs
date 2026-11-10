@@ -9,6 +9,8 @@
  *  - Mall and hawker centre photos from Wikimedia Commons (per-file free
  *    licences, credited in the bundle), found via each place's Wikidata item.
  *    Hawker centres without Commons photos fall back to NEA's own photo.
+ * Mall store directories are keyed by these mall ids: rerun
+ * scripts/fetch-mall-stores.ts after this.
  */
 import { mkdir, writeFile } from "node:fs/promises";
 import { fetchCommonsPhotos, fetchJson, fetchWikidataItems, USER_AGENT } from "./lib/commons-photos.mjs";
@@ -151,13 +153,18 @@ async function fetchMalls() {
 
 const distance = (a, b) => Math.hypot(a.lat - b.lat, a.lng - b.lng);
 
+// OSM mall name → Wikidata label, where the two name the same place differently.
+const MALL_PHOTO_ALIASES = { "Jewel Changi Basement": "Jewel Changi Airport" };
+
 async function fetchMallPhotos(malls, wikidataIds) {
   const items = await fetchWikidataItems(WIKIDATA_MALL_CLASS);
   const located = [...items.values()].filter((item) => item.lat !== null);
-  // OSM's wikidata tag first; otherwise the same normalized name within ~650m.
-  return fetchCommonsPhotos(malls, (mall) =>
-    items.get(wikidataIds.get(mall.id)) ??
-    located.find((item) => normalizeName(item.label) === normalizeName(mall.name) && distance(item, mall) < 0.006));
+  // OSM's wikidata tag first; otherwise the same normalized name (or alias) within ~650m.
+  return fetchCommonsPhotos(malls, (mall) => {
+    const name = normalizeName(MALL_PHOTO_ALIASES[mall.name] ?? mall.name);
+    return items.get(wikidataIds.get(mall.id)) ??
+      located.find((item) => normalizeName(item.label) === name && distance(item, mall) < 0.006);
+  });
 }
 
 // Hawker names differ between NEA and Wikidata ("Adam Road Food Centre" vs

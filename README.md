@@ -46,6 +46,7 @@ It is designed as a single-page operations surface: map first, signal panels aro
 - LTA road incidents with type-colored map markers.
 - LTA carpark availability and EV charging points, colored by free lots / free connectors (fetched only while the layer is on).
 - Hawker centres (NEA via data.gov.sg) and shopping malls (OpenStreetMap, © OpenStreetMap contributors, ODbL; shop counts and nearest MRT from [curioputterings/singapore-mall-data](https://github.com/curioputterings/singapore-mall-data), CC BY 4.0). Static bundle in `public/amenities.json`, rebuilt with `bun scripts/fetch-amenities.mjs`.
+- Mall store directories (~8,900 shops in 55 malls, as listed by each mall operator) from the same curioputterings dataset, shown beside the mall details in the focus dialog that opens when a mall is selected: filter by name/unit, category or halal, grouped by floor. Per-mall files in `public/mall-stores/`, fetched when the dialog opens and rebuilt with `bun scripts/fetch-mall-stores.ts` (run it after `fetch-amenities.mjs`).
 - Park photos from Wikimedia Commons, credited per file, in `public/park-photos.json`, rebuilt with `bun scripts/fetch-park-photos.mjs`.
 - LTA train service alerts, with disrupted MRT lines highlighted on the map.
 - Intelligence panel live signals digest combining disrupted rail, road incidents, and unhealthy PSI alerts.

@@ -1,28 +1,14 @@
 import { describe, expect, test } from "bun:test";
-import { FetchHttpClient } from "@effect/platform";
-import { Effect } from "effect";
 import { getPm25Band, getPsiStatus } from "@/lib/air-quality";
-import { CacheLive } from "@/lib/cache";
 import { ExternalApiError } from "@/lib/errors";
 import {
   extractLatestUv,
   getUvStatus,
   getWeather,
 } from "@/lib/api-clients/weather";
+import { rejection, withFetch, type FetchStub } from "../helpers/upstream";
 
-const runWithFetch = (
-  fetchImpl: (input: string | URL | Request) => Promise<Response>,
-) =>
-  Effect.runPromiseExit(
-    getWeather().pipe(
-      Effect.provide(CacheLive),
-      Effect.provide(FetchHttpClient.layer),
-      Effect.provideService(
-        FetchHttpClient.Fetch,
-        fetchImpl as unknown as typeof fetch,
-      ),
-    ),
-  );
+const runWithFetch = (fetchImpl: FetchStub) => withFetch(fetchImpl, getWeather);
 
 describe("getWeather", () => {
   test("classifies NEA PSI descriptors", () => {
@@ -44,7 +30,7 @@ describe("getWeather", () => {
   });
 
   test("reports NEA 24-hr PSI and 1-hr PM2.5 by region, headlining the worst", async () => {
-    const exit = await runWithFetch(async (input) => {
+    const weather = await runWithFetch(async (input) => {
       const url = String(input);
       if (url.includes("/psi")) {
         return Response.json({
@@ -88,20 +74,18 @@ describe("getWeather", () => {
       return new Response("unavailable", { status: 503 });
     });
 
-    expect(exit._tag).toBe("Success");
-    if (exit._tag !== "Success") return;
-    expect(exit.value.psi).toBe(146);
-    expect(exit.value.psiStatus).toBe("Unhealthy");
-    expect(exit.value.psiRegions).toEqual({
+    expect(weather.psi).toBe(146);
+    expect(weather.psiStatus).toBe("Unhealthy");
+    expect(weather.psiRegions).toEqual({
       north: 107,
       south: 131,
       east: 145,
       west: 146,
       central: 144,
     });
-    expect(exit.value.pm25OneHour).toBe(195);
-    expect(exit.value.pm25OneHourBand).toBe("High");
-    expect(exit.value.pm25OneHourRegions).toEqual({
+    expect(weather.pm25OneHour).toBe(195);
+    expect(weather.pm25OneHourBand).toBe("High");
+    expect(weather.pm25OneHourRegions).toEqual({
       north: 88,
       south: 173,
       east: 160,
@@ -142,7 +126,7 @@ describe("getWeather", () => {
   });
 
   test("returns partial data when one endpoint succeeds", async () => {
-    const exit = await runWithFetch(async (input) => {
+    const weather = await runWithFetch(async (input) => {
       const url = String(input);
       if (url.includes("2-hour-weather-forecast")) {
         return Response.json({
@@ -157,21 +141,19 @@ describe("getWeather", () => {
       return new Response("unavailable", { status: 503 });
     });
 
-    expect(exit._tag).toBe("Success");
-    if (exit._tag !== "Success") return;
-    expect(exit.value.forecast).toBe("Island-wide: Cloudy");
-    expect(exit.value.temperature).toBeNull();
-    expect(exit.value.humidity).toBeNull();
-    expect(exit.value.psi).toBeNull();
-    expect(exit.value.psiStatus).toBe("Unknown");
-    expect(exit.value.pm25OneHour).toBeNull();
-    expect(exit.value.pm25OneHourBand).toBe("Unknown");
-    expect(exit.value.uv).toBeNull();
-    expect(exit.value.fourDay).toEqual([]);
+    expect(weather.forecast).toBe("Island-wide: Cloudy");
+    expect(weather.temperature).toBeNull();
+    expect(weather.humidity).toBeNull();
+    expect(weather.psi).toBeNull();
+    expect(weather.psiStatus).toBe("Unknown");
+    expect(weather.pm25OneHour).toBeNull();
+    expect(weather.pm25OneHourBand).toBe("Unknown");
+    expect(weather.uv).toBeNull();
+    expect(weather.fourDay).toEqual([]);
   });
 
   test("maps and caps the four-day outlook while UV may fail", async () => {
-    const exit = await runWithFetch(async (input) => {
+    const weather = await runWithFetch(async (input) => {
       const url = String(input);
       if (url.includes("2-hour-weather-forecast")) {
         return Response.json({
@@ -199,12 +181,10 @@ describe("getWeather", () => {
       return new Response("unavailable", { status: 503 });
     });
 
-    expect(exit._tag).toBe("Success");
-    if (exit._tag !== "Success") return;
-    expect(exit.value.uv).toBeNull();
-    expect(exit.value.uvStatus).toBe("Unknown");
-    expect(exit.value.fourDay).toHaveLength(4);
-    expect(exit.value.fourDay[0]).toEqual({
+    expect(weather.uv).toBeNull();
+    expect(weather.uvStatus).toBe("Unknown");
+    expect(weather.fourDay).toHaveLength(4);
+    expect(weather.fourDay[0]).toEqual({
       day: "Day 1",
       text: "Cloudy",
       tempLow: 25,
@@ -213,12 +193,10 @@ describe("getWeather", () => {
   });
 
   test("fails when every weather endpoint fails", async () => {
-    const exit = await runWithFetch(async () =>
-      new Response("unavailable", { status: 503 }),
+    const error = await rejection(
+      runWithFetch(async () => new Response("unavailable", { status: 503 })),
     );
 
-    expect(exit._tag).toBe("Failure");
-    if (exit._tag !== "Failure" || exit.cause._tag !== "Fail") return;
-    expect(exit.cause.error).toBeInstanceOf(ExternalApiError);
+    expect(error).toBeInstanceOf(ExternalApiError);
   });
 });

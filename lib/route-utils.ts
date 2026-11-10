@@ -2,17 +2,13 @@
  * Route handler helper. Rate limiting precedes validation so malformed requests
  * also consume budget; allowed requests invoke the producer lazily.
  */
-import { Effect } from "effect";
-import { runtime, type AppContext } from "@/lib/effect-runtime";
-import { extractClientIp, RateLimit } from "@/lib/rate-limit";
+import { extractClientIp, rateLimiter } from "@/lib/rate-limit";
 import {
   BadRequestError,
-  type AppError,
+  ExternalApiError,
+  SchemaParseError,
+  TimeoutError,
 } from "@/lib/errors";
-
-export type RateLimitDecision = import("@/lib/rate-limit").RateLimitDecision;
-export type RateLimitOptions = import("@/lib/rate-limit").RateLimitOptions;
-export { extractClientIp };
 
 // 5-digit LTA bus stop code, as accepted by the LTA BusArrival endpoint.
 export const BUS_STOP_ID_RE = /^\d{5}$/;
@@ -22,7 +18,6 @@ export const BUS_SERVICE_NO_RE = /^[A-Za-z0-9]{1,8}$/;
 
 type RouteOptions = {
   readonly maxRequests?: number;
-  readonly windowMs?: number;
   readonly serviceLabel: string;
 };
 
@@ -63,83 +58,71 @@ export function optionalQueryParam(
   return value;
 }
 
-const errorToResponse = (error: AppError, serviceLabel: string): Response => {
-  switch (error._tag) {
-    case "BadRequestError":
-      return Response.json({ error: error.message }, { status: 400 });
-    case "ExternalApiError": {
-      // Missing server-side API keys are a deployment misconfiguration, not a
-      // transient upstream outage. Surface as 500 so ops can distinguish
-      // "not configured" from "temporarily unavailable".
-      if (
-        error.status === 401 &&
-        /missing|placeholder|API_KEY/i.test(error.message)
-      ) {
-        console.error(`[${serviceLabel}] misconfigured: ${error.message}`);
-        return Response.json(
-          { error: `${serviceLabel} is not configured` },
-          { status: 500 },
-        );
-      }
-      const headers: Record<string, string> = {};
-      if (error.status === 429) {
-        headers["Retry-After"] = "60";
-        return Response.json(
-          { error: `${serviceLabel} is temporarily rate limited` },
-          { status: 429, headers },
-        );
-      }
-      if (error.status === 404) {
-        return Response.json(
-          { error: error.message || `${serviceLabel} not found` },
-          { status: 404 },
-        );
-      }
+const errorToResponse = (
+  error: unknown,
+  scope: string,
+  serviceLabel: string,
+): Response => {
+  if (error instanceof BadRequestError) {
+    return Response.json({ error: error.message }, { status: 400 });
+  }
+  if (error instanceof TimeoutError) {
+    return Response.json(
+      { error: `${serviceLabel} timed out` },
+      { status: 504 },
+    );
+  }
+  if (error instanceof SchemaParseError) {
+    return Response.json(
+      { error: `${serviceLabel} returned an unexpected response` },
+      { status: 502 },
+    );
+  }
+  if (error instanceof ExternalApiError) {
+    // Missing server-side API keys are a deployment misconfiguration, not a
+    // transient upstream outage. Surface as 500 so ops can distinguish
+    // "not configured" from "temporarily unavailable".
+    if (
+      error.status === 401 &&
+      /missing|placeholder|API_KEY/i.test(error.message)
+    ) {
+      console.error(`[${serviceLabel}] misconfigured: ${error.message}`);
       return Response.json(
-        { error: `${serviceLabel} is temporarily unavailable` },
-        { status: error.status >= 500 ? 502 : 503 },
+        { error: `${serviceLabel} is not configured` },
+        { status: 500 },
       );
     }
-    case "TimeoutError":
+    if (error.status === 429) {
       return Response.json(
-        { error: `${serviceLabel} timed out` },
-        { status: 504 },
+        { error: `${serviceLabel} is temporarily rate limited` },
+        { status: 429, headers: { "Retry-After": "60" } },
       );
-    case "SchemaParseError":
+    }
+    if (error.status === 404) {
       return Response.json(
-        { error: `${serviceLabel} returned an unexpected response` },
-        { status: 502 },
+        { error: error.message || `${serviceLabel} not found` },
+        { status: 404 },
       );
+    }
+    return Response.json(
+      { error: `${serviceLabel} is temporarily unavailable` },
+      { status: error.status >= 500 ? 502 : 503 },
+    );
   }
+  console.error(`[${scope}] unhandled error`, error);
+  return Response.json({ error: "Internal server error" }, { status: 500 });
 };
 
 export async function handle<A>(
   request: Request,
   scope: string,
   options: RouteOptions,
-  produce: () => Effect.Effect<A, AppError, AppContext>,
+  produce: () => A | Promise<A>,
 ): Promise<Response> {
-  const ip = extractClientIp(request);
-
-  let decision: RateLimitDecision;
-  try {
-    decision = await runtime.runPromise(
-      Effect.gen(function* () {
-        const limiter = yield* RateLimit;
-        return yield* limiter.check(ip, {
-          scope,
-          maxRequests: options.maxRequests,
-          windowMs: options.windowMs,
-        });
-      }),
-    );
-  } catch (error) {
-    console.error(`[${scope}] rate-limit check failed`, error);
-    return Response.json(
-      { error: "Internal server error" },
-      { status: 500 },
-    );
-  }
+  const decision = rateLimiter.check(extractClientIp(request), {
+    scope,
+    maxRequests: options.maxRequests,
+  });
 
   if (!decision.allowed) {
     const retryAfterSeconds = Math.max(1, Math.ceil(decision.resetMs / 1000));
@@ -159,35 +142,9 @@ export async function handle<A>(
     );
   }
 
-  let program: Effect.Effect<A, AppError, AppContext>;
   try {
-    program = produce();
+    return Response.json(await produce());
   } catch (error) {
-    if (error instanceof BadRequestError) {
-      return errorToResponse(error, options.serviceLabel);
-    }
-    console.error(`[${scope}] request setup failed`, error);
-    return Response.json(
-      { error: "Internal server error" },
-      { status: 500 },
-    );
+    return errorToResponse(error, scope, options.serviceLabel);
   }
-
-  try {
-    const exit = await runtime.runPromiseExit(program);
-    if (exit._tag === "Success") {
-      return Response.json(exit.value);
-    }
-    if (exit.cause._tag === "Fail") {
-      return errorToResponse(exit.cause.error, options.serviceLabel);
-    }
-    console.error(`[${scope}] unhandled cause`, exit.cause);
-  } catch (error) {
-    console.error(`[${scope}] unhandled error`, error);
-  }
-
-  return Response.json(
-    { error: "Internal server error" },
-    { status: 500 },
-  );
 }

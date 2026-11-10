@@ -107,13 +107,17 @@ export function LayerGroupHeader({
   );
 }
 
-/** Compact filter box for the layer list; matches panel density. */
+/** Compact filter box for the layer list (and other panel lists); matches panel density. */
 export function LayerFilterInput({
   value,
   onChange,
+  placeholder = "Filter layers…",
+  label = "Filter layers",
 }: {
   value: string;
   onChange: (value: string) => void;
+  placeholder?: string;
+  label?: string;
 }) {
   return (
     <div className="flex items-center gap-2 rounded-sm border border-line bg-paper px-2.5 py-1.5">
@@ -132,8 +136,8 @@ export function LayerFilterInput({
         type="search"
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        placeholder="Filter layers…"
-        aria-label="Filter layers"
+        placeholder={placeholder}
+        aria-label={label}
         className="min-w-0 flex-1 bg-transparent text-xs text-ink outline-none placeholder:text-muted"
       />
     </div>
