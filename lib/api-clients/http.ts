@@ -37,18 +37,27 @@ export async function withTimeout<A>(
   }
 }
 
-/** GET a JSON body and validate it; the timeout covers the body read too. */
+/**
+ * GET a JSON body and validate it; the timeout covers the body read too.
+ * `parentSignal` lets an enclosing deadline cancel this request as well.
+ */
 export const httpGetJson = <A>(
   service: string,
   url: string,
   headers: Record<string, string>,
   schema: z.ZodType<A>,
   timeoutMs: number,
+  parentSignal?: AbortSignal,
 ): Promise<A> =>
   withTimeout(service, timeoutMs, async (signal) => {
     let response: Response;
     try {
-      response = await fetch(url, { headers, signal });
+      response = await fetch(url, {
+        headers,
+        signal: parentSignal
+          ? AbortSignal.any([parentSignal, signal])
+          : signal,
+      });
     } catch (error) {
       throw new ExternalApiError({
         service,

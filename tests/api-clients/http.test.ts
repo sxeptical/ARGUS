@@ -90,6 +90,36 @@ describe("httpGetJson", () => {
   });
 });
 
+describe("httpGetJson parent signal", () => {
+  test("an aborted parent signal cancels the in-flight request", async () => {
+    const controller = new AbortController();
+    let fetchAborted = false;
+    const pending = withFetch(
+      (_input, init) =>
+        new Promise<Response>((_resolve, reject) => {
+          // Like real fetch, reject once the request signal aborts.
+          init?.signal?.addEventListener("abort", () => {
+            fetchAborted = true;
+            reject(new DOMException("aborted", "AbortError"));
+          });
+        }),
+      () =>
+        httpGetJson(
+          "test",
+          "https://example.test/data",
+          {},
+          TestSchema,
+          10_000,
+          controller.signal,
+        ),
+    );
+    setTimeout(() => controller.abort(), 10);
+
+    expect(await rejection(pending)).toBeInstanceOf(ExternalApiError);
+    expect(fetchAborted).toBe(true);
+  });
+});
+
 describe("withTimeout", () => {
   test("passes a fast result or failure straight through", async () => {
     expect(await withTimeout("test", 1_000, async () => "done")).toBe("done");

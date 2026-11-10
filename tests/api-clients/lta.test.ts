@@ -84,6 +84,32 @@ describe("collectLtaPages", () => {
     expect(skips).toEqual([0, 500, 1000, 1500, 2000]);
     expect(pages).toHaveLength(4 * 500 + 1);
   });
+
+  test("stops requesting further batches once the signal aborts", async () => {
+    const controller = new AbortController();
+    const skips: number[] = [];
+    const error = await rejection(
+      collectLtaPages(
+        async (skip, signal) => {
+          skips.push(skip);
+          // The deadline fires while the first batch is in flight.
+          controller.abort(new Error("deadline"));
+          expect(signal).toBe(controller.signal);
+          return { value: rows(500) };
+        },
+        {
+          pageSize: 500,
+          maxPages: 20,
+          service: "lta",
+          concurrency: 2,
+          signal: controller.signal,
+        },
+      ),
+    );
+
+    expect(skips).toEqual([0, 500]);
+    expect(error).toBeInstanceOf(Error);
+  });
 });
 
 const runCameras = (fetchImpl: FetchStub) =>

@@ -63,6 +63,7 @@ const ltaGet = async <A>(
   endpoint: string,
   schema: z.ZodType<A>,
   timeoutMs: number = DEFAULT_TIMEOUT_MS,
+  signal?: AbortSignal,
 ): Promise<A> =>
   httpGetJson(
     "lta",
@@ -70,6 +71,7 @@ const ltaGet = async <A>(
     { AccountKey: getLtaApiKey(), Accept: "application/json" },
     schema,
     timeoutMs,
+    signal,
   );
 
 /** A 404 from an LTA endpoint means "nothing here", not an outage. */
@@ -82,30 +84,34 @@ type LtaPage<T> = { readonly value: ReadonlyArray<T> } | null;
 
 /**
  * Fetch concurrent OData pages until a short or empty page. Fail at the page
- * cap rather than return a truncated dataset.
+ * cap rather than return a truncated dataset. When `signal` aborts (the
+ * enclosing deadline fired), no further batches are requested.
  */
 export const collectLtaPages = async <A>(
-  fetchPage: (skip: number) => Promise<LtaPage<A>>,
+  fetchPage: (skip: number, signal?: AbortSignal) => Promise<LtaPage<A>>,
   options: {
     readonly pageSize: number;
     readonly maxPages: number;
     readonly service: string;
     readonly concurrency?: number;
+    readonly signal?: AbortSignal;
   },
 ): Promise<A[]> => {
-  const { pageSize, maxPages, service } = options;
+  const { pageSize, maxPages, service, signal } = options;
   const concurrency = Math.max(1, options.concurrency ?? 1);
   const allRows: A[] = [];
   let pagesProcessed = 0;
   let reachedEnd = false;
 
   while (pagesProcessed < maxPages && !reachedEnd) {
+    signal?.throwIfAborted();
     const batchSize = Math.min(concurrency, maxPages - pagesProcessed);
     const batch = await Promise.all(
       Array.from({ length: batchSize }, (_, i) =>
-        fetchPage((pagesProcessed + i) * pageSize),
+        fetchPage((pagesProcessed + i) * pageSize, signal),
       ),
     );
+    signal?.throwIfAborted();
 
     for (const page of batch) {
       pagesProcessed += 1;
@@ -139,21 +145,26 @@ export const collectLtaEndpoint = <A>(
     readonly pageSize: number;
     readonly maxPages: number;
     readonly concurrency?: number;
+    readonly signal?: AbortSignal;
   },
 ): Promise<A[]> =>
   collectLtaPages(
-    (skip) => ltaGet(`${endpoint}?$skip=${skip}`, schema).catch(nullOn404),
+    (skip, signal) =>
+      ltaGet(`${endpoint}?$skip=${skip}`, schema, undefined, signal).catch(
+        nullOn404,
+      ),
     { ...options, service: "lta" },
   );
 
 export const getBusStops = (): Promise<BusStop[]> =>
   cache.get("bus-stops", BUS_STOPS_CACHE_TTL_MS, () =>
     // Aggregate timeout across the whole multi-page walk.
-    withTimeout("lta-bus-stops", BUS_STOPS_TIMEOUT_MS, () =>
+    withTimeout("lta-bus-stops", BUS_STOPS_TIMEOUT_MS, (signal) =>
       collectLtaEndpoint("/BusStops", LtaBusStopsResponseSchema, {
         pageSize: 500,
         maxPages: 20,
         concurrency: 4,
+        signal,
       }),
     ),
   );
@@ -318,15 +329,23 @@ export const normalizeCarparkAvailability = (
 
 export const getCarparkAvailability = (): Promise<CarparkAvailability[]> =>
   cache.get("carpark-availability", CARPARKS_CACHE_TTL_MS, () =>
-    withTimeout("lta-carparks", CARPARKS_TIMEOUT_MS, async () =>
+    withTimeout("lta-carparks", CARPARKS_TIMEOUT_MS, async (signal) =>
       normalizeCarparkAvailability(
         await collectLtaPages(
-          (skip) =>
+          (skip, pageSignal) =>
             ltaGet(
               `/CarParkAvailabilityv2?$skip=${skip}`,
               LtaCarparkAvailabilityResponseSchema,
+              undefined,
+              pageSignal,
             ),
-          { pageSize: 500, maxPages: 12, service: "lta", concurrency: 3 },
+          {
+            pageSize: 500,
+            maxPages: 12,
+            service: "lta",
+            concurrency: 3,
+            signal,
+          },
         ),
       ),
     ),

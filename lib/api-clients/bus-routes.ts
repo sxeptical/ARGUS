@@ -105,12 +105,13 @@ const buildBusRoutesIndex = (
 
 const getBusRoutesIndex = (): Promise<BusRoutesIndex> =>
   cache.get("bus-routes-index", BUS_ROUTES_CACHE_TTL_MS, () =>
-    withTimeout("lta-bus-routes", BUS_ROUTES_TIMEOUT_MS, async () =>
+    withTimeout("lta-bus-routes", BUS_ROUTES_TIMEOUT_MS, async (signal) =>
       buildBusRoutesIndex(
         await collectLtaEndpoint("/BusRoutes", LtaBusRoutesResponseSchema, {
           pageSize: BUS_ROUTES_PAGE_SIZE,
           maxPages: BUS_ROUTES_MAX_PAGES,
           concurrency: BUS_ROUTES_PAGE_CONCURRENCY,
+          signal,
         }),
       ),
     ),
