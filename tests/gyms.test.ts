@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { GYMS, validateGymsBundle } from "@/lib/gyms-data";
-import { buildGymSearchResults, describeGym } from "@/lib/gyms";
-import type { Gym } from "@/types";
+import { GYM_BRANDS, GYMS, validateGymsBundle } from "@/lib/gyms-data";
+import { buildGymSearchResults, describeGym, filterGymsByBrand, gymBrandCounts } from "@/lib/gyms";
+import type { Gym, GymBrand } from "@/types";
 
 const gym = (overrides: Partial<Gym> = {}): Gym => ({
   id: "atp-anytime_fitness-SG-0012",
@@ -35,11 +35,21 @@ describe("gyms bundle", () => {
     expect(GYMS.some((g) => g.source === "sportsg")).toBe(true);
   });
 
+  test("normalises every gym to a known operator brand", () => {
+    const known = new Set(GYM_BRANDS);
+    for (const place of GYMS) expect(known.has(place.brand)).toBe(true);
+    expect(GYMS.some((g) => g.brand === "ActiveSG")).toBe(true);
+    expect(GYMS.some((g) => g.brand === "Anytime Fitness")).toBe(true);
+    expect(GYMS.some((g) => g.brand === "Independent")).toBe(true);
+  });
+
   test("rejects malformed bundles", () => {
     expect(validateGymsBundle([gym()])).toBe(true);
     expect(validateGymsBundle({ gyms: [gym()] })).toBe(false);
     expect(validateGymsBundle([{ ...gym(), category: "spa" }])).toBe(false);
     expect(validateGymsBundle([{ ...gym(), source: "unknown" }])).toBe(false);
+    expect(validateGymsBundle([{ ...gym(), brand: "SportSG" }])).toBe(false);
+    expect(validateGymsBundle([{ ...gym(), brand: null }])).toBe(false);
     expect(validateGymsBundle([{ ...gym(), id: "" }])).toBe(false);
     expect(validateGymsBundle([{ ...gym(), name: "" }])).toBe(false);
     expect(validateGymsBundle([{ ...gym(), lat: Number.NaN }])).toBe(false);
@@ -57,7 +67,12 @@ describe("describeGym", () => {
     ]);
   });
 
-  test("shows the category alone when the brand repeats the name", () => {
+  test("shows the category alone for independent gyms and brand-named places", () => {
+    expect(texts(describeGym(gym({ name: "Bukit Merah Boxing Club", brand: "Independent", openingHours: null, address: null, source: "osm" })))).toEqual([
+      "Bukit Merah Boxing Club",
+      "Gym",
+      "Location: © OpenStreetMap contributors (ODbL)",
+    ]);
     expect(describeGym(gym({ name: "Anytime Fitness", brand: "Anytime Fitness", openingHours: null, address: null, source: "osm" }))).toEqual([
       { text: "Anytime Fitness", kind: "name" },
       { text: "Gym", kind: "status", tone: "muted" },
@@ -66,7 +81,32 @@ describe("describeGym", () => {
   });
 
   test("attributes public SportSG gyms", () => {
-    expect(texts(describeGym(gym({ name: "Bukit Canberra Sport Centre", brand: "SportSG", category: "public", openingHours: null, source: "sportsg" })))).toContain("Source: SportSG via data.gov.sg (Singapore Open Data Licence)");
+    expect(texts(describeGym(gym({ name: "Bukit Canberra Sport Centre", brand: "ActiveSG", category: "public", openingHours: null, source: "sportsg" })))).toContain("Source: SportSG via data.gov.sg (Singapore Open Data Licence)");
+  });
+});
+
+describe("gym brand filtering", () => {
+  const brands = (overrides: Partial<Record<GymBrand, boolean>>): Record<GymBrand, boolean> =>
+    Object.fromEntries(GYM_BRANDS.map((brand) => [brand, overrides[brand] ?? true])) as Record<GymBrand, boolean>;
+
+  test("keeps only gyms whose brand is on", () => {
+    const gyms = [gym(), gym({ id: "osm-1", brand: "Independent", name: "Some Club" })];
+    expect(filterGymsByBrand(gyms, brands({ "Anytime Fitness": false })).map((g) => g.id)).toEqual(["osm-1"]);
+    expect(filterGymsByBrand(gyms, {})).toHaveLength(2);
+  });
+
+  test("counts brands biggest first", () => {
+    const gyms = [
+      gym({ id: "a", brand: "Anytime Fitness" }),
+      gym({ id: "b", brand: "Anytime Fitness" }),
+      gym({ id: "c", brand: "Independent" }),
+      gym({ id: "d", brand: "ActiveSG" }),
+    ];
+    expect(gymBrandCounts(gyms)).toEqual([
+      { brand: "Anytime Fitness", count: 2 },
+      { brand: "ActiveSG", count: 1 },
+      { brand: "Independent", count: 1 },
+    ]);
   });
 });
 

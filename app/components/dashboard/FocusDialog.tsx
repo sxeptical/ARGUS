@@ -91,7 +91,7 @@ export function FocusDialog({
         <div className="space-y-2 p-4 text-xs">
           <div>
             <KeyValue label="Type" value={GYM_CATEGORY_LABEL[gym.category]} />
-            {gym.brand ? <KeyValue label="Brand" value={gym.brand} /> : null}
+            {gym.brand !== "Independent" ? <KeyValue label="Brand" value={gym.brand} /> : null}
             {gym.openingHours ? <KeyValue label="Hours" value={formatOpeningHours(gym.openingHours) ?? gym.openingHours} /> : null}
             {gym.address ? <KeyValue label="Address" value={gym.address} /> : null}
             {gym.website ? (

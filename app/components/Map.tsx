@@ -43,7 +43,7 @@ import {
 } from "@/lib/mobility";
 import { describeHawkerCentre, describeMall } from "@/lib/amenities";
 import { HAWKER_CENTRES, MALLS } from "@/lib/amenities-data";
-import { describeGym } from "@/lib/gyms";
+import { describeGym, filterGymsByBrand } from "@/lib/gyms";
 import { GYMS } from "@/lib/gyms-data";
 import { describeCommunityClub } from "@/lib/community-clubs";
 import { COMMUNITY_CLUBS } from "@/lib/community-clubs-data";
@@ -63,6 +63,7 @@ import type {
   AirQualityOverlay,
   TrafficCamera,
   TrafficIncident,
+  GymBrand,
   ParkFeatureKind,
 } from "@/types";
 
@@ -91,6 +92,8 @@ type MapProps = {
   disruptedMrtLines?: ReadonlyArray<string>;
   /** On/off state per map layer; keys are defined in the layer registry. */
   sensorVisibility: Record<SensorKey, boolean>;
+  /** Which gym operator brands are shown; unset brands default to visible. */
+  gymBrands?: Readonly<Record<GymBrand, boolean>>;
   searchTarget?: MapSearchTarget | null;
   onStopClick: (stop: BusStop) => void;
   onCameraClick: (camera: TrafficCamera) => void;
@@ -157,10 +160,21 @@ const GYMS_GEOJSON = {
   type: "FeatureCollection" as const,
   features: GYMS.map((gym) => ({
     type: "Feature" as const,
-    properties: { id: gym.id, name: gym.name },
+    properties: { id: gym.id, name: gym.name, brand: gym.brand },
     geometry: { type: "Point" as const, coordinates: [gym.lng, gym.lat] },
   })),
 };
+/** Gyms whose operator brand is on; the radius filter applies on top of this. */
+const buildGymsGeoJson = (
+  brands: Readonly<Record<GymBrand, boolean>> | undefined,
+) => ({
+  type: "FeatureCollection" as const,
+  features: filterGymsByBrand(GYMS, brands ?? {}).map((gym) => ({
+    type: "Feature" as const,
+    properties: { id: gym.id, name: gym.name, brand: gym.brand },
+    geometry: { type: "Point" as const, coordinates: [gym.lng, gym.lat] },
+  })),
+});
 const COMMUNITY_CLUBS_GEOJSON = {
   type: "FeatureCollection" as const,
   features: COMMUNITY_CLUBS.map((club) => ({
@@ -517,6 +531,7 @@ function useMapController({
   airQualityOverlay = null,
   disruptedMrtLines = EMPTY_DISRUPTED_MRT_LINES,
   sensorVisibility,
+  gymBrands,
   onStopClick,
   onCameraClick,
   onFlightClick,
@@ -551,6 +566,7 @@ function useMapController({
   const busRouteOverlayRef = useRef<BusRouteOverlay | null>(busRouteOverlay);
   const airQualityOverlayRef = useRef<AirQualityOverlay | null>(airQualityOverlay);
   const sensorVisibilityRef = useRef(sensorVisibility);
+  const gymBrandsRef = useRef(gymBrands);
   const geoFilterRef = useRef<GeoFilter | null>(geoFilter);
   const geoFilterPickingRef = useRef(geoFilterPicking);
   const onGeoFilterPickRef = useRef(onGeoFilterPick);
@@ -578,6 +594,14 @@ function useMapController({
   useEffect(() => {
     sensorVisibilityRef.current = sensorVisibility;
   }, [sensorVisibility]);
+
+  useEffect(() => {
+    gymBrandsRef.current = gymBrands;
+    const map = mapRef.current;
+    if (!map) return;
+    (map.getSource("gyms-data") as maplibregl.GeoJSONSource | undefined)
+      ?.setData(filterPointFeatures(buildGymsGeoJson(gymBrands), geoFilterRef.current));
+  }, [gymBrands]);
 
   useEffect(() => {
     onGeoFilterPickRef.current = onGeoFilterPick;
@@ -614,7 +638,7 @@ function useMapController({
     (map.getSource("hawkers-data") as maplibregl.GeoJSONSource | undefined)
       ?.setData(filterPointFeatures(HAWKERS_GEOJSON, geoFilter));
     (map.getSource("gyms-data") as maplibregl.GeoJSONSource | undefined)
-      ?.setData(filterPointFeatures(GYMS_GEOJSON, geoFilter));
+      ?.setData(filterPointFeatures(buildGymsGeoJson(gymBrandsRef.current), geoFilter));
     (map.getSource("community-clubs-data") as maplibregl.GeoJSONSource | undefined)
       ?.setData(filterPointFeatures(COMMUNITY_CLUBS_GEOJSON, geoFilter));
     (map.getSource("pharmacies-data") as maplibregl.GeoJSONSource | undefined)

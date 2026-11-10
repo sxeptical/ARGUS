@@ -73,6 +73,10 @@ export default function Home() {
     geoFilter,
     geoFilterPicking,
     geoFilterRadiusM,
+    gymBrandCountList,
+    gymBrands,
+    toggleGymBrand,
+    resetGymBrands,
     incidents,
     handleSelectStop,
     mrtEndStation,
@@ -215,6 +219,10 @@ export default function Home() {
           sensorVisibility={sensorVisibility}
           setSelectedFlight={setSelectedFlight}
           setSensorVisibility={setSensorVisibility}
+          gymBrands={gymBrands}
+          gymBrandCounts={gymBrandCountList}
+          onGymBrandToggle={toggleGymBrand}
+          onGymBrandReset={resetGymBrands}
           visibleSensorCount={visibleSensorCount}
           weather={weather}
           weatherHistory={weatherHistory}
@@ -243,6 +251,7 @@ export default function Home() {
               evChargers={evChargers}
               airQualityOverlay={airQualityOverlay}
               sensorVisibility={sensorVisibility}
+              gymBrands={gymBrands}
               onStopClick={handleSelectStop}
               onCameraClick={setSelectedCamera}
               onFlightClick={setSelectedFlight}
@@ -275,6 +284,12 @@ export default function Home() {
                   setSelectedAmenity({ type: result.type, id: result.id });
                   const layer = SEARCH_LAYER_BY_TYPE[result.type];
                   setSensorVisibility((previous) => ({ ...previous, [layer]: true }));
+                  // A brand-filtered-out gym would not be drawn; switch its
+                  // brand chip back on for the selection.
+                  if (result.type === "gym") {
+                    const gym = GYMS.find((candidate) => candidate.id === result.id);
+                    if (gym) toggleGymBrand(gym.brand, true);
+                  }
                 } else if (result.type === "park") {
                   const park = PARKS_GEOJSON.features.find(
                     (feature) => `park:${feature.properties.name}` === result.id,
@@ -288,6 +303,10 @@ export default function Home() {
               sensorRows={sensorRows}
               sensorVisibility={sensorVisibility}
               setSensorVisibility={setSensorVisibility}
+              gymBrands={gymBrands}
+              gymBrandCounts={gymBrandCountList}
+              onGymBrandToggle={toggleGymBrand}
+              onGymBrandReset={resetGymBrands}
               visibleSensorCount={visibleSensorCount}
             />
             <div className="pointer-events-none absolute left-2 top-2 border border-line bg-overlay px-2.5 py-1.5 text-[10px] uppercase tracking-[0.12em] text-ink">

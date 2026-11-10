@@ -2,24 +2,35 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
+import { Fragment } from "react";
 import {
   EyeGlyph,
+  GymBrandFilter,
   LayerFilterInput,
   LayerGroupHeader,
 } from "@/app/components/dashboard/LayerControls";
 import { useLayerList } from "@/app/hooks/use-layer-list";
 import type { SensorRow } from "@/app/hooks/use-dashboard-state";
 import type { SensorKey } from "@/lib/layers";
+import type { GymBrandCount } from "@/lib/gyms";
 
 export function MobileLayersDrawer({
   sensorRows,
   sensorVisibility,
   setSensorVisibility,
+  gymBrands,
+  gymBrandCounts,
+  onGymBrandToggle,
+  onGymBrandReset,
   visibleSensorCount,
 }: {
   sensorRows: ReadonlyArray<SensorRow>;
   sensorVisibility: Record<SensorKey, boolean>;
   setSensorVisibility: Dispatch<SetStateAction<Record<SensorKey, boolean>>>;
+  gymBrands: Record<string, boolean>;
+  gymBrandCounts: GymBrandCount[];
+  onGymBrandToggle: (brand: GymBrandCount["brand"], on: boolean) => void;
+  onGymBrandReset: () => void;
   visibleSensorCount: number;
 }) {
   const [open, setOpen] = useState(false);
@@ -151,8 +162,8 @@ export function MobileLayersDrawer({
                     {group.rows.map((row) => {
                       const visible = sensorVisibility[row.key];
                       return (
+                        <Fragment key={row.key}>
                         <button
-                          key={row.key}
                           type="button"
                           onClick={() =>
                             setSensorVisibility((previous) => ({
@@ -205,6 +216,15 @@ export function MobileLayersDrawer({
                             />
                           </span>
                         </button>
+                        {row.key === "gyms" ? (
+                          <GymBrandFilter
+                            counts={gymBrandCounts}
+                            visible={gymBrands}
+                            onToggle={onGymBrandToggle}
+                            onReset={onGymBrandReset}
+                          />
+                        ) : null}
+                        </Fragment>
                       );
                     })}
                   </div>

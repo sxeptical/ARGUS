@@ -2,6 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { LayersSidebar } from "./LayersSidebar";
 import { MobileLayersDrawer } from "./MobileLayersDrawer";
+import { gymBrandCounts } from "@/lib/gyms";
+import { GYMS } from "@/lib/gyms-data";
 import { buildLayerGroups } from "@/app/hooks/use-layer-list";
 import { FLIGHTS_ENABLED } from "@/lib/features";
 import {
@@ -228,6 +230,10 @@ describe("layer surfaces render", () => {
         sensorVisibility={DEFAULT_SENSOR_VISIBILITY}
         setSelectedFlight={() => {}}
         setSensorVisibility={() => {}}
+        gymBrands={{}}
+        gymBrandCounts={gymBrandCounts(GYMS)}
+        onGymBrandToggle={() => {}}
+        onGymBrandReset={() => {}}
         visibleSensorCount={4}
         weather={weather}
         weatherHistory={[]}
@@ -238,6 +244,8 @@ describe("layer surfaces render", () => {
     }
     expect(markup).toContain("Filter layers");
     expect(markup).toContain("Hawker Centres");
+    expect(markup).toContain("Gym brands");
+    expect(markup).toContain("Anytime Fitness");
     expect(markup).toContain("OSINT Feed");
     if (!FLIGHTS_ENABLED) {
       expect(markup).not.toContain("Air Activity");
@@ -250,6 +258,10 @@ describe("layer surfaces render", () => {
         sensorRows={panelRows}
         sensorVisibility={DEFAULT_SENSOR_VISIBILITY}
         setSensorVisibility={() => {}}
+        gymBrands={{}}
+        gymBrandCounts={gymBrandCounts(GYMS)}
+        onGymBrandToggle={() => {}}
+        onGymBrandReset={() => {}}
         visibleSensorCount={4}
       />,
     );

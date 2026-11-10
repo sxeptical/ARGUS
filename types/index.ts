@@ -260,6 +260,8 @@ export interface Mall {
  * Fitness facility from the static gym bundle (All The Places, OpenStreetMap,
  * or SportSG via data.gov.sg). `category` is a display hint derived from the
  * source activity tags; `public` gyms are ActiveSG / SportSG facilities.
+ * `brand` is normalised at build time to the operator, or "Independent"
+ * for chains without a known operator.
  */
 export type GymCategory =
   | "gym"
@@ -270,12 +272,32 @@ export type GymCategory =
   | "climbing"
   | "public";
 
+export type GymBrand =
+  | "ActiveSG"
+  | "Anytime Fitness"
+  | "Snap Fitness"
+  | "F45 Training"
+  | "Virgin Active"
+  | "CrossFit"
+  | "Fitness First"
+  | "True Fitness"
+  | "Pure Fitness"
+  | "UFIT"
+  | "GymmBoxx"
+  | "24/7 Fitness"
+  | "Gold's Gym"
+  | "EnergyOne"
+  | "GoFit"
+  | "Homeground"
+  | "Spartans"
+  | "Independent";
+
 export type GymSource = "alltheplaces" | "osm" | "sportsg";
 
 export interface Gym {
   id: string;
   name: string;
-  brand: string | null;
+  brand: GymBrand;
   category: GymCategory;
   address: string | null;
   lat: number;

@@ -1,10 +1,11 @@
 "use client";
 
-import type { Dispatch, ReactNode, SetStateAction } from "react";
+import { Fragment, type Dispatch, type ReactNode, type SetStateAction } from "react";
 import FlightPanel from "@/app/components/FlightPanel";
 import WeatherPanel from "@/app/components/WeatherPanel";
 import {
   EyeGlyph,
+  GymBrandFilter,
   LayerFilterInput,
   LayerGroupHeader,
 } from "@/app/components/dashboard/LayerControls";
@@ -15,6 +16,7 @@ import type {
   SensorStatsRow,
 } from "@/app/hooks/use-dashboard-state";
 import type { SensorKey } from "@/lib/layers";
+import type { GymBrandCount } from "@/lib/gyms";
 import { FLIGHTS_ENABLED } from "@/lib/features";
 import type {
   FlightState,
@@ -31,6 +33,10 @@ export function LayersSidebar({
   sensorVisibility,
   setSelectedFlight,
   setSensorVisibility,
+  gymBrands,
+  gymBrandCounts,
+  onGymBrandToggle,
+  onGymBrandReset,
   visibleSensorCount,
   weather,
   weatherHistory,
@@ -44,6 +50,10 @@ export function LayersSidebar({
   sensorVisibility: Record<SensorKey, boolean>;
   setSelectedFlight: (flight: FlightState) => void;
   setSensorVisibility: Dispatch<SetStateAction<Record<SensorKey, boolean>>>;
+  gymBrands: Record<string, boolean>;
+  gymBrandCounts: GymBrandCount[];
+  onGymBrandToggle: (brand: GymBrandCount["brand"], on: boolean) => void;
+  onGymBrandReset: () => void;
   visibleSensorCount: number;
   weather: WeatherData;
   weatherHistory: WeatherHistoryPoint[];
@@ -90,8 +100,8 @@ export function LayersSidebar({
                 {isGroupCollapsed(group.id) ? null : (
                   <div className="space-y-1 pt-1">
                     {group.rows.map((row) => (
+                      <Fragment key={row.label}>
                       <div
-                        key={row.label}
                         className="data-row flex items-center justify-between gap-3 px-2.5 py-2"
                       >
                         <div className="min-w-0">
@@ -127,6 +137,15 @@ export function LayersSidebar({
                           </div>
                         </div>
                       </div>
+                      {row.key === "gyms" ? (
+                        <GymBrandFilter
+                          counts={gymBrandCounts}
+                          visible={gymBrands}
+                          onToggle={onGymBrandToggle}
+                          onReset={onGymBrandReset}
+                        />
+                      ) : null}
+                      </Fragment>
                     ))}
                   </div>
                 )}

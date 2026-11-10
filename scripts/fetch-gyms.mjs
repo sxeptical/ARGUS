@@ -21,6 +21,15 @@
  * This is a separate script and output (`public/gyms.json`) from
  * `scripts/fetch-amenities.mjs`, following the parks pattern: rerunning it
  * never refetches hawker centres, malls, or their photos.
+ *
+ * Brands are normalised at the end: every gym gets the operator brand it
+ * belongs to (ActiveSG, Anytime Fitness, ..., or "Independent") so the UI
+ * can group and filter by it. Detection uses the OSM `brand:wikidata` tag
+ * where present (only the few QIDs observed in Singapore OSM data),
+ * then the brand/name as whole tokens, so "Jenufit" does not match UFIT
+ * and "Gofio" does not match GoFit. All SportSG venues count as
+ * ActiveSG. Real chains outside the known list (Barry's, Celebrity
+ * Fitness) fall through to "Independent".
  */
 import { mkdir, writeFile } from "node:fs/promises";
 import { fetchJson, USER_AGENT } from "./lib/commons-photos.mjs";
@@ -60,6 +69,60 @@ const COVERED_BRAND_KEYS = ["anytime", "snap", "f45", "virgin", "crossfit"];
 const coveredKey = (value) => {
   const haystack = normalizeName(String(value ?? ""));
   return COVERED_BRAND_KEYS.find((key) => haystack.includes(key)) ?? null;
+};
+
+// Known operators, matched on whole word tokens (case/spacing-insensitive)
+// so substring lookalikes don't leak in ("Jenufit" → UFIT, "Gofio" → GoFit).
+// "Gold's Gym" appears as "Gold's" or "Golds"; EnergyOne as one word or two.
+const tokens = (value) => String(value ?? "").toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+const hasTokenSeq = (haystack, needle) => {
+  if (!needle.length || haystack.length < needle.length) return false;
+  for (let i = 0; i <= haystack.length - needle.length; i++) {
+    if (needle.every((token, offset) => haystack[i + offset] === token)) return true;
+  }
+  return false;
+};
+const BRAND_RULES = [
+  { label: "ActiveSG", names: [["activesg"]] },
+  { label: "Anytime Fitness", names: [["anytime", "fitness"]] },
+  { label: "Snap Fitness", names: [["snap", "fitness"]] },
+  { label: "F45 Training", names: [["f45", "training"]] },
+  { label: "Virgin Active", names: [["virgin", "active"]] },
+  { label: "CrossFit", names: [["crossfit"]] },
+  { label: "Fitness First", names: [["fitness", "first"]] },
+  { label: "True Fitness", names: [["true", "fitness"]] },
+  { label: "Pure Fitness", names: [["pure", "fitness"]] },
+  { label: "UFIT", names: [["ufit"]] },
+  { label: "GymmBoxx", names: [["gymmboxx"]] },
+  { label: "24/7 Fitness", names: [["24", "7", "fitness"]] },
+  { label: "Gold's Gym", names: [["gold", "s", "gym"], ["golds", "gym"]] },
+  { label: "EnergyOne", names: [["energyone"], ["energy", "one"]] },
+  { label: "GoFit", names: [["gofit"]] },
+  { label: "Homeground", names: [["homeground"]] },
+  { label: "Spartans", names: [["spartans"]] },
+];
+
+// OSM `brand:wikidata` QIDs observed for these operators in Singapore data.
+// Other chains (Celebrity Fitness, Barry's) are deliberately unmapped so
+// they still fall through to "Independent".
+const BRAND_BY_WIKIDATA = {
+  Q4778364: "Anytime Fitness",
+  Q4013942: "Virgin Active",
+  Q127120: "Fitness First",
+  Q10852204: "Pure Fitness",
+};
+
+const matchBrand = (value) => {
+  const haystack = tokens(value);
+  const rule = BRAND_RULES.find((rule) => rule.names.some((needle) => hasTokenSeq(haystack, needle)));
+  return rule?.label ?? null;
+};
+
+const normaliseBrand = (gym) => {
+  if (gym.source === "sportsg") return "ActiveSG";
+  const wikidata = gym.brandWikidata ? BRAND_BY_WIKIDATA[gym.brandWikidata] : null;
+  if (wikidata) return wikidata;
+  return matchBrand(gym.brand) ?? matchBrand(gym.name) ?? "Independent";
 };
 
 // Mistagged `leisure=fitness_centre` names that are not gyms, and condominium
@@ -217,6 +280,7 @@ const osmToGym = (element) => {
     id: `osm-${element.type}-${element.id}`,
     name,
     brand: text(tags.brand) ?? (isActiveSg ? "ActiveSG" : null),
+    brandWikidata: text(tags["brand:wikidata"]),
     category: isActiveSg ? "public" : categoryForSport(tags.sport),
     address: street ? `${street}${postcode ? `, Singapore ${postcode}` : ""}` : null,
     lat: round(lat),
@@ -261,13 +325,22 @@ const osmKept = osmAfterAtp.filter((gym) => {
   });
 });
 
-const gyms = [...atpGyms, ...osmKept, ...sportsgGyms].sort((a, b) => a.name.localeCompare(b.name, "en-SG"));
+const merged = [...atpGyms, ...osmKept, ...sportsgGyms];
+// Normalise the operator brand now that dedupe (which compares raw brand
+// text) is done; brandWikidata is build-only and never reaches the bundle.
+const gyms = merged
+  .map(({ brandWikidata, ...gym }) => ({ ...gym, brand: normaliseBrand({ ...gym, brandWikidata }) }))
+  .sort((a, b) => a.name.localeCompare(b.name, "en-SG"));
 if (gyms.length < 300) throw new Error(`Gym sources returned only ${gyms.length} gyms`);
 
 const serialized = JSON.stringify(gyms);
 await mkdir("public", { recursive: true });
 await writeFile("public/gyms.json", serialized);
+const brandCounts = Object.entries(
+  gyms.reduce((counts, gym) => ({ ...counts, [gym.brand]: (counts[gym.brand] ?? 0) + 1 }), {}),
+).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
 console.log(
   `Gyms bundle: ${gyms.length} gyms (${atpGyms.length} All The Places, ${osmKept.length} OpenStreetMap, ` +
     `${sportsgGyms.length} SportSG; OSM raw ${osmElements.length}, junk/duped ${osmElements.length - osmKept.length}), ${Buffer.byteLength(serialized)} bytes`,
 );
+console.log(`Brands: ${brandCounts.map(([brand, count]) => `${brand} ${count}`).join(", ")}`);

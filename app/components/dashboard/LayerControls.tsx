@@ -108,8 +108,7 @@ export function LayerGroupHeader({
 }
 
 /** Compact filter box for the layer list (and other panel lists); matches panel density. */
-export function LayerFilterInput({
-  value,
+export function LayerFilterInput({  value,
   onChange,
   placeholder = "Filter layers…",
   label = "Filter layers",
@@ -140,6 +139,66 @@ export function LayerFilterInput({
         aria-label={label}
         className="min-w-0 flex-1 bg-transparent text-xs text-ink outline-none placeholder:text-muted"
       />
+    </div>
+  );
+}
+
+import type { GymBrand } from "@/types";
+
+/**
+ * Brand multi-select chips shown under the Gyms layer row in both layer
+ * surfaces. Brands are ordered biggest first; toggling one scopes the gyms
+ * map layer and its panel count without hiding the layer row itself.
+ */
+export function GymBrandFilter({
+  counts,
+  visible,
+  onToggle,
+  onReset,
+}: {
+  counts: ReadonlyArray<{ brand: GymBrand; count: number }>;
+  visible: Readonly<Partial<Record<GymBrand, boolean>>>;
+  onToggle: (brand: GymBrand, on: boolean) => void;
+  onReset: () => void;
+}) {
+  const anyOff = counts.some(({ brand }) => !visible[brand]);
+  return (
+    <div className="data-row px-2.5 py-2">
+      <div className="mb-1.5 flex items-center justify-between gap-2">
+        <span className="data-label">Gym brands</span>
+        {anyOff ? (
+          <button
+            type="button"
+            onClick={onReset}
+            className="text-[9px] uppercase tracking-[0.1em] text-muted transition-colors duration-150 hover:text-ink"
+          >
+            Show all
+          </button>
+        ) : null}
+      </div>
+      <div className="flex flex-wrap gap-1">
+        {counts.map(({ brand, count }) => {
+          const on = visible[brand] !== false;
+          return (
+            <button
+              key={brand}
+              type="button"
+              onClick={() => onToggle(brand, !on)}
+              aria-pressed={on}
+              aria-label={`${on ? "Hide" : "Show"} ${brand} gyms`}
+              title={`${on ? "Hide" : "Show"} ${brand} gyms (${count})`}
+              className={`flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] transition-colors duration-150 ${
+                on
+                  ? "border-success/45 bg-success/10 text-ink"
+                  : "border-line bg-paper text-faint"
+              }`}
+            >
+              <span>{brand}</span>
+              <span className="font-mono text-[9px] text-muted">{count}</span>
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }

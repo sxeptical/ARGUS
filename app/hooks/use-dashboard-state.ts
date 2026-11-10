@@ -22,7 +22,8 @@ import {
 } from "@/lib/layers";
 import { MRT_DISPLAY_LINE_COUNT } from "@/lib/mrt-network";
 import { HAWKER_CENTRES, MALLS } from "@/lib/amenities-data";
-import { GYMS } from "@/lib/gyms-data";
+import { GYMS, DEFAULT_GYM_BRAND_VISIBILITY } from "@/lib/gyms-data";
+import { filterGymsByBrand, gymBrandCounts } from "@/lib/gyms";
 import { COMMUNITY_CLUBS } from "@/lib/community-clubs-data";
 import { PHARMACIES } from "@/lib/pharmacies-data";
 import { DEFAULT_NOTIFICATION_PREFS } from "@/lib/notifications";
@@ -30,10 +31,12 @@ import { PARKS_GEOJSON } from "@/lib/parks-data";
 import {
   GEO_FILTER_CENTER_KEY,
   GEO_FILTER_RADIUS_KEY,
+  GYM_BRANDS_KEY,
   NOTIFICATION_PREFS_KEY,
   parseGeoFilterCenter,
   parseGeoFilterRadius,
   parseNotificationPrefs,
+  parseSensorVisibility,
   SENSOR_VISIBILITY_KEY,
 } from "@/lib/ui-preferences";
 import type { ParkFeatureKind } from "@/types";
@@ -41,6 +44,7 @@ import type {
   CommunityClub,
   FlightState,
   Gym,
+  GymBrand,
   HawkerCentre,
   Mall,
   Pharmacy,
@@ -85,6 +89,12 @@ export function useDashboardState() {
     NOTIFICATION_PREFS_KEY,
     DEFAULT_NOTIFICATION_PREFS,
     parseNotificationPrefs,
+  );
+  // Also declared before the sources: the gym layer and its count follow it.
+  const [gymBrands, setGymBrands] = usePersistentState<Record<GymBrand, boolean>>(
+    GYM_BRANDS_KEY,
+    DEFAULT_GYM_BRAND_VISIBILITY,
+    (stored) => parseSensorVisibility(stored, DEFAULT_GYM_BRAND_VISIBILITY),
   );
   const data = useDashboardSources(
     {
@@ -168,9 +178,20 @@ export function useDashboardState() {
     [geoFilter],
   );
   const gymCount = useMemo(
-    () => withinRadius(GYMS, geoFilter, (g) => [g.lng, g.lat]).length,
-    [geoFilter],
+    () => withinRadius(filterGymsByBrand(GYMS, gymBrands), geoFilter, (g) => [g.lng, g.lat]).length,
+    [geoFilter, gymBrands],
   );
+
+  const toggleGymBrand = useCallback(
+    (brand: GymBrand, on: boolean) =>
+      setGymBrands((previous) => ({ ...previous, [brand]: on })),
+    [setGymBrands],
+  );
+  const resetGymBrands = useCallback(
+    () => setGymBrands(DEFAULT_GYM_BRAND_VISIBILITY),
+    [setGymBrands],
+  );
+  const gymBrandCountList = useMemo(() => gymBrandCounts(GYMS), []);
   const communityClubCount = useMemo(
     () => withinRadius(COMMUNITY_CLUBS, geoFilter, (club) => [club.lng, club.lat]).length,
     [geoFilter],
@@ -369,6 +390,8 @@ export function useDashboardState() {
     geoFilter,
     geoFilterPicking,
     geoFilterRadiusM,
+    gymBrandCountList,
+    gymBrands,
     clearGeoFilter,
     pickGeoFilterCenter,
     setGeoFilterPicking,
@@ -404,6 +427,8 @@ export function useDashboardState() {
     setSelectedFlight: selectFlight,
     setSelectedPark: selectPark,
     setSensorVisibility,
+    toggleGymBrand,
+    resetGymBrands,
     showBusRoute: busRoute.show,
     signalBars,
     signalsLoaded: data.signalsLoaded,
