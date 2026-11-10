@@ -1,26 +1,20 @@
-/** Combines LTA bus routes with BusRouter road-following geometry. */
+/** Combines the bundled LTA bus routes with BusRouter road-following geometry. */
 import { z } from "zod";
 import { cache } from "@/lib/cache";
 import { ExternalApiError } from "@/lib/errors";
-import { LtaBusRoutesResponseSchema } from "@/types/schemas";
+import { BUS_ROUTES_SNAPSHOT } from "@/lib/bus-routes-data";
 import type {
   BusRouteDirection,
   BusRouteResponse,
   BusRouteStop,
 } from "@/types";
-import { collectLtaEndpoint, getBusStops } from "./lta";
-import { httpGetJson, withTimeout } from "./http";
+import { getBusStops } from "./lta";
+import { httpGetJson } from "./http";
 
 // BusRouter/sgbusdata polylines keep routes aligned to roads.
 const BUSROUTER_ROUTES_URL = "https://data.busrouter.sg/v1/routes.min.json";
 const BUSROUTER_ROUTES_FALLBACK_URL =
   "https://cdn.jsdelivr.net/gh/cheeaun/sgbusdata@master/data/v1/routes.min.json";
-const BUS_ROUTES_TIMEOUT_MS = 90_000;
-const BUS_ROUTES_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
-const BUS_ROUTES_PAGE_SIZE = 500;
-const BUS_ROUTES_PAGE_CONCURRENCY = 4;
-/** Safety cap above the known ~26–27k-row BusRoutes dataset (500 rows/page). */
-export const BUS_ROUTES_MAX_PAGES = 128;
 const BUSROUTER_GEOMETRY_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 /** Briefly cache geometry-source failures to avoid repeated slow timeouts. */
 const BUSROUTER_GEOMETRY_NEGATIVE_TTL_MS = 5 * 60 * 1000;
@@ -47,75 +41,39 @@ type IndexedBusRouteStop = {
 /** ServiceNo → Direction → ordered stop codes (pre-join). */
 type BusRoutesIndex = Map<string, Map<number, IndexedBusRouteStop[]>>;
 
-const toFiniteNumber = (value: number | string): number | null => {
-  if (typeof value === "number") {
-    return Number.isFinite(value) ? value : null;
+/**
+ * Build the in-memory index from the bundled snapshot. The dataset is ~27k
+ * rows, which is more than the ~50 subrequests a Workers Free isolate gets,
+ * so it is fetched at build time by scripts/fetch-bus-routes.ts instead.
+ */
+const buildBusRoutesIndex = (): BusRoutesIndex => {
+  const index: BusRoutesIndex = new Map();
+
+  for (const [serviceNo, byDirection] of Object.entries(
+    BUS_ROUTES_SNAPSHOT.services,
+  )) {
+    const directions = new Map<number, IndexedBusRouteStop[]>();
+    for (const [direction, stops] of Object.entries(byDirection)) {
+      directions.set(
+        Number(direction),
+        stops.map(([busStopCode, stopSequence]) => ({
+          busStopCode,
+          stopSequence,
+        })),
+      );
+    }
+    if (directions.size > 0) index.set(serviceNo, directions);
   }
-  const parsed = Number.parseFloat(value);
-  return Number.isFinite(parsed) ? parsed : null;
+
+  return index;
 };
 
-const buildBusRoutesIndex = (
-  rows: ReadonlyArray<{
-    readonly ServiceNo: string;
-    readonly Direction: number | string;
-    readonly StopSequence: number | string;
-    readonly BusStopCode: string;
-  }>,
-): BusRoutesIndex => {
-  // Accumulate unordered, then sort each direction by StopSequence.
-  const raw: BusRoutesIndex = new Map();
+let busRoutesIndex: BusRoutesIndex | null = null;
 
-  for (const row of rows) {
-    const serviceNo = row.ServiceNo?.trim();
-    const busStopCode = row.BusStopCode?.trim();
-    const direction = toFiniteNumber(row.Direction);
-    const stopSequence = toFiniteNumber(row.StopSequence);
-    if (
-      !serviceNo ||
-      !busStopCode ||
-      direction === null ||
-      stopSequence === null
-    ) {
-      continue;
-    }
-
-    let byDirection = raw.get(serviceNo);
-    if (!byDirection) {
-      byDirection = new Map();
-      raw.set(serviceNo, byDirection);
-    }
-    let stops = byDirection.get(direction);
-    if (!stops) {
-      stops = [];
-      byDirection.set(direction, stops);
-    }
-    stops.push({ busStopCode, stopSequence });
-  }
-
-  for (const byDirection of raw.values()) {
-    for (const [direction, stops] of byDirection) {
-      stops.sort((a, b) => a.stopSequence - b.stopSequence);
-      byDirection.set(direction, stops);
-    }
-  }
-
-  return raw;
+const getBusRoutesIndex = async (): Promise<BusRoutesIndex> => {
+  busRoutesIndex ??= buildBusRoutesIndex();
+  return busRoutesIndex;
 };
-
-const getBusRoutesIndex = (): Promise<BusRoutesIndex> =>
-  cache.get("bus-routes-index", BUS_ROUTES_CACHE_TTL_MS, () =>
-    withTimeout("lta-bus-routes", BUS_ROUTES_TIMEOUT_MS, async (signal) =>
-      buildBusRoutesIndex(
-        await collectLtaEndpoint("/BusRoutes", LtaBusRoutesResponseSchema, {
-          pageSize: BUS_ROUTES_PAGE_SIZE,
-          maxPages: BUS_ROUTES_MAX_PAGES,
-          concurrency: BUS_ROUTES_PAGE_CONCURRENCY,
-          signal,
-        }),
-      ),
-    ),
-  );
 
 // ---------- BusRouter geometry ----------
 

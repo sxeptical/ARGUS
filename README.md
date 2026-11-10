@@ -158,7 +158,8 @@ bun run test     # Unit and regression tests
 bun run typecheck # Native TypeScript 7 check
 bun run verify   # Typecheck, lint, test, and production build
 bun run preview  # Build for Workers and run locally in workerd
-bun run deploy   # Build for Workers and deploy to Cloudflare
+bun run deploy   # Refresh bus routes, build for Workers, and deploy to Cloudflare
+bun run data:bus-routes # Refresh public/bus-routes.json from LTA DataMall
 ```
 
 ---
@@ -176,6 +177,8 @@ bun run deploy
 
 For `bun run preview`, Wrangler reads keys from `.env.local`.
 
+`bun run deploy` refreshes `public/bus-routes.json` from LTA DataMall first, so it needs `LTA_API_KEY` in `.env.local`. The snapshot is committed: `next build` and `bun run verify` never call LTA.
+
 ---
 
 ## Notes
@@ -184,5 +187,6 @@ For `bun run preview`, Wrangler reads keys from `.env.local`.
 - Worker isolate memory is not guaranteed across requests, so cached fallbacks help during warm periods but should not be treated as durable storage.
 - The bundled cache and rate limiter are in-memory, per-isolate protections. **In production on Cloudflare, each Worker isolate has its own rate limit state** — limits are not shared across isolates, locations, or cold starts. For hard cross-isolate limits, use Cloudflare WAF rate limiting rules or the Workers Rate Limiting binding. On Cloudflare (`ARGUS_ON_CLOUDFLARE=1`, set in `wrangler.jsonc`) the IP extractor trusts `cf-connecting-ip`, which the edge overwrites. Self-hosted deployments ignore that header unless `ARGUS_TRUST_PROXY_HEADERS=true` is set behind a trusted proxy.
 - API rate limits matter. Flight polling is the most likely source of quota pressure.
+- The full BusRoutes table (~27k rows) exceeds Workers Free's per-invocation subrequest limit, so it is bundled as `public/bus-routes.json` at build time instead of fetched per request. Bus stops and other LTA feeds are still live.
 
 ---
