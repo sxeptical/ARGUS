@@ -174,6 +174,18 @@ export default function Home() {
     : undefined;
   const signalToneClass = (tone: "danger" | "warning" | "info" | "muted") =>
     tone === "danger" ? "text-danger" : tone === "warning" ? "text-warning" : tone === "info" ? "text-info" : "text-muted";
+  // Radius filter lives on the right of the map on roomy screens; small
+  // screens keep it in the sidebar flow below the map (see below).
+  const radiusFilterPanel = (
+    <GeoFilterPanel
+      filter={geoFilter}
+      radiusM={geoFilterRadiusM}
+      picking={geoFilterPicking}
+      onRadiusChange={setGeoFilterRadiusM}
+      onPickingChange={setGeoFilterPicking}
+      onClear={clearGeoFilter}
+    />
+  );
 
   if (!bootComplete) {
     return <LoadingScreen sources={sources} />;
@@ -229,16 +241,7 @@ export default function Home() {
           weather={weather}
           weatherHistory={weatherHistory}
           onAirQualityOverlayChange={setAirQualityOverlay}
-          geoFilterPanel={
-            <GeoFilterPanel
-              filter={geoFilter}
-              radiusM={geoFilterRadiusM}
-              picking={geoFilterPicking}
-              onRadiusChange={setGeoFilterRadiusM}
-              onPickingChange={setGeoFilterPicking}
-              onClear={clearGeoFilter}
-            />
-          }
+          geoFilterPanel={radiusFilterPanel}
         />
 
         <section className="contents xl:order-2 xl:grid xl:min-w-0 xl:gap-3 xl:min-h-0 xl:grid-rows-[minmax(0,1fr)_minmax(236px,38%)]">
@@ -301,6 +304,11 @@ export default function Home() {
                 }
               }}
             />
+            {/* Radius filter sits at the right of the map, below the zoom /
+                geolocate controls; below sm it stays in the sidebar flow. */}
+            <div className="absolute right-2 top-24 z-10 hidden w-56 sm:block">
+              {radiusFilterPanel}
+            </div>
             <MobileLayersDrawer
               sensorRows={sensorRows}
               sensorVisibility={sensorVisibility}

@@ -175,7 +175,9 @@ export function LayersSidebar({
         </div>
       </IntelPanel>
 
-      {geoFilterPanel}
+      {/* The radius filter floats over the map on sm+ screens (see page.tsx);
+          in-flow here only for narrow screens where the map is short. */}
+      {geoFilterPanel ? <div className="sm:hidden">{geoFilterPanel}</div> : null}
 
       <WeatherPanel
         weather={weather}
