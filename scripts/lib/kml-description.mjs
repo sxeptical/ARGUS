@@ -24,7 +24,9 @@ const decodeEntities = (value) =>
 export const parseKmlDescription = (description) => {
   const html = decodeEntities(description ?? "");
   const record = {};
-  const re = /<th[^>]*>(.*?)<\/th>\s*<td[^>]*>(.*?)<\/td>/gis;
+  // Keys never contain markup, so [^<]* keeps the "Attributes" header row
+  // (a <th> with no <td> sibling) from swallowing the first data row.
+  const re = /<th[^>]*>([^<]*)<\/th>\s*<td[^>]*>(.*?)<\/td>/gis;
   let match;
   while ((match = re.exec(html)) !== null) {
     const key = match[1].replace(/<[^>]+>/g, "").trim();
