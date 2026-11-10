@@ -177,6 +177,8 @@ bun run deploy
 
 For `bun run preview`, Wrangler reads keys from `.env.local`.
 
+Pushes to `master` also build and deploy through Workers Builds; each commit gets a `Workers Builds: argus` check. `bun run deploy` remains the manual path.
+
 `bun run deploy` refreshes `public/bus-routes.json` from LTA DataMall first, so it needs `LTA_API_KEY` in `.env.local`. The snapshot is committed: `next build` and `bun run verify` never call LTA.
 
 ---
