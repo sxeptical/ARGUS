@@ -43,6 +43,8 @@ import { buildLibrarySearchResults } from "@/lib/libraries";
 import { LIBRARIES } from "@/lib/libraries-data";
 import { buildSupermarketSearchResults } from "@/lib/supermarkets";
 import { SUPERMARKETS } from "@/lib/supermarkets-data";
+import { buildSchoolSearchResults } from "@/lib/schools";
+import { SCHOOLS } from "@/lib/schools-data";
 import { buildParkSearchResults } from "@/lib/parks";
 import { PARKS_GEOJSON } from "@/lib/parks-data";
 import { formatRadius, withinRadius } from "@/lib/geo-filter";
@@ -63,9 +65,10 @@ const AMENITY_SEARCH_RESULTS = [
   ...buildHealthcareSearchResults(HEALTHCARE_SITES),
   ...buildLibrarySearchResults(LIBRARIES),
   ...buildSupermarketSearchResults(SUPERMARKETS),
+  ...buildSchoolSearchResults(SCHOOLS),
   ...buildParkSearchResults(PARKS_GEOJSON),
 ];
-const SEARCH_LAYER_BY_TYPE = { mall: "malls", hawker: "hawkers", gym: "gyms", "community-club": "communityClubs", pharmacy: "pharmacies", hotel: "hotels", heritage: "heritage", healthcare: "healthcare", library: "libraries", supermarket: "supermarkets", park: "parks" } as const;
+const SEARCH_LAYER_BY_TYPE = { mall: "malls", hawker: "hawkers", gym: "gyms", "community-club": "communityClubs", pharmacy: "pharmacies", hotel: "hotels", heritage: "heritage", healthcare: "healthcare", library: "libraries", supermarket: "supermarkets", school: "schools", park: "parks" } as const;
 
 export default function Home() {
   const {
@@ -104,6 +107,10 @@ export default function Home() {
     supermarketBrands,
     setSupermarketBrands,
     toggleSupermarketBrand,
+    schoolLevelCountList,
+    schoolLevels,
+    setSchoolLevels,
+    toggleSchoolLevel,
     incidents,
     handleSelectStop,
     mrtEndStation,
@@ -269,6 +276,9 @@ export default function Home() {
           supermarketBrands={supermarketBrands}
           supermarketBrandCounts={supermarketBrandCountList}
           onSupermarketBrandsChange={setSupermarketBrands}
+          schoolLevels={schoolLevels}
+          schoolLevelCounts={schoolLevelCountList}
+          onSchoolLevelsChange={setSchoolLevels}
           visibleSensorCount={visibleSensorCount}
           weather={weather}
           weatherHistory={weatherHistory}
@@ -291,6 +301,7 @@ export default function Home() {
               heritageKinds={heritageKinds}
               healthcareKinds={healthcareKinds}
               supermarketBrands={supermarketBrands}
+              schoolLevels={schoolLevels}
               onStopClick={handleSelectStop}
               onCameraClick={setSelectedCamera}
               onFlightClick={setSelectedFlight}
@@ -317,7 +328,7 @@ export default function Home() {
                 if (result.type === "bus-stop") {
                   const stop = busStops.find((item) => item.BusStopCode === result.id);
                   if (stop) handleSelectStop(stop);
-                } else if (result.type === "mall" || result.type === "hawker" || result.type === "gym" || result.type === "community-club" || result.type === "pharmacy" || result.type === "hotel" || result.type === "heritage" || result.type === "healthcare" || result.type === "library" || result.type === "supermarket") {
+                } else if (result.type === "mall" || result.type === "hawker" || result.type === "gym" || result.type === "community-club" || result.type === "pharmacy" || result.type === "hotel" || result.type === "heritage" || result.type === "healthcare" || result.type === "library" || result.type === "supermarket" || result.type === "school") {
                   // Open it in focus mode, not just on the map, and make sure
                   // the searched place is actually drawn when we get there.
                   setSelectedAmenity({ type: result.type, id: result.id });
@@ -340,6 +351,10 @@ export default function Home() {
                   if (result.type === "supermarket") {
                     const market = SUPERMARKETS.find((candidate) => candidate.id === result.id);
                     if (market) toggleSupermarketBrand(market.brand, true);
+                  }
+                  if (result.type === "school") {
+                    const school = SCHOOLS.find((candidate) => candidate.id === result.id);
+                    if (school) toggleSchoolLevel(school.level, true);
                   }
                 } else if (result.type === "park") {
                   const park = PARKS_GEOJSON.features.find(
@@ -366,6 +381,9 @@ export default function Home() {
               supermarketBrands={supermarketBrands}
               supermarketBrandCounts={supermarketBrandCountList}
               onSupermarketBrandsChange={setSupermarketBrands}
+              schoolLevels={schoolLevels}
+              schoolLevelCounts={schoolLevelCountList}
+              onSchoolLevelsChange={setSchoolLevels}
               visibleSensorCount={visibleSensorCount}
             />
             <div className="pointer-events-none absolute left-2 top-2 border border-line bg-overlay px-2.5 py-1.5 text-[10px] uppercase tracking-[0.12em] text-ink">
@@ -486,7 +504,7 @@ export default function Home() {
       <DashboardFooter />
 
       <FocusDialog
-        key={selectedFlight?.id ?? selectedPark?.name ?? (selectedAmenity ? (selectedAmenity.type === "mall" ? selectedAmenity.mall.id : selectedAmenity.type === "hawker" ? selectedAmenity.hawker.id : selectedAmenity.type === "gym" ? selectedAmenity.gym.id : selectedAmenity.type === "community-club" ? selectedAmenity.club.id : selectedAmenity.type === "pharmacy" ? selectedAmenity.pharmacy.id : selectedAmenity.type === "heritage" ? selectedAmenity.site.id : selectedAmenity.type === "healthcare" ? selectedAmenity.site.id : selectedAmenity.type === "library" ? selectedAmenity.library.id : selectedAmenity.type === "supermarket" ? selectedAmenity.market.id : selectedAmenity.hotel.id) : "none")}
+        key={selectedFlight?.id ?? selectedPark?.name ?? (selectedAmenity ? (selectedAmenity.type === "mall" ? selectedAmenity.mall.id : selectedAmenity.type === "hawker" ? selectedAmenity.hawker.id : selectedAmenity.type === "gym" ? selectedAmenity.gym.id : selectedAmenity.type === "community-club" ? selectedAmenity.club.id : selectedAmenity.type === "pharmacy" ? selectedAmenity.pharmacy.id : selectedAmenity.type === "heritage" ? selectedAmenity.site.id : selectedAmenity.type === "healthcare" ? selectedAmenity.site.id : selectedAmenity.type === "library" ? selectedAmenity.library.id : selectedAmenity.type === "supermarket" ? selectedAmenity.market.id : selectedAmenity.type === "school" ? selectedAmenity.school.id : selectedAmenity.hotel.id) : "none")}
         flight={selectedFlight}
         park={selectedPark}
         amenity={selectedAmenity}

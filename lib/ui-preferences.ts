@@ -20,6 +20,7 @@ export const GYM_BRANDS_KEY = "argus.prefs.gym.brands.v1";
 export const HERITAGE_KINDS_KEY = "argus.prefs.heritage.kinds.v1";
 export const HEALTHCARE_KINDS_KEY = "argus.prefs.healthcare.kinds.v1";
 export const SUPERMARKET_BRANDS_KEY = "argus.prefs.supermarket.brands.v1";
+export const SCHOOL_LEVELS_KEY = "argus.prefs.school.levels.v1";
 export const GEO_FILTER_CENTER_KEY = "argus.prefs.geo-filter.center.v1";
 export const GEO_FILTER_RADIUS_KEY = "argus.prefs.geo-filter.radius.v1";
 

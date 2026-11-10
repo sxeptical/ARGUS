@@ -436,6 +436,31 @@ export interface Supermarket {
 }
 
 /**
+ * MOE school from the static schools bundle (MOE via data.gov.sg).
+ * `level` is the `mainlevel_code` mapping used by the level sub-filter;
+ * `coordsSource` records how coordinates were found (OneMap name search,
+ * OpenStreetMap name join). Staff names are never stored.
+ */
+export type SchoolLevel = "primary" | "secondary" | "jc" | "mixed";
+
+export interface School {
+  id: string;
+  name: string;
+  level: SchoolLevel;
+  address: string | null;
+  postalCode: string | null;
+  phone: string | null;
+  website: string | null;
+  /** Nearest MRT station name, as listed by MOE. */
+  mrt: string | null;
+  /** Bus services serving the school, as listed by MOE. */
+  bus: string | null;
+  lat: number;
+  lng: number;
+  coordsSource: "onemap" | "osm";
+}
+
+/**
  * Retail pharmacy from the static pharmacy bundle (HSA via data.gov.sg).
  */
 export interface Pharmacy {
@@ -467,7 +492,7 @@ export interface AmenitiesBundle {
   malls: Mall[];
 }
 
-export type SearchResultType = "bus-stop" | "mrt" | "park" | "mall" | "hawker" | "gym" | "community-club" | "pharmacy" | "hotel" | "heritage" | "healthcare" | "library" | "supermarket";
+export type SearchResultType = "bus-stop" | "mrt" | "park" | "mall" | "hawker" | "gym" | "community-club" | "pharmacy" | "hotel" | "heritage" | "healthcare" | "library" | "supermarket" | "school";
 
 export interface MapSearchResult {
   id: string;

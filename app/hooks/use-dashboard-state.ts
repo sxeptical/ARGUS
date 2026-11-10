@@ -34,6 +34,8 @@ import { filterHealthcareByKind, orderedHealthcareKindCounts } from "@/lib/healt
 import { LIBRARIES } from "@/lib/libraries-data";
 import { SUPERMARKETS, DEFAULT_SUPERMARKET_BRAND_VISIBILITY } from "@/lib/supermarkets-data";
 import { filterSupermarketsByBrand, orderedSupermarketBrandCounts } from "@/lib/supermarkets";
+import { SCHOOLS, DEFAULT_SCHOOL_LEVEL_VISIBILITY } from "@/lib/schools-data";
+import { filterSchoolsByLevel, orderedSchoolLevelCounts } from "@/lib/schools";
 import { DEFAULT_NOTIFICATION_PREFS } from "@/lib/notifications";
 import { PARKS_GEOJSON } from "@/lib/parks-data";
 import {
@@ -43,6 +45,7 @@ import {
   HERITAGE_KINDS_KEY,
   HEALTHCARE_KINDS_KEY,
   SUPERMARKET_BRANDS_KEY,
+  SCHOOL_LEVELS_KEY,
   NOTIFICATION_PREFS_KEY,
   parseGeoFilterCenter,
   parseGeoFilterRadius,
@@ -64,6 +67,8 @@ import type {
   Hotel,
   Mall,
   PublicLibrary,
+  School,
+  SchoolLevel,
   Supermarket,
   SupermarketBrand,
   Pharmacy,
@@ -83,7 +88,7 @@ export type SensorRow = {
 export type SensorStatsRow = Omit<SensorRow, "key" | "dot">;
 
 /** Which static amenity the map (or search) picked, by its bundle id. */
-export type AmenitySelectionTarget = { type: "mall" | "hawker" | "gym" | "community-club" | "pharmacy" | "hotel" | "heritage" | "healthcare" | "library" | "supermarket"; id: string };
+export type AmenitySelectionTarget = { type: "mall" | "hawker" | "gym" | "community-club" | "pharmacy" | "hotel" | "heritage" | "healthcare" | "library" | "supermarket" | "school"; id: string };
 
 /** A selected amenity resolved to its bundle record. */
 export type SelectedAmenity =
@@ -96,7 +101,8 @@ export type SelectedAmenity =
   | { type: "heritage"; site: HeritageSite }
   | { type: "healthcare"; site: HealthcareSite }
   | { type: "library"; library: PublicLibrary }
-  | { type: "supermarket"; market: Supermarket };
+  | { type: "supermarket"; market: Supermarket }
+  | { type: "school"; school: School };
 
 export function useDashboardState() {
   // Declared before the sources: carparks and EV chargers only load while
@@ -137,6 +143,12 @@ export function useDashboardState() {
     SUPERMARKET_BRANDS_KEY,
     DEFAULT_SUPERMARKET_BRAND_VISIBILITY,
     (stored) => parseSensorVisibility(stored, DEFAULT_SUPERMARKET_BRAND_VISIBILITY),
+  );
+  // Also declared before the sources: the schools layer and its count follow it.
+  const [schoolLevels, setSchoolLevels] = usePersistentState<Record<SchoolLevel, boolean>>(
+    SCHOOL_LEVELS_KEY,
+    DEFAULT_SCHOOL_LEVEL_VISIBILITY,
+    (stored) => parseSensorVisibility(stored, DEFAULT_SCHOOL_LEVEL_VISIBILITY),
   );
   const data = useDashboardSources(
     {
@@ -279,6 +291,17 @@ export function useDashboardState() {
     [setSupermarketBrands],
   );
   const supermarketBrandCountList = useMemo(() => orderedSupermarketBrandCounts(SUPERMARKETS), []);
+  const schoolCount = useMemo(
+    () => withinRadius(filterSchoolsByLevel(SCHOOLS, schoolLevels), geoFilter, (school) => [school.lng, school.lat]).length,
+    [geoFilter, schoolLevels],
+  );
+
+  const toggleSchoolLevel = useCallback(
+    (level: SchoolLevel, on: boolean) =>
+      setSchoolLevels((previous) => ({ ...previous, [level]: on })),
+    [setSchoolLevels],
+  );
+  const schoolLevelCountList = useMemo(() => orderedSchoolLevelCounts(SCHOOLS), []);
 
   const selectedCamera = useMemo(
     () =>
@@ -374,6 +397,10 @@ export function useDashboardState() {
       const market = SUPERMARKETS.find((market) => market.id === selectedAmenityId.id) ?? null;
       return market ? { type: "supermarket", market } : null;
     }
+    if (selectedAmenityId.type === "school") {
+      const school = SCHOOLS.find((school) => school.id === selectedAmenityId.id) ?? null;
+      return school ? { type: "school", school } : null;
+    }
     const hawker =
       HAWKER_CENTRES.find((hawker) => hawker.id === selectedAmenityId.id) ??
       null;
@@ -416,6 +443,7 @@ export function useDashboardState() {
     healthcare: healthcareCount,
     libraries: libraryCount,
     supermarkets: supermarketCount,
+    schools: schoolCount,
   };
   const sensorRows: SensorRow[] = LAYERS.map((layer) => ({
     key: layer.key,
@@ -508,6 +536,10 @@ export function useDashboardState() {
     supermarketBrands,
     setSupermarketBrands,
     toggleSupermarketBrand,
+    schoolLevelCountList,
+    schoolLevels,
+    setSchoolLevels,
+    toggleSchoolLevel,
     clearGeoFilter,
     pickGeoFilterCenter,
     setGeoFilterPicking,

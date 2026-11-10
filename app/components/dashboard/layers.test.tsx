@@ -42,6 +42,7 @@ const layerCounts: Record<SensorKey, number> = {
   healthcare: 1460,
   libraries: 28,
   supermarkets: 553,
+  schools: 337,
 };
 
 const allRows: SensorRow[] = LAYERS.map((layer) => ({
@@ -174,6 +175,7 @@ describe("buildLayerGroups", () => {
       "healthcare",
       "libraries",
       "supermarkets",
+      "schools",
     ]);
   });
 
@@ -255,6 +257,9 @@ describe("layer surfaces render", () => {
         supermarketBrands={{}}
         supermarketBrandCounts={[]}
         onSupermarketBrandsChange={() => {}}
+        schoolLevels={{}}
+        schoolLevelCounts={[]}
+        onSchoolLevelsChange={() => {}}
         visibleSensorCount={4}
         weather={weather}
         weatherHistory={[]}
@@ -289,6 +294,9 @@ describe("layer surfaces render", () => {
         supermarketBrands={{}}
         supermarketBrandCounts={[]}
         onSupermarketBrandsChange={() => {}}
+        schoolLevels={{}}
+        schoolLevelCounts={[]}
+        onSchoolLevelsChange={() => {}}
         visibleSensorCount={4}
       />,
     );
@@ -296,7 +304,7 @@ describe("layer surfaces render", () => {
       expect(markup).toContain(htmlEscape(group.label));
     }
     expect(markup).toContain("MRT &amp; LRT");
-    expect(markup).toContain("4/17 visible");
+    expect(markup).toContain("4/18 visible");
   });
 });
 

@@ -14,6 +14,7 @@ import { HERITAGE_KIND_LABEL, HERITAGE_SOURCE_HINT } from "@/lib/heritage";
 import { HEALTHCARE_KIND_LABEL, HEALTHCARE_SOURCE_HINT } from "@/lib/healthcare";
 import { LIBRARY_SOURCE_HINT } from "@/lib/libraries";
 import { SUPERMARKET_SOURCE_HINT } from "@/lib/supermarkets";
+import { SCHOOL_LEVEL_LABEL, SCHOOL_SOURCE_HINT } from "@/lib/schools";
 import { formatAltitudeFeet, formatSpeedKmh } from "@/lib/formatters";
 import { photosForPark } from "@/lib/park-photos";
 import { PARK_KIND_TITLE } from "@/lib/parks";
@@ -235,6 +236,36 @@ export function FocusDialog({
             ) : null}
           </div>
           <p className="text-[11px] leading-relaxed text-muted">{SUPERMARKET_SOURCE_HINT}</p>
+        </div>
+      </FocusShell>
+    );
+  }
+
+  if (amenity?.type === "school") {
+    const { school } = amenity;
+    return (
+      <FocusShell kind={`${SCHOOL_LEVEL_LABEL[school.level]} School`} title={school.name} onClose={onClose}>
+        <div className="space-y-2 p-4 text-xs">
+          <div>
+            {school.address ? <KeyValue label="Address" value={school.address} /> : null}
+            {school.phone ? <KeyValue label="Telephone" value={school.phone} /> : null}
+            {school.mrt ? <KeyValue label="MRT" value={school.mrt} /> : null}
+            {school.bus ? <KeyValue label="Bus" value={school.bus} /> : null}
+            {school.website ? (
+              <div className="flex gap-2 py-1">
+                <span className="data-label w-20 shrink-0">Website</span>
+                <a
+                  href={school.website}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="min-w-0 break-all text-info underline decoration-info/40 hover:decoration-info"
+                >
+                  {school.website}
+                </a>
+              </div>
+            ) : null}
+          </div>
+          <p className="text-[11px] leading-relaxed text-muted">{SCHOOL_SOURCE_HINT}</p>
         </div>
       </FocusShell>
     );

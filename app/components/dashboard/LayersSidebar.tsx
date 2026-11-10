@@ -22,6 +22,8 @@ import { HERITAGE_KIND_LABEL } from "@/lib/heritage";
 import type { HealthcareKindCount } from "@/lib/healthcare";
 import { HEALTHCARE_KIND_LABEL } from "@/lib/healthcare";
 import type { SupermarketBrandCount } from "@/lib/supermarkets";
+import type { SchoolLevelCount } from "@/lib/schools";
+import { SCHOOL_LEVEL_LABEL } from "@/lib/schools";
 import { FLIGHTS_ENABLED } from "@/lib/features";
 import type {
   FlightState,
@@ -50,6 +52,9 @@ export function LayersSidebar({
   supermarketBrands,
   supermarketBrandCounts,
   onSupermarketBrandsChange,
+  schoolLevels,
+  schoolLevelCounts,
+  onSchoolLevelsChange,
   visibleSensorCount,
   weather,
   weatherHistory,
@@ -74,6 +79,9 @@ export function LayersSidebar({
   supermarketBrands: Record<string, boolean>;
   supermarketBrandCounts: SupermarketBrandCount[];
   onSupermarketBrandsChange: (next: Record<string, boolean>) => void;
+  schoolLevels: Record<string, boolean>;
+  schoolLevelCounts: SchoolLevelCount[];
+  onSchoolLevelsChange: (next: Record<string, boolean>) => void;
   visibleSensorCount: number;
   weather: WeatherData;
   weatherHistory: WeatherHistoryPoint[];
@@ -189,6 +197,15 @@ export function LayersSidebar({
                           selected={supermarketBrands}
                           onChange={onSupermarketBrandsChange}
                           accentClass="bg-signal-supermarket"
+                        />
+                      ) : null}
+                      {row.key === "schools" && sensorVisibility.schools ? (
+                        <LayerOptionFilter
+                          summaryLabel="Levels"
+                          options={schoolLevelCounts.map(({ level, count }) => ({ value: level, label: SCHOOL_LEVEL_LABEL[level], count }))}
+                          selected={schoolLevels}
+                          onChange={onSchoolLevelsChange}
+                          accentClass="bg-signal-school"
                         />
                       ) : null}
                       </Fragment>
