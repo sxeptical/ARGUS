@@ -5,9 +5,9 @@ import type { Dispatch, SetStateAction } from "react";
 import { Fragment } from "react";
 import {
   EyeGlyph,
-  GymBrandFilter,
   LayerFilterInput,
   LayerGroupHeader,
+  LayerOptionFilter,
 } from "@/app/components/dashboard/LayerControls";
 import { useLayerList } from "@/app/hooks/use-layer-list";
 import type { SensorRow } from "@/app/hooks/use-dashboard-state";
@@ -20,8 +20,7 @@ export function MobileLayersDrawer({
   setSensorVisibility,
   gymBrands,
   gymBrandCounts,
-  onGymBrandToggle,
-  onGymBrandReset,
+  onGymBrandsChange,
   visibleSensorCount,
 }: {
   sensorRows: ReadonlyArray<SensorRow>;
@@ -29,8 +28,7 @@ export function MobileLayersDrawer({
   setSensorVisibility: Dispatch<SetStateAction<Record<SensorKey, boolean>>>;
   gymBrands: Record<string, boolean>;
   gymBrandCounts: GymBrandCount[];
-  onGymBrandToggle: (brand: GymBrandCount["brand"], on: boolean) => void;
-  onGymBrandReset: () => void;
+  onGymBrandsChange: (next: Record<string, boolean>) => void;
   visibleSensorCount: number;
 }) {
   const [open, setOpen] = useState(false);
@@ -216,12 +214,13 @@ export function MobileLayersDrawer({
                             />
                           </span>
                         </button>
-                        {row.key === "gyms" ? (
-                          <GymBrandFilter
-                            counts={gymBrandCounts}
-                            visible={gymBrands}
-                            onToggle={onGymBrandToggle}
-                            onReset={onGymBrandReset}
+                        {row.key === "gyms" && visible ? (
+                          <LayerOptionFilter
+                            summaryLabel="Brands"
+                            options={gymBrandCounts.map(({ brand, count }) => ({ value: brand, label: brand, count }))}
+                            selected={gymBrands}
+                            onChange={onGymBrandsChange}
+                            accentClass="bg-signal-gym"
                           />
                         ) : null}
                         </Fragment>

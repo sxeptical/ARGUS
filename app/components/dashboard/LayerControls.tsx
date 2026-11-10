@@ -143,62 +143,113 @@ export function LayerFilterInput({  value,
   );
 }
 
-import type { GymBrand } from "@/types";
+import { useState } from "react";
+import {
+  allLayerOptionsOn,
+  toggleLayerOptionSelection,
+} from "@/lib/layers";
+
+/** First N options shown in a sub-filter; the rest wait behind "+N more". */
+const SUB_FILTER_TOP_COUNT = 6;
 
 /**
- * Brand multi-select chips shown under the Gyms layer row in both layer
- * surfaces. Brands are ordered biggest first; toggling one scopes the gyms
- * map layer and its panel count without hiding the layer row itself.
+ * Collapsed-by-default sub-filter under a layer row (e.g. gym operator
+ * brands). Generic over any layer's options-with-counts: the summary line
+ * (`Brands: All`, `Brands: Anytime Fitness, ActiveSG`, `Brands: 3 selected`)
+ * expands to multi-select chips where the first tap solos an option and
+ * deselecting the last one reverts to all. Selection is a Record like layer
+ * visibility, so it persists the same way.
  */
-export function GymBrandFilter({
-  counts,
-  visible,
-  onToggle,
-  onReset,
+export function LayerOptionFilter({
+  summaryLabel,
+  options,
+  selected,
+  onChange,
+  accentClass,
 }: {
-  counts: ReadonlyArray<{ brand: GymBrand; count: number }>;
-  visible: Readonly<Partial<Record<GymBrand, boolean>>>;
-  onToggle: (brand: GymBrand, on: boolean) => void;
-  onReset: () => void;
+  /** Short name, e.g. "Brands"; prefixes the summary line and aria labels. */
+  summaryLabel: string;
+  options: ReadonlyArray<{ value: string; label: string; count: number }>;
+  selected: Readonly<Record<string, boolean>>;
+  onChange: (next: Record<string, boolean>) => void;
+  /** Classes for a selected chip (filled layer colour). */
+  accentClass: string;
 }) {
-  const anyOff = counts.some(({ brand }) => !visible[brand]);
+  const [expanded, setExpanded] = useState(false);
+  const [showAll, setShowAll] = useState(false);
+  const allValues = options.map((option) => option.value);
+  const onOptions = options.filter((option) => selected[option.value] !== false);
+  const allOn = onOptions.length === allValues.length;
+  const summary = allOn
+    ? "All"
+    : onOptions.length <= 2
+      ? onOptions.map((option) => option.label).join(", ")
+      : `${onOptions.length} selected`;
+  const shown = showAll ? options : options.slice(0, SUB_FILTER_TOP_COUNT);
+  const overflow = options.slice(SUB_FILTER_TOP_COUNT);
+
   return (
     <div className="data-row px-2.5 py-2">
-      <div className="mb-1.5 flex items-center justify-between gap-2">
-        <span className="data-label">Gym brands</span>
-        {anyOff ? (
+      <button
+        type="button"
+        onClick={() => setExpanded((value) => !value)}
+        aria-expanded={expanded}
+        aria-label={`${expanded ? "Hide" : "Show"} ${summaryLabel.toLowerCase()} filter`}
+        className="flex w-full items-center justify-between gap-2 text-left"
+      >
+        <span className="min-w-0 truncate text-xs text-ink">
+          <span className="data-label mr-2">{summaryLabel}</span>
+          {summary}
+        </span>
+        <span aria-hidden="true" className={`shrink-0 text-muted transition-transform duration-150 ${expanded ? "rotate-180" : ""}`}>
+          ▾
+        </span>
+      </button>
+      {expanded ? (
+        <div className="flex flex-wrap gap-1 pt-2">
           <button
             type="button"
-            onClick={onReset}
-            className="text-[9px] uppercase tracking-[0.1em] text-muted transition-colors duration-150 hover:text-ink"
+            onClick={() => onChange(allLayerOptionsOn(allValues))}
+            aria-pressed={allOn}
+            aria-label={`Show all ${summaryLabel.toLowerCase()}`}
+            className={`flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium transition-colors duration-150 ${
+              allOn ? `${accentClass} border-transparent text-paper` : "border-line bg-paper text-muted hover:text-ink"
+            }`}
           >
-            Show all
+            All
           </button>
-        ) : null}
-      </div>
-      <div className="flex flex-wrap gap-1">
-        {counts.map(({ brand, count }) => {
-          const on = visible[brand] !== false;
-          return (
+          {shown.map((option) => {
+            const on = selected[option.value] !== false;
+            return (
+              <button
+                key={option.value}
+                type="button"
+                onClick={() => onChange(toggleLayerOptionSelection(selected, option.value, allValues))}
+                aria-pressed={on}
+                aria-label={`${on ? "Hide" : "Show"} ${option.label} ${summaryLabel.toLowerCase()} (${option.count})`}
+                title={`${option.label} (${option.count})`}
+                className={`flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] transition-colors duration-150 ${
+                  on ? `${accentClass} border-transparent text-paper` : "border-line bg-paper text-faint"
+                }`}
+              >
+                <span>{option.label}</span>
+                <span className={`font-mono text-[9px] ${on ? "text-paper/70" : "text-muted"}`}>{option.count}</span>
+              </button>
+            );
+          })}
+          {!showAll && overflow.length > 0 ? (
             <button
-              key={brand}
               type="button"
-              onClick={() => onToggle(brand, !on)}
-              aria-pressed={on}
-              aria-label={`${on ? "Hide" : "Show"} ${brand} gyms`}
-              title={`${on ? "Hide" : "Show"} ${brand} gyms (${count})`}
-              className={`flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] transition-colors duration-150 ${
-                on
-                  ? "border-success/45 bg-success/10 text-ink"
-                  : "border-line bg-paper text-faint"
-              }`}
+              onClick={() => setShowAll(true)}
+              aria-expanded={showAll}
+              aria-label={`Show ${overflow.length} more ${summaryLabel.toLowerCase()}`}
+              className="rounded-full border border-line bg-paper px-2 py-0.5 text-[10px] text-muted transition-colors duration-150 hover:text-ink"
             >
-              <span>{brand}</span>
-              <span className="font-mono text-[9px] text-muted">{count}</span>
+              +{overflow.length} more
             </button>
-          );
-        })}
-      </div>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   );
 }

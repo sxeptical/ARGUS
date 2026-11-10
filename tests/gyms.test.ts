@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { GYM_BRANDS, GYMS, validateGymsBundle } from "@/lib/gyms-data";
-import { buildGymSearchResults, describeGym, filterGymsByBrand, gymBrandCounts } from "@/lib/gyms";
+import { buildGymSearchResults, describeGym, filterGymsByBrand, gymBrandCounts, orderedGymBrandCounts } from "@/lib/gyms";
 import type { Gym, GymBrand } from "@/types";
 
 const gym = (overrides: Partial<Gym> = {}): Gym => ({
@@ -106,6 +106,11 @@ describe("gym brand filtering", () => {
       { brand: "Anytime Fitness", count: 2 },
       { brand: "ActiveSG", count: 1 },
       { brand: "Independent", count: 1 },
+    ]);
+    expect(orderedGymBrandCounts(gyms).map((entry) => entry.brand)).toEqual([
+      "ActiveSG",
+      "Anytime Fitness",
+      "Independent",
     ]);
   });
 });

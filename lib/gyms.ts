@@ -74,3 +74,14 @@ export const gymBrandCounts = (gyms: ReadonlyArray<Gym>): GymBrandCount[] => {
     .map(([brand, count]) => ({ brand, count }))
     .sort((a, b) => b.count - a.count || a.brand.localeCompare(b.brand, "en-SG"));
 };
+
+/**
+ * Brand options for the sub-filter: ActiveSG pinned first (the public
+ * option), then the rest biggest-first, so the top chips are the ones with
+ * the most gyms behind them.
+ */
+export const orderedGymBrandCounts = (gyms: ReadonlyArray<Gym>): GymBrandCount[] => {
+  const counts = gymBrandCounts(gyms);
+  const activesg = counts.find((entry) => entry.brand === "ActiveSG");
+  return [...(activesg ? [activesg] : []), ...counts.filter((entry) => entry.brand !== "ActiveSG")];
+};

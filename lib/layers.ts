@@ -248,3 +248,34 @@ export function coerceSensorVisibility(
   }
   return next;
 }
+
+/**
+ * Totally-on record for a sub-filter's options. A sub-filter tracks
+ * `Record<option, boolean>` like layer visibility does; an option absent
+ * from the record reads as on.
+ */
+export function allLayerOptionsOn(
+  allValues: ReadonlyArray<string>,
+): Record<string, boolean> {
+  return Object.fromEntries(allValues.map((value) => [value, true]));
+}
+
+/**
+ * Toggle one sub-filter option (e.g. a gym brand). When everything is on,
+ * tapping an option solos it; later taps toggle options normally, and
+ * deselecting the last on-option reverts to all-on rather than stranding
+ * an empty layer.
+ */
+export function toggleLayerOptionSelection(
+  selected: Readonly<Record<string, boolean>>,
+  value: string,
+  allValues: ReadonlyArray<string>,
+): Record<string, boolean> {
+  const onCount = allValues.filter((option) => selected[option] !== false).length;
+  if (onCount === allValues.length) {
+    return Object.fromEntries(allValues.map((option) => [option, option === value]));
+  }
+  const next = { ...selected, [value]: selected[value] === false };
+  if (allValues.every((option) => next[option] === false)) return allLayerOptionsOn(allValues);
+  return next;
+}

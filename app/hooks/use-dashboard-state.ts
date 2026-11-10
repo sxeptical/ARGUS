@@ -23,7 +23,7 @@ import {
 import { MRT_DISPLAY_LINE_COUNT } from "@/lib/mrt-network";
 import { HAWKER_CENTRES, MALLS } from "@/lib/amenities-data";
 import { GYMS, DEFAULT_GYM_BRAND_VISIBILITY } from "@/lib/gyms-data";
-import { filterGymsByBrand, gymBrandCounts } from "@/lib/gyms";
+import { filterGymsByBrand, orderedGymBrandCounts } from "@/lib/gyms";
 import { COMMUNITY_CLUBS } from "@/lib/community-clubs-data";
 import { PHARMACIES } from "@/lib/pharmacies-data";
 import { DEFAULT_NOTIFICATION_PREFS } from "@/lib/notifications";
@@ -187,11 +187,7 @@ export function useDashboardState() {
       setGymBrands((previous) => ({ ...previous, [brand]: on })),
     [setGymBrands],
   );
-  const resetGymBrands = useCallback(
-    () => setGymBrands(DEFAULT_GYM_BRAND_VISIBILITY),
-    [setGymBrands],
-  );
-  const gymBrandCountList = useMemo(() => gymBrandCounts(GYMS), []);
+  const gymBrandCountList = useMemo(() => orderedGymBrandCounts(GYMS), []);
   const communityClubCount = useMemo(
     () => withinRadius(COMMUNITY_CLUBS, geoFilter, (club) => [club.lng, club.lat]).length,
     [geoFilter],
@@ -427,8 +423,8 @@ export function useDashboardState() {
     setSelectedFlight: selectFlight,
     setSelectedPark: selectPark,
     setSensorVisibility,
+    setGymBrands,
     toggleGymBrand,
-    resetGymBrands,
     showBusRoute: busRoute.show,
     signalBars,
     signalsLoaded: data.signalsLoaded,

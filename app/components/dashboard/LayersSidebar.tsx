@@ -5,9 +5,9 @@ import FlightPanel from "@/app/components/FlightPanel";
 import WeatherPanel from "@/app/components/WeatherPanel";
 import {
   EyeGlyph,
-  GymBrandFilter,
   LayerFilterInput,
   LayerGroupHeader,
+  LayerOptionFilter,
 } from "@/app/components/dashboard/LayerControls";
 import { IntelPanel } from "@/app/components/dashboard/IntelPanel";
 import { useLayerList } from "@/app/hooks/use-layer-list";
@@ -35,8 +35,7 @@ export function LayersSidebar({
   setSensorVisibility,
   gymBrands,
   gymBrandCounts,
-  onGymBrandToggle,
-  onGymBrandReset,
+  onGymBrandsChange,
   visibleSensorCount,
   weather,
   weatherHistory,
@@ -52,8 +51,7 @@ export function LayersSidebar({
   setSensorVisibility: Dispatch<SetStateAction<Record<SensorKey, boolean>>>;
   gymBrands: Record<string, boolean>;
   gymBrandCounts: GymBrandCount[];
-  onGymBrandToggle: (brand: GymBrandCount["brand"], on: boolean) => void;
-  onGymBrandReset: () => void;
+  onGymBrandsChange: (next: Record<string, boolean>) => void;
   visibleSensorCount: number;
   weather: WeatherData;
   weatherHistory: WeatherHistoryPoint[];
@@ -137,12 +135,13 @@ export function LayersSidebar({
                           </div>
                         </div>
                       </div>
-                      {row.key === "gyms" ? (
-                        <GymBrandFilter
-                          counts={gymBrandCounts}
-                          visible={gymBrands}
-                          onToggle={onGymBrandToggle}
-                          onReset={onGymBrandReset}
+                      {row.key === "gyms" && sensorVisibility.gyms ? (
+                        <LayerOptionFilter
+                          summaryLabel="Brands"
+                          options={gymBrandCounts.map(({ brand, count }) => ({ value: brand, label: brand, count }))}
+                          selected={gymBrands}
+                          onChange={onGymBrandsChange}
+                          accentClass="bg-signal-gym"
                         />
                       ) : null}
                       </Fragment>

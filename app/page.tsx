@@ -75,8 +75,8 @@ export default function Home() {
     geoFilterRadiusM,
     gymBrandCountList,
     gymBrands,
+    setGymBrands,
     toggleGymBrand,
-    resetGymBrands,
     incidents,
     handleSelectStop,
     mrtEndStation,
@@ -221,8 +221,7 @@ export default function Home() {
           setSensorVisibility={setSensorVisibility}
           gymBrands={gymBrands}
           gymBrandCounts={gymBrandCountList}
-          onGymBrandToggle={toggleGymBrand}
-          onGymBrandReset={resetGymBrands}
+          onGymBrandsChange={setGymBrands}
           visibleSensorCount={visibleSensorCount}
           weather={weather}
           weatherHistory={weatherHistory}
@@ -305,8 +304,7 @@ export default function Home() {
               setSensorVisibility={setSensorVisibility}
               gymBrands={gymBrands}
               gymBrandCounts={gymBrandCountList}
-              onGymBrandToggle={toggleGymBrand}
-              onGymBrandReset={resetGymBrands}
+              onGymBrandsChange={setGymBrands}
               visibleSensorCount={visibleSensorCount}
             />
             <div className="pointer-events-none absolute left-2 top-2 border border-line bg-overlay px-2.5 py-1.5 text-[10px] uppercase tracking-[0.12em] text-ink">
