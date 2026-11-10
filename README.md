@@ -8,7 +8,7 @@ https://www.argusint.live
 [![React](https://img.shields.io/badge/React-19-61dafb?logo=react&logoColor=111)](https://react.dev/)
 [![MapLibre](https://img.shields.io/badge/MapLibre-6.16-21b8a6)](https://maplibre.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-ready-3178c6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
-[![Vercel](https://img.shields.io/badge/Deploy-Vercel-black?logo=vercel)](https://vercel.com/)
+[![Cloudflare Workers](https://img.shields.io/badge/Deploy-Cloudflare_Workers-f38020?logo=cloudflare&logoColor=white)](https://workers.cloudflare.com/)
 [![Bun](https://img.shields.io/badge/Bun-1.4-f9f1e1?logo=bun&logoColor=f472b6)](https://bun.sh/)
 
 ARGUS is a Singapore-focused intelligence dashboard built for fast situational awareness. It pulls live public and commercial feeds into a dense terminal-style interface: bus stops, bus arrival timings, MRT overlays, traffic cameras, weather/PSI, news, and live aircraft around Singapore airspace.
@@ -157,15 +157,32 @@ bun run lint     # ESLint
 bun run test     # Unit and regression tests
 bun run typecheck # Native TypeScript 7 check
 bun run verify   # Typecheck, lint, test, and production build
+bun run preview  # Build for Workers and run locally in workerd
+bun run deploy   # Build for Workers and deploy to Cloudflare
 ```
+
+---
+
+## Deployment
+
+ARGUS runs on Cloudflare Workers via [OpenNext](https://opennext.js.org/cloudflare). Worker config lives in `wrangler.jsonc`.
+
+```bash
+bunx wrangler login
+bunx wrangler secret put LTA_API_KEY
+bunx wrangler secret put AVIATIONSTACK_API_KEY
+bun run deploy
+```
+
+For `bun run preview`, Wrangler reads keys from `.env.local`.
 
 ---
 
 ## Notes
 
 - Flight direction is best-effort. Aviationstack airport metadata is used when available; otherwise heading relative to Changi is used.
-- Serverless memory is not guaranteed across Vercel invocations, so cached fallbacks help during warm periods but should not be treated as durable storage.
-- The bundled cache and rate limiter are in-memory, per-runtime-instance protections. **In production on Vercel, each serverless instance has its own rate limit state** — limits are not shared across instances or cold starts. For hard cross-instance limits, use Vercel Firewall, an edge middleware KV store, or Redis. On Vercel (`VERCEL=1`) the IP extractor trusts `x-vercel-forwarded-for`, which the edge overwrites. Self-hosted deployments ignore that header unless `ARGUS_TRUST_PROXY_HEADERS=true` is set behind a trusted proxy.
+- Worker isolate memory is not guaranteed across requests, so cached fallbacks help during warm periods but should not be treated as durable storage.
+- The bundled cache and rate limiter are in-memory, per-isolate protections. **In production on Cloudflare, each Worker isolate has its own rate limit state** — limits are not shared across isolates, locations, or cold starts. For hard cross-isolate limits, use Cloudflare WAF rate limiting rules or the Workers Rate Limiting binding. On Cloudflare (`ARGUS_ON_CLOUDFLARE=1`, set in `wrangler.jsonc`) the IP extractor trusts `cf-connecting-ip`, which the edge overwrites. Self-hosted deployments ignore that header unless `ARGUS_TRUST_PROXY_HEADERS=true` is set behind a trusted proxy.
 - API rate limits matter. Flight polling is the most likely source of quota pressure.
 
 ---

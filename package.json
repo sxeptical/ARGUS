@@ -8,15 +8,17 @@
     "dev": "next dev",
     "build": "node ./scripts/copy-maplibre-worker.mjs && next build",
     "start": "next start",
+    "preview": "node ./scripts/copy-maplibre-worker.mjs && opennextjs-cloudflare build && opennextjs-cloudflare preview",
+    "deploy": "node ./scripts/copy-maplibre-worker.mjs && opennextjs-cloudflare build && opennextjs-cloudflare deploy",
     "lint": "eslint",
     "test": "bun test",
     "typecheck": "tsc --noEmit",
     "verify": "bun run typecheck && bun run lint && bun test && bun run build"
   },
   "dependencies": {
-    "@vercel/analytics": "^2.0.1",
+    "@opennextjs/cloudflare": "1.20.16",
     "maplibre-gl": "^6.16.0",
-    "next": "16.3.5",
+    "next": "16.4.6",
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "swr": "^2.5.1",
@@ -29,8 +31,9 @@
     "@types/react-dom": "^19.3.0",
     "bun-types": "^1.4.4",
     "eslint": "^9.39.5",
-    "eslint-config-next": "16.3.5",
+    "eslint-config-next": "16.4.6",
     "tailwindcss": "^4.3.4",
-    "typescript": "6.0.3"
+    "typescript": "6.0.3",
+    "wrangler": "4.159.0"
   }
 }

@@ -1,4 +1,5 @@
 import type { NextConfig } from "next";
+import { initOpenNextCloudflareForDev } from "@opennextjs/cloudflare";
 
 const isDev = process.env.NODE_ENV !== "production";
 
@@ -19,15 +20,17 @@ const securityHeaders = [
     value: [
       "default-src 'self'",
       // Next.js needs inline scripts, plus eval for HMR in development.
-      `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ""}`,
+      // Cloudflare Web Analytics injects its beacon from cloudflareinsights.com.
+      `script-src 'self' 'unsafe-inline' https://static.cloudflareinsights.com${isDev ? " 'unsafe-eval'" : ""}`,
       // Tailwind emits inline styles at runtime; runtime style injection.
       "style-src 'self' 'unsafe-inline'",
       // Camera images (data.gov.sg, LTA S3), OpenFreeMap raster assets,
       // Wikimedia Commons place photos (thumb./upload.wikimedia.org), and
       // NEA's hawker centre photos.
       "img-src 'self' data: blob: https://images.data.gov.sg https://datamall2.mytransport.sg https://dm-traffic-camera-itsc.s3.ap-southeast-1.amazonaws.com https://tiles.openfreemap.org https://thumb.wikimedia.org https://upload.wikimedia.org https://www.nea.gov.sg",
-      // OpenFreeMap style, vector/raster tiles, sprites, and glyphs.
-      "connect-src 'self' https://tiles.openfreemap.org",
+      // OpenFreeMap style, vector/raster tiles, sprites, and glyphs, plus the
+      // Cloudflare Web Analytics beacon endpoint.
+      "connect-src 'self' https://tiles.openfreemap.org https://cloudflareinsights.com",
       // Google Fonts (loaded via stylesheet) and self-hosted font data URIs.
       "font-src 'self' data: https://fonts.gstatic.com",
       // MapLibre's worker is copied to public/maplibre/ at build time.
@@ -52,7 +55,7 @@ const nextConfig: NextConfig = {
   ],
   images: {
     // Disabled because camera images are dynamic external URLs from LTA;
-    // unoptimized avoids Next.js image processing overhead and cost on Vercel.
+    // unoptimized avoids Next.js image processing overhead and cost.
     unoptimized: true,
     remotePatterns: [
       {
@@ -85,3 +88,6 @@ const nextConfig: NextConfig = {
 };
 
 export default nextConfig;
+
+// Exposes wrangler.jsonc bindings to `next dev` via getCloudflareContext().
+initOpenNextCloudflareForDev();

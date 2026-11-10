@@ -1,13 +1,16 @@
+import { getCloudflareContext } from "@opennextjs/cloudflare";
+
 export const dynamic = "force-dynamic";
 
+// CF_VERSION_METADATA changes on every Workers deploy; see wrangler.jsonc.
 const getDeploymentVersion = (): string => {
-  const candidates = [
-    process.env.VERCEL_GIT_COMMIT_SHA,
-    process.env.VERCEL_DEPLOYMENT_ID,
-    process.env.NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA,
-  ];
-
-  return candidates.find((value) => value?.trim())?.trim() ?? "development";
+  try {
+    const id = getCloudflareContext().env.CF_VERSION_METADATA?.id;
+    if (id?.trim()) return id.trim();
+  } catch {
+    // Not running on Workers (e.g. plain `next start`).
+  }
+  return "development";
 };
 
 export async function GET() {

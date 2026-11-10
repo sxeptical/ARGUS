@@ -64,19 +64,19 @@ export function createRateLimiter() {
 export const rateLimiter = createRateLimiter();
 
 /**
- * Trust Vercel's forwarding header on Vercel, or standard proxy headers only
- * when `ARGUS_TRUST_PROXY_HEADERS=true`. Otherwise share an `"unknown"` bucket
- * to prevent clients spoofing separate rate limits. Trusted requests without
- * headers fall back to localhost. `x-vercel-forwarded-for` is ignored off
- * Vercel, where clients can set it themselves.
+ * Trust Cloudflare's `cf-connecting-ip` on Cloudflare Workers, or standard
+ * proxy headers only when `ARGUS_TRUST_PROXY_HEADERS=true`. Otherwise share an
+ * `"unknown"` bucket to prevent clients spoofing separate rate limits. Trusted
+ * requests without headers fall back to localhost. `cf-connecting-ip` is
+ * ignored off Cloudflare, where clients can set it themselves.
  */
 export function extractClientIp(request: Request): string {
-  const onVercel = process.env.VERCEL === "1";
+  const onCloudflare = process.env.ARGUS_ON_CLOUDFLARE === "1";
   const trustProxy = process.env.ARGUS_TRUST_PROXY_HEADERS === "true";
 
-  if (onVercel) {
-    const vercelForwarded = request.headers.get("x-vercel-forwarded-for");
-    if (vercelForwarded) return vercelForwarded.split(",")[0].trim();
+  if (onCloudflare) {
+    const connectingIp = request.headers.get("cf-connecting-ip");
+    if (connectingIp) return connectingIp.trim();
   }
 
   if (trustProxy) {
