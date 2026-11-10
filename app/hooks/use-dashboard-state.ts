@@ -27,12 +27,15 @@ import { filterGymsByBrand, orderedGymBrandCounts } from "@/lib/gyms";
 import { COMMUNITY_CLUBS } from "@/lib/community-clubs-data";
 import { PHARMACIES } from "@/lib/pharmacies-data";
 import { HOTELS } from "@/lib/hotels-data";
+import { HERITAGE_SITES, DEFAULT_HERITAGE_KIND_VISIBILITY } from "@/lib/heritage-data";
+import { filterHeritageByKind, orderedHeritageKindCounts } from "@/lib/heritage";
 import { DEFAULT_NOTIFICATION_PREFS } from "@/lib/notifications";
 import { PARKS_GEOJSON } from "@/lib/parks-data";
 import {
   GEO_FILTER_CENTER_KEY,
   GEO_FILTER_RADIUS_KEY,
   GYM_BRANDS_KEY,
+  HERITAGE_KINDS_KEY,
   NOTIFICATION_PREFS_KEY,
   parseGeoFilterCenter,
   parseGeoFilterRadius,
@@ -47,6 +50,8 @@ import type {
   Gym,
   GymBrand,
   HawkerCentre,
+  HeritageKind,
+  HeritageSite,
   Hotel,
   Mall,
   Pharmacy,
@@ -66,7 +71,7 @@ export type SensorRow = {
 export type SensorStatsRow = Omit<SensorRow, "key" | "dot">;
 
 /** Which static amenity the map (or search) picked, by its bundle id. */
-export type AmenitySelectionTarget = { type: "mall" | "hawker" | "gym" | "community-club" | "pharmacy" | "hotel"; id: string };
+export type AmenitySelectionTarget = { type: "mall" | "hawker" | "gym" | "community-club" | "pharmacy" | "hotel" | "heritage"; id: string };
 
 /** A selected amenity resolved to its bundle record. */
 export type SelectedAmenity =
@@ -75,7 +80,8 @@ export type SelectedAmenity =
   | { type: "gym"; gym: Gym }
   | { type: "community-club"; club: CommunityClub }
   | { type: "pharmacy"; pharmacy: Pharmacy }
-  | { type: "hotel"; hotel: Hotel };
+  | { type: "hotel"; hotel: Hotel }
+  | { type: "heritage"; site: HeritageSite };
 
 export function useDashboardState() {
   // Declared before the sources: carparks and EV chargers only load while
@@ -98,6 +104,12 @@ export function useDashboardState() {
     GYM_BRANDS_KEY,
     DEFAULT_GYM_BRAND_VISIBILITY,
     (stored) => parseSensorVisibility(stored, DEFAULT_GYM_BRAND_VISIBILITY),
+  );
+  // Also declared before the sources: the heritage layer and its count follow it.
+  const [heritageKinds, setHeritageKinds] = usePersistentState<Record<HeritageKind, boolean>>(
+    HERITAGE_KINDS_KEY,
+    DEFAULT_HERITAGE_KIND_VISIBILITY,
+    (stored) => parseSensorVisibility(stored, DEFAULT_HERITAGE_KIND_VISIBILITY),
   );
   const data = useDashboardSources(
     {
@@ -203,6 +215,17 @@ export function useDashboardState() {
     () => withinRadius(HOTELS, geoFilter, (hotel) => [hotel.lng, hotel.lat]).length,
     [geoFilter],
   );
+  const heritageCount = useMemo(
+    () => withinRadius(filterHeritageByKind(HERITAGE_SITES, heritageKinds), geoFilter, (site) => [site.lng, site.lat]).length,
+    [geoFilter, heritageKinds],
+  );
+
+  const toggleHeritageKind = useCallback(
+    (kind: HeritageKind, on: boolean) =>
+      setHeritageKinds((previous) => ({ ...previous, [kind]: on })),
+    [setHeritageKinds],
+  );
+  const heritageKindCountList = useMemo(() => orderedHeritageKindCounts(HERITAGE_SITES), []);
 
   const selectedCamera = useMemo(
     () =>
@@ -282,6 +305,10 @@ export function useDashboardState() {
       const hotel = HOTELS.find((hotel) => hotel.id === selectedAmenityId.id) ?? null;
       return hotel ? { type: "hotel", hotel } : null;
     }
+    if (selectedAmenityId.type === "heritage") {
+      const site = HERITAGE_SITES.find((site) => site.id === selectedAmenityId.id) ?? null;
+      return site ? { type: "heritage", site } : null;
+    }
     const hawker =
       HAWKER_CENTRES.find((hawker) => hawker.id === selectedAmenityId.id) ??
       null;
@@ -320,6 +347,7 @@ export function useDashboardState() {
     communityClubs: communityClubCount,
     pharmacies: pharmacyCount,
     hotels: hotelCount,
+    heritage: heritageCount,
   };
   const sensorRows: SensorRow[] = LAYERS.map((layer) => ({
     key: layer.key,
@@ -400,6 +428,10 @@ export function useDashboardState() {
     geoFilterRadiusM,
     gymBrandCountList,
     gymBrands,
+    heritageKindCountList,
+    heritageKinds,
+    setHeritageKinds,
+    toggleHeritageKind,
     clearGeoFilter,
     pickGeoFilterCenter,
     setGeoFilterPicking,

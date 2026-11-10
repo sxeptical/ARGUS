@@ -17,6 +17,8 @@ import type {
 } from "@/app/hooks/use-dashboard-state";
 import type { SensorKey } from "@/lib/layers";
 import type { GymBrandCount } from "@/lib/gyms";
+import type { HeritageKindCount } from "@/lib/heritage";
+import { HERITAGE_KIND_LABEL } from "@/lib/heritage";
 import { FLIGHTS_ENABLED } from "@/lib/features";
 import type {
   FlightState,
@@ -36,6 +38,9 @@ export function LayersSidebar({
   gymBrands,
   gymBrandCounts,
   onGymBrandsChange,
+  heritageKinds,
+  heritageKindCounts,
+  onHeritageKindsChange,
   visibleSensorCount,
   weather,
   weatherHistory,
@@ -52,6 +57,9 @@ export function LayersSidebar({
   gymBrands: Record<string, boolean>;
   gymBrandCounts: GymBrandCount[];
   onGymBrandsChange: (next: Record<string, boolean>) => void;
+  heritageKinds: Record<string, boolean>;
+  heritageKindCounts: HeritageKindCount[];
+  onHeritageKindsChange: (next: Record<string, boolean>) => void;
   visibleSensorCount: number;
   weather: WeatherData;
   weatherHistory: WeatherHistoryPoint[];
@@ -142,6 +150,15 @@ export function LayersSidebar({
                           selected={gymBrands}
                           onChange={onGymBrandsChange}
                           accentClass="bg-signal-gym"
+                        />
+                      ) : null}
+                      {row.key === "heritage" && sensorVisibility.heritage ? (
+                        <LayerOptionFilter
+                          summaryLabel="Types"
+                          options={heritageKindCounts.map(({ kind, count }) => ({ value: kind, label: HERITAGE_KIND_LABEL[kind], count }))}
+                          selected={heritageKinds}
+                          onChange={onHeritageKindsChange}
+                          accentClass="bg-signal-heritage"
                         />
                       ) : null}
                       </Fragment>

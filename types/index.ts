@@ -341,6 +341,30 @@ export interface CommunityClub {
 }
 
 /**
+ * Heritage place from the static heritage bundle: NHB historic sites and
+ * national monuments (data.gov.sg), plus OpenStreetMap museums. `website`
+ * is the Roots.sg article for NHB records (only when it resolves) or the
+ * OSM `website` tag for museums; `description` is the NHB blurb.
+ */
+export type HeritageKind = "historic-site" | "monument" | "museum";
+
+export type HeritageSource = "nhb" | "osm";
+
+export interface HeritageSite {
+  id: string;
+  name: string;
+  kind: HeritageKind;
+  address: string | null;
+  description: string | null;
+  website: string | null;
+  lat: number;
+  lng: number;
+  /** Wikimedia Commons photos (credited per file), when the site has an item. */
+  photos: PlacePhoto[];
+  source: HeritageSource;
+}
+
+/**
  * Retail pharmacy from the static pharmacy bundle (HSA via data.gov.sg).
  */
 export interface Pharmacy {
@@ -372,7 +396,7 @@ export interface AmenitiesBundle {
   malls: Mall[];
 }
 
-export type SearchResultType = "bus-stop" | "mrt" | "park" | "mall" | "hawker" | "gym" | "community-club" | "pharmacy" | "hotel";
+export type SearchResultType = "bus-stop" | "mrt" | "park" | "mall" | "hawker" | "gym" | "community-club" | "pharmacy" | "hotel" | "heritage";
 
 export interface MapSearchResult {
   id: string;

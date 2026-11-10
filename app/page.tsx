@@ -35,6 +35,8 @@ import { buildPharmacySearchResults } from "@/lib/pharmacies";
 import { PHARMACIES } from "@/lib/pharmacies-data";
 import { buildHotelSearchResults } from "@/lib/hotels";
 import { HOTELS } from "@/lib/hotels-data";
+import { buildHeritageSearchResults } from "@/lib/heritage";
+import { HERITAGE_SITES } from "@/lib/heritage-data";
 import { buildParkSearchResults } from "@/lib/parks";
 import { PARKS_GEOJSON } from "@/lib/parks-data";
 import { formatRadius, withinRadius } from "@/lib/geo-filter";
@@ -51,9 +53,10 @@ const AMENITY_SEARCH_RESULTS = [
   ...buildCommunityClubSearchResults(COMMUNITY_CLUBS),
   ...buildPharmacySearchResults(PHARMACIES),
   ...buildHotelSearchResults(HOTELS),
+  ...buildHeritageSearchResults(HERITAGE_SITES),
   ...buildParkSearchResults(PARKS_GEOJSON),
 ];
-const SEARCH_LAYER_BY_TYPE = { mall: "malls", hawker: "hawkers", gym: "gyms", "community-club": "communityClubs", pharmacy: "pharmacies", hotel: "hotels", park: "parks" } as const;
+const SEARCH_LAYER_BY_TYPE = { mall: "malls", hawker: "hawkers", gym: "gyms", "community-club": "communityClubs", pharmacy: "pharmacies", hotel: "hotels", heritage: "heritage", park: "parks" } as const;
 
 export default function Home() {
   const {
@@ -80,6 +83,10 @@ export default function Home() {
     gymBrands,
     setGymBrands,
     toggleGymBrand,
+    heritageKindCountList,
+    heritageKinds,
+    setHeritageKinds,
+    toggleHeritageKind,
     incidents,
     handleSelectStop,
     mrtEndStation,
@@ -237,6 +244,9 @@ export default function Home() {
           gymBrands={gymBrands}
           gymBrandCounts={gymBrandCountList}
           onGymBrandsChange={setGymBrands}
+          heritageKinds={heritageKinds}
+          heritageKindCounts={heritageKindCountList}
+          onHeritageKindsChange={setHeritageKinds}
           visibleSensorCount={visibleSensorCount}
           weather={weather}
           weatherHistory={weatherHistory}
@@ -257,6 +267,7 @@ export default function Home() {
               airQualityOverlay={airQualityOverlay}
               sensorVisibility={sensorVisibility}
               gymBrands={gymBrands}
+              heritageKinds={heritageKinds}
               onStopClick={handleSelectStop}
               onCameraClick={setSelectedCamera}
               onFlightClick={setSelectedFlight}
@@ -283,7 +294,7 @@ export default function Home() {
                 if (result.type === "bus-stop") {
                   const stop = busStops.find((item) => item.BusStopCode === result.id);
                   if (stop) handleSelectStop(stop);
-                } else if (result.type === "mall" || result.type === "hawker" || result.type === "gym" || result.type === "community-club" || result.type === "pharmacy" || result.type === "hotel") {
+                } else if (result.type === "mall" || result.type === "hawker" || result.type === "gym" || result.type === "community-club" || result.type === "pharmacy" || result.type === "hotel" || result.type === "heritage") {
                   // Open it in focus mode, not just on the map, and make sure
                   // the searched place is actually drawn when we get there.
                   setSelectedAmenity({ type: result.type, id: result.id });
@@ -294,6 +305,10 @@ export default function Home() {
                   if (result.type === "gym") {
                     const gym = GYMS.find((candidate) => candidate.id === result.id);
                     if (gym) toggleGymBrand(gym.brand, true);
+                  }
+                  if (result.type === "heritage") {
+                    const site = HERITAGE_SITES.find((candidate) => candidate.id === result.id);
+                    if (site) toggleHeritageKind(site.kind, true);
                   }
                 } else if (result.type === "park") {
                   const park = PARKS_GEOJSON.features.find(
@@ -316,6 +331,9 @@ export default function Home() {
               gymBrands={gymBrands}
               gymBrandCounts={gymBrandCountList}
               onGymBrandsChange={setGymBrands}
+              heritageKinds={heritageKinds}
+              heritageKindCounts={heritageKindCountList}
+              onHeritageKindsChange={setHeritageKinds}
               visibleSensorCount={visibleSensorCount}
             />
             <div className="pointer-events-none absolute left-2 top-2 border border-line bg-overlay px-2.5 py-1.5 text-[10px] uppercase tracking-[0.12em] text-ink">
@@ -434,7 +452,7 @@ export default function Home() {
       <DashboardFooter />
 
       <FocusDialog
-        key={selectedFlight?.id ?? selectedPark?.name ?? (selectedAmenity ? (selectedAmenity.type === "mall" ? selectedAmenity.mall.id : selectedAmenity.type === "hawker" ? selectedAmenity.hawker.id : selectedAmenity.type === "gym" ? selectedAmenity.gym.id : selectedAmenity.type === "community-club" ? selectedAmenity.club.id : selectedAmenity.type === "pharmacy" ? selectedAmenity.pharmacy.id : selectedAmenity.hotel.id) : "none")}
+        key={selectedFlight?.id ?? selectedPark?.name ?? (selectedAmenity ? (selectedAmenity.type === "mall" ? selectedAmenity.mall.id : selectedAmenity.type === "hawker" ? selectedAmenity.hawker.id : selectedAmenity.type === "gym" ? selectedAmenity.gym.id : selectedAmenity.type === "community-club" ? selectedAmenity.club.id : selectedAmenity.type === "pharmacy" ? selectedAmenity.pharmacy.id : selectedAmenity.type === "heritage" ? selectedAmenity.site.id : selectedAmenity.hotel.id) : "none")}
         flight={selectedFlight}
         park={selectedPark}
         amenity={selectedAmenity}

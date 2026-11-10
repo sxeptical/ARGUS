@@ -10,6 +10,7 @@ import { GYM_CATEGORY_LABEL, GYM_SOURCE_HINT } from "@/lib/gyms";
 import { COMMUNITY_CLUB_KIND_LABEL, COMMUNITY_CLUB_SOURCE_HINT } from "@/lib/community-clubs";
 import { PHARMACY_SOURCE_HINT } from "@/lib/pharmacies";
 import { HOTEL_SOURCE_HINT } from "@/lib/hotels";
+import { HERITAGE_KIND_LABEL, HERITAGE_SOURCE_HINT } from "@/lib/heritage";
 import { formatAltitudeFeet, formatSpeedKmh } from "@/lib/formatters";
 import { photosForPark } from "@/lib/park-photos";
 import { PARK_KIND_TITLE } from "@/lib/parks";
@@ -140,6 +141,35 @@ export function FocusDialog({
             {pharmacy.address ? <KeyValue label="Address" value={pharmacy.address} /> : null}
           </div>
           <p className="text-[11px] leading-relaxed text-muted">{PHARMACY_SOURCE_HINT}</p>
+        </div>
+      </FocusShell>
+    );
+  }
+
+  if (amenity?.type === "heritage") {
+    const { site } = amenity;
+    return (
+      <FocusShell kind={HERITAGE_KIND_LABEL[site.kind]} title={site.name} onClose={onClose}>
+        <div className="space-y-2 p-4 text-xs">
+          <PlacePhotoGallery key={site.id} name={site.name} photos={site.photos} />
+          <div>
+            {site.description ? <KeyValue label="About" value={site.description} /> : null}
+            {site.address ? <KeyValue label="Address" value={site.address} /> : null}
+            {site.website ? (
+              <div className="flex gap-2 py-1">
+                <span className="data-label w-20 shrink-0">{site.source === "nhb" ? "Roots.sg" : "Website"}</span>
+                <a
+                  href={site.website}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="min-w-0 break-all text-info underline decoration-info/40 hover:decoration-info"
+                >
+                  {site.source === "nhb" ? "More on Roots.sg" : site.website}
+                </a>
+              </div>
+            ) : null}
+          </div>
+          <p className="text-[11px] leading-relaxed text-muted">{HERITAGE_SOURCE_HINT[site.source]}</p>
         </div>
       </FocusShell>
     );

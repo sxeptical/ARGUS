@@ -13,6 +13,8 @@ import { useLayerList } from "@/app/hooks/use-layer-list";
 import type { SensorRow } from "@/app/hooks/use-dashboard-state";
 import type { SensorKey } from "@/lib/layers";
 import type { GymBrandCount } from "@/lib/gyms";
+import type { HeritageKindCount } from "@/lib/heritage";
+import { HERITAGE_KIND_LABEL } from "@/lib/heritage";
 
 export function MobileLayersDrawer({
   sensorRows,
@@ -21,6 +23,9 @@ export function MobileLayersDrawer({
   gymBrands,
   gymBrandCounts,
   onGymBrandsChange,
+  heritageKinds,
+  heritageKindCounts,
+  onHeritageKindsChange,
   visibleSensorCount,
 }: {
   sensorRows: ReadonlyArray<SensorRow>;
@@ -29,6 +34,9 @@ export function MobileLayersDrawer({
   gymBrands: Record<string, boolean>;
   gymBrandCounts: GymBrandCount[];
   onGymBrandsChange: (next: Record<string, boolean>) => void;
+  heritageKinds: Record<string, boolean>;
+  heritageKindCounts: HeritageKindCount[];
+  onHeritageKindsChange: (next: Record<string, boolean>) => void;
   visibleSensorCount: number;
 }) {
   const [open, setOpen] = useState(false);
@@ -221,6 +229,15 @@ export function MobileLayersDrawer({
                             selected={gymBrands}
                             onChange={onGymBrandsChange}
                             accentClass="bg-signal-gym"
+                          />
+                        ) : null}
+                        {row.key === "heritage" && visible ? (
+                          <LayerOptionFilter
+                            summaryLabel="Types"
+                            options={heritageKindCounts.map(({ kind, count }) => ({ value: kind, label: HERITAGE_KIND_LABEL[kind], count }))}
+                            selected={heritageKinds}
+                            onChange={onHeritageKindsChange}
+                            accentClass="bg-signal-heritage"
                           />
                         ) : null}
                         </Fragment>
