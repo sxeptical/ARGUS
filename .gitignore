@@ -54,4 +54,5 @@ next-env.d.ts
 # npm lockfile (project uses bun)
 package-lock.json
 
+.gymresearch
 .ua
