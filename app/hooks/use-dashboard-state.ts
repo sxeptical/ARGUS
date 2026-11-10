@@ -23,6 +23,7 @@ import {
 import { MRT_DISPLAY_LINE_COUNT } from "@/lib/mrt-network";
 import { HAWKER_CENTRES, MALLS } from "@/lib/amenities-data";
 import { GYMS } from "@/lib/gyms-data";
+import { COMMUNITY_CLUBS } from "@/lib/community-clubs-data";
 import { DEFAULT_NOTIFICATION_PREFS } from "@/lib/notifications";
 import { PARKS_GEOJSON } from "@/lib/parks-data";
 import {
@@ -36,6 +37,7 @@ import {
 } from "@/lib/ui-preferences";
 import type { ParkFeatureKind } from "@/types";
 import type {
+  CommunityClub,
   FlightState,
   Gym,
   HawkerCentre,
@@ -56,13 +58,14 @@ export type SensorRow = {
 export type SensorStatsRow = Omit<SensorRow, "key" | "dot">;
 
 /** Which static amenity the map (or search) picked, by its bundle id. */
-export type AmenitySelectionTarget = { type: "mall" | "hawker" | "gym"; id: string };
+export type AmenitySelectionTarget = { type: "mall" | "hawker" | "gym" | "community-club"; id: string };
 
 /** A selected amenity resolved to its bundle record. */
 export type SelectedAmenity =
   | { type: "mall"; mall: Mall }
   | { type: "hawker"; hawker: HawkerCentre }
-  | { type: "gym"; gym: Gym };
+  | { type: "gym"; gym: Gym }
+  | { type: "community-club"; club: CommunityClub };
 
 export function useDashboardState() {
   // Declared before the sources: carparks and EV chargers only load while
@@ -165,6 +168,10 @@ export function useDashboardState() {
     () => withinRadius(GYMS, geoFilter, (g) => [g.lng, g.lat]).length,
     [geoFilter],
   );
+  const communityClubCount = useMemo(
+    () => withinRadius(COMMUNITY_CLUBS, geoFilter, (club) => [club.lng, club.lat]).length,
+    [geoFilter],
+  );
 
   const selectedCamera = useMemo(
     () =>
@@ -230,6 +237,11 @@ export function useDashboardState() {
       const gym = GYMS.find((gym) => gym.id === selectedAmenityId.id) ?? null;
       return gym ? { type: "gym", gym } : null;
     }
+    if (selectedAmenityId.type === "community-club") {
+      const club =
+        COMMUNITY_CLUBS.find((club) => club.id === selectedAmenityId.id) ?? null;
+      return club ? { type: "community-club", club } : null;
+    }
     const hawker =
       HAWKER_CENTRES.find((hawker) => hawker.id === selectedAmenityId.id) ??
       null;
@@ -265,6 +277,7 @@ export function useDashboardState() {
     malls: mallCount,
     hawkers: hawkerCount,
     gyms: gymCount,
+    communityClubs: communityClubCount,
   };
   const sensorRows: SensorRow[] = LAYERS.map((layer) => ({
     key: layer.key,

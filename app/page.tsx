@@ -29,6 +29,8 @@ import { buildHawkerSearchResults, buildMallSearchResults } from "@/lib/amenitie
 import { HAWKER_CENTRES, MALLS } from "@/lib/amenities-data";
 import { buildGymSearchResults } from "@/lib/gyms";
 import { GYMS } from "@/lib/gyms-data";
+import { buildCommunityClubSearchResults } from "@/lib/community-clubs";
+import { COMMUNITY_CLUBS } from "@/lib/community-clubs-data";
 import { buildParkSearchResults } from "@/lib/parks";
 import { PARKS_GEOJSON } from "@/lib/parks-data";
 import { formatRadius, withinRadius } from "@/lib/geo-filter";
@@ -42,9 +44,10 @@ const AMENITY_SEARCH_RESULTS = [
   ...buildMallSearchResults(MALLS),
   ...buildHawkerSearchResults(HAWKER_CENTRES),
   ...buildGymSearchResults(GYMS),
+  ...buildCommunityClubSearchResults(COMMUNITY_CLUBS),
   ...buildParkSearchResults(PARKS_GEOJSON),
 ];
-const SEARCH_LAYER_BY_TYPE = { mall: "malls", hawker: "hawkers", gym: "gyms", park: "parks" } as const;
+const SEARCH_LAYER_BY_TYPE = { mall: "malls", hawker: "hawkers", gym: "gyms", "community-club": "communityClubs", park: "parks" } as const;
 
 export default function Home() {
   const {
@@ -263,7 +266,7 @@ export default function Home() {
                 if (result.type === "bus-stop") {
                   const stop = busStops.find((item) => item.BusStopCode === result.id);
                   if (stop) handleSelectStop(stop);
-                } else if (result.type === "mall" || result.type === "hawker" || result.type === "gym") {
+                } else if (result.type === "mall" || result.type === "hawker" || result.type === "gym" || result.type === "community-club") {
                   // Open it in focus mode, not just on the map, and make sure
                   // the searched place is actually drawn when we get there.
                   setSelectedAmenity({ type: result.type, id: result.id });
@@ -400,7 +403,7 @@ export default function Home() {
       <DashboardFooter />
 
       <FocusDialog
-        key={selectedFlight?.id ?? selectedPark?.name ?? (selectedAmenity ? (selectedAmenity.type === "mall" ? selectedAmenity.mall.id : selectedAmenity.type === "hawker" ? selectedAmenity.hawker.id : selectedAmenity.gym.id) : "none")}
+        key={selectedFlight?.id ?? selectedPark?.name ?? (selectedAmenity ? (selectedAmenity.type === "mall" ? selectedAmenity.mall.id : selectedAmenity.type === "hawker" ? selectedAmenity.hawker.id : selectedAmenity.type === "gym" ? selectedAmenity.gym.id : selectedAmenity.club.id) : "none")}
         flight={selectedFlight}
         park={selectedPark}
         amenity={selectedAmenity}

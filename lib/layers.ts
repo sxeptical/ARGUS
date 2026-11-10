@@ -27,7 +27,8 @@ export type SensorKey =
   | "evChargers"
   | "malls"
   | "hawkers"
-  | "gyms";
+  | "gyms"
+  | "communityClubs";
 
 /**
  * Layer groups, in display order. Groups are what keep the panel readable as
@@ -187,6 +188,15 @@ export const LAYERS: readonly LayerDefinition[] = [
     dot: "bg-signal-gym",
     legend: [{ kind: "dot", tone: "bg-signal-gym", label: "Gyms" }],
   },
+  {
+    key: "communityClubs",
+    group: "amenities",
+    label: "Community Clubs",
+    note: "PA outlets",
+    tone: "text-signal-community-club",
+    dot: "bg-signal-community-club",
+    legend: [{ kind: "dot", tone: "bg-signal-community-club", label: "Community Clubs" }],
+  },
 ];
 
 export const LAYER_BY_KEY: ReadonlyMap<SensorKey, LayerDefinition> = new Map(
@@ -206,6 +216,7 @@ export const DEFAULT_SENSOR_VISIBILITY: Record<SensorKey, boolean> = {
   malls: false,
   hawkers: false,
   gyms: false,
+  communityClubs: false,
 };
 
 /**

@@ -7,6 +7,7 @@ import { hasStoreDirectory, MallStoreDirectory } from "@/app/components/dashboar
 import { PlacePhotoGallery } from "@/app/components/dashboard/PlacePhotoGallery";
 import { describeHawkerClosure, formatOpeningHours } from "@/lib/amenities";
 import { GYM_CATEGORY_LABEL, GYM_SOURCE_HINT } from "@/lib/gyms";
+import { COMMUNITY_CLUB_KIND_LABEL, COMMUNITY_CLUB_SOURCE_HINT } from "@/lib/community-clubs";
 import { formatAltitudeFeet, formatSpeedKmh } from "@/lib/formatters";
 import { photosForPark } from "@/lib/park-photos";
 import { PARK_KIND_TITLE } from "@/lib/parks";
@@ -107,6 +108,21 @@ export function FocusDialog({
             ) : null}
           </div>
           <p className="text-[11px] leading-relaxed text-muted">{GYM_SOURCE_HINT[gym.source]}</p>
+        </div>
+      </FocusShell>
+    );
+  }
+
+  if (amenity?.type === "community-club") {
+    const { club } = amenity;
+    return (
+      <FocusShell kind={COMMUNITY_CLUB_KIND_LABEL[club.kind]} title={club.name} onClose={onClose}>
+        <div className="space-y-2 p-4 text-xs">
+          <div>
+            <KeyValue label="Type" value={COMMUNITY_CLUB_KIND_LABEL[club.kind]} />
+            {club.address ? <KeyValue label="Address" value={club.address} /> : null}
+          </div>
+          <p className="text-[11px] leading-relaxed text-muted">{COMMUNITY_CLUB_SOURCE_HINT}</p>
         </div>
       </FocusShell>
     );

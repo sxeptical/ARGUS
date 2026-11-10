@@ -285,6 +285,21 @@ export interface Gym {
   source: GymSource;
 }
 
+/**
+ * People's Association outlet from the static community-club bundle
+ * (data.gov.sg). `passionwave` outlets are PA's sea-sports facilities.
+ */
+export type CommunityClubKind = "community-club" | "passionwave";
+
+export interface CommunityClub {
+  id: string;
+  name: string;
+  kind: CommunityClubKind;
+  address: string | null;
+  lat: number;
+  lng: number;
+}
+
 export interface MallStore {
   name: string;
   unit: string | null;
@@ -306,7 +321,7 @@ export interface AmenitiesBundle {
   malls: Mall[];
 }
 
-export type SearchResultType = "bus-stop" | "mrt" | "park" | "mall" | "hawker" | "gym";
+export type SearchResultType = "bus-stop" | "mrt" | "park" | "mall" | "hawker" | "gym" | "community-club";
 
 export interface MapSearchResult {
   id: string;
