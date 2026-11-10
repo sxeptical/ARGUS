@@ -9,6 +9,7 @@ import { describeHawkerClosure, formatOpeningHours } from "@/lib/amenities";
 import { GYM_CATEGORY_LABEL, GYM_SOURCE_HINT } from "@/lib/gyms";
 import { COMMUNITY_CLUB_KIND_LABEL, COMMUNITY_CLUB_SOURCE_HINT } from "@/lib/community-clubs";
 import { PHARMACY_SOURCE_HINT } from "@/lib/pharmacies";
+import { HOTEL_SOURCE_HINT } from "@/lib/hotels";
 import { formatAltitudeFeet, formatSpeedKmh } from "@/lib/formatters";
 import { photosForPark } from "@/lib/park-photos";
 import { PARK_KIND_TITLE } from "@/lib/parks";
@@ -139,6 +140,22 @@ export function FocusDialog({
             {pharmacy.address ? <KeyValue label="Address" value={pharmacy.address} /> : null}
           </div>
           <p className="text-[11px] leading-relaxed text-muted">{PHARMACY_SOURCE_HINT}</p>
+        </div>
+      </FocusShell>
+    );
+  }
+
+  if (amenity?.type === "hotel") {
+    const { hotel } = amenity;
+    return (
+      <FocusShell kind="Hotel" title={hotel.name} onClose={onClose}>
+        <div className="space-y-2 p-4 text-xs">
+          <PlacePhotoGallery key={hotel.id} name={hotel.name} photos={hotel.photos} />
+          <div>
+            {hotel.rooms !== null ? <KeyValue label="Licensed rooms" value={hotel.rooms.toLocaleString("en-SG")} /> : null}
+            {hotel.address ? <KeyValue label="Address" value={hotel.address} /> : null}
+          </div>
+          <p className="text-[11px] leading-relaxed text-muted">{HOTEL_SOURCE_HINT}</p>
         </div>
       </FocusShell>
     );

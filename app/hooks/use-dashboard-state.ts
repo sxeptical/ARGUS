@@ -26,6 +26,7 @@ import { GYMS, DEFAULT_GYM_BRAND_VISIBILITY } from "@/lib/gyms-data";
 import { filterGymsByBrand, orderedGymBrandCounts } from "@/lib/gyms";
 import { COMMUNITY_CLUBS } from "@/lib/community-clubs-data";
 import { PHARMACIES } from "@/lib/pharmacies-data";
+import { HOTELS } from "@/lib/hotels-data";
 import { DEFAULT_NOTIFICATION_PREFS } from "@/lib/notifications";
 import { PARKS_GEOJSON } from "@/lib/parks-data";
 import {
@@ -46,6 +47,7 @@ import type {
   Gym,
   GymBrand,
   HawkerCentre,
+  Hotel,
   Mall,
   Pharmacy,
   TrafficCamera,
@@ -64,7 +66,7 @@ export type SensorRow = {
 export type SensorStatsRow = Omit<SensorRow, "key" | "dot">;
 
 /** Which static amenity the map (or search) picked, by its bundle id. */
-export type AmenitySelectionTarget = { type: "mall" | "hawker" | "gym" | "community-club" | "pharmacy"; id: string };
+export type AmenitySelectionTarget = { type: "mall" | "hawker" | "gym" | "community-club" | "pharmacy" | "hotel"; id: string };
 
 /** A selected amenity resolved to its bundle record. */
 export type SelectedAmenity =
@@ -72,7 +74,8 @@ export type SelectedAmenity =
   | { type: "hawker"; hawker: HawkerCentre }
   | { type: "gym"; gym: Gym }
   | { type: "community-club"; club: CommunityClub }
-  | { type: "pharmacy"; pharmacy: Pharmacy };
+  | { type: "pharmacy"; pharmacy: Pharmacy }
+  | { type: "hotel"; hotel: Hotel };
 
 export function useDashboardState() {
   // Declared before the sources: carparks and EV chargers only load while
@@ -196,6 +199,10 @@ export function useDashboardState() {
     () => withinRadius(PHARMACIES, geoFilter, (pharmacy) => [pharmacy.lng, pharmacy.lat]).length,
     [geoFilter],
   );
+  const hotelCount = useMemo(
+    () => withinRadius(HOTELS, geoFilter, (hotel) => [hotel.lng, hotel.lat]).length,
+    [geoFilter],
+  );
 
   const selectedCamera = useMemo(
     () =>
@@ -271,6 +278,10 @@ export function useDashboardState() {
         PHARMACIES.find((pharmacy) => pharmacy.id === selectedAmenityId.id) ?? null;
       return pharmacy ? { type: "pharmacy", pharmacy } : null;
     }
+    if (selectedAmenityId.type === "hotel") {
+      const hotel = HOTELS.find((hotel) => hotel.id === selectedAmenityId.id) ?? null;
+      return hotel ? { type: "hotel", hotel } : null;
+    }
     const hawker =
       HAWKER_CENTRES.find((hawker) => hawker.id === selectedAmenityId.id) ??
       null;
@@ -308,6 +319,7 @@ export function useDashboardState() {
     gyms: gymCount,
     communityClubs: communityClubCount,
     pharmacies: pharmacyCount,
+    hotels: hotelCount,
   };
   const sensorRows: SensorRow[] = LAYERS.map((layer) => ({
     key: layer.key,

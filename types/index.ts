@@ -239,6 +239,22 @@ export interface PlacePhoto {
  * `stores`, `fnb`, and `nearestMrt` come from the curated mall dataset and
  * are `null` for malls it doesn't cover.
  */
+/**
+ * Licensed hotel from the static hotel bundle (Hotels Licensing Board via
+ * data.gov.sg). The dataset carries no street address, so `address` is the
+ * bare postcode; `rooms` is the licensed room count when known.
+ */
+export interface Hotel {
+  id: string;
+  name: string;
+  address: string | null;
+  rooms: number | null;
+  lat: number;
+  lng: number;
+  /** Wikimedia Commons photos (credited per file), when the hotel has an item. */
+  photos: PlacePhoto[];
+}
+
 export interface Mall {
   id: string;
   name: string;
@@ -356,7 +372,7 @@ export interface AmenitiesBundle {
   malls: Mall[];
 }
 
-export type SearchResultType = "bus-stop" | "mrt" | "park" | "mall" | "hawker" | "gym" | "community-club" | "pharmacy";
+export type SearchResultType = "bus-stop" | "mrt" | "park" | "mall" | "hawker" | "gym" | "community-club" | "pharmacy" | "hotel";
 
 export interface MapSearchResult {
   id: string;

@@ -58,6 +58,7 @@
   --signal-gym: oklch(0.72 0.17 300);
   --signal-community-club: oklch(0.75 0.13 195);
   --signal-pharmacy: oklch(0.72 0.19 15);
+  --signal-hotel: oklch(0.72 0.12 215);
 
   --space-1: 0.25rem;
   --space-2: 0.5rem;
@@ -108,6 +109,7 @@
   --color-signal-gym: var(--signal-gym);
   --color-signal-community-club: var(--signal-community-club);
   --color-signal-pharmacy: var(--signal-pharmacy);
+  --color-signal-hotel: var(--signal-hotel);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-jetbrains-mono);
   --font-display: var(--font-geist-sans);
