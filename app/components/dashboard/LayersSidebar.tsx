@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, type Dispatch, type ReactNode, type SetStateAction } from "react";
+import { Fragment, type Dispatch, type SetStateAction } from "react";
 import FlightPanel from "@/app/components/FlightPanel";
 import WeatherPanel from "@/app/components/WeatherPanel";
 import {
@@ -45,7 +45,6 @@ export function LayersSidebar({
   weather,
   weatherHistory,
   onAirQualityOverlayChange,
-  geoFilterPanel,
 }: {
   flights: FlightState[];
   selectedFlight: FlightState | null;
@@ -64,8 +63,6 @@ export function LayersSidebar({
   weather: WeatherData;
   weatherHistory: WeatherHistoryPoint[];
   onAirQualityOverlayChange?: (overlay: AirQualityOverlay | null) => void;
-  /** Radius filter controls, rendered directly under the layer toggles. */
-  geoFilterPanel?: ReactNode;
 }) {
   const {
     groups,
@@ -191,10 +188,6 @@ export function LayersSidebar({
           </div>
         </div>
       </IntelPanel>
-
-      {/* The radius filter floats over the map on sm+ screens (see page.tsx);
-          in-flow here only for narrow screens where the map is short. */}
-      {geoFilterPanel ? <div className="sm:hidden">{geoFilterPanel}</div> : null}
 
       <WeatherPanel
         weather={weather}
