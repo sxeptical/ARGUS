@@ -21,6 +21,7 @@ export const GYM_SOURCE_HINT: Record<Gym["source"], string> = {
   alltheplaces: "Source: All The Places (CC0)",
   osm: "Location: © OpenStreetMap contributors (ODbL)",
   sportsg: "Source: SportSG via data.gov.sg (Singapore Open Data Licence)",
+  curated: "Source: ActiveSG facility directory",
 };
 
 export const describeGym = (gym: Gym): PopupLine[] => {

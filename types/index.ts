@@ -274,8 +274,9 @@ export interface Mall {
  */
 /**
  * Fitness facility from the static gym bundle (All The Places, OpenStreetMap,
- * or SportSG via data.gov.sg). `category` is a display hint derived from the
- * source activity tags; `public` gyms are ActiveSG / SportSG facilities.
+ * SportSG via data.gov.sg, or a small curated ActiveSG list). `category` is
+ * a display hint derived from the source activity tags; `public` gyms are
+ * ActiveSG / SportSG facilities.
  * `brand` is normalised at build time to the operator, or "Independent"
  * for chains without a known operator.
  */
@@ -308,7 +309,7 @@ export type GymBrand =
   | "Spartans"
   | "Independent";
 
-export type GymSource = "alltheplaces" | "osm" | "sportsg";
+export type GymSource = "alltheplaces" | "osm" | "sportsg" | "curated";
 
 export interface Gym {
   id: string;

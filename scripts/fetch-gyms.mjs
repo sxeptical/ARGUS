@@ -14,9 +14,16 @@
  *    ~300 m of a public SportSG venue are dropped as the same gym.
  *  - SportSG Sport Facilities (data.gov.sg, Singapore Open Data Licence).
  *    Only venues with a gym are kept: Sport Centres and ActiveSG Gym
- *    venues ("Woodlands SC" is the Woodlands Sport Centre abbreviation).
- *    Swimming complexes, stadiums, courts, fields, and other non-gym
- *    venues are excluded.
+ *    venues ("Woodlands SC" is the Woodlands Sport Centre abbreviation),
+ *    plus the documented exceptions below — a handful of swimming
+ *    complexes and the Hockey Village host a gym under a non-"gym" name,
+ *    and a few Sport Centres have no gym or have closed. Swimming
+ *    complexes, stadiums, courts, fields, and other non-gym venues are
+ *    excluded.
+ *
+ * Gyms absent from every open dataset are curated below with their
+ * official source (currently Punggol, which opened after the SportSG
+ * dataset's last update).
  *
  * This is a separate script and output (`public/gyms.json`) from
  * `scripts/fetch-amenities.mjs`, following the parks pattern: rerunning it
@@ -27,9 +34,9 @@
  * can group and filter by it. Detection uses the OSM `brand:wikidata` tag
  * where present (only the few QIDs observed in Singapore OSM data),
  * then the brand/name as whole tokens, so "Jenufit" does not match UFIT
- * and "Gofio" does not match GoFit. All SportSG venues count as
- * ActiveSG. Real chains outside the known list (Barry's, Celebrity
- * Fitness) fall through to "Independent".
+ * and "Gofio" does not match GoFit. All SportSG venues and curated ActiveSG
+ * gyms count as ActiveSG. Real chains outside the known list (Barry's,
+ * Celebrity Fitness) fall through to "Independent".
  */
 import { mkdir, writeFile } from "node:fs/promises";
 import { fetchJson, USER_AGENT } from "./lib/commons-photos.mjs";
@@ -119,7 +126,7 @@ const matchBrand = (value) => {
 };
 
 const normaliseBrand = (gym) => {
-  if (gym.source === "sportsg") return "ActiveSG";
+  if (gym.source === "sportsg" || gym.source === "curated") return "ActiveSG";
   const wikidata = gym.brandWikidata ? BRAND_BY_WIKIDATA[gym.brandWikidata] : null;
   if (wikidata) return wikidata;
   return matchBrand(gym.brand) ?? matchBrand(gym.name) ?? "Independent";
@@ -217,8 +224,46 @@ async function fetchAtp() {
 
 // Sport Centres all have a gym; "Woodlands SC" is the Woodlands Sport Centre
 // abbreviation. ActiveSG Gym venues are gyms by name.
-const keepsSportsgVenue = (venue) =>
+const defaultSportsgVenue = (venue) =>
   /sport centre/i.test(venue) || /activesg gym/i.test(venue) || venue === "Woodlands SC";
+
+// SportSG venues that host an ActiveSG gym but whose names don't match the
+// default rule (key: dataset VENUE, value: official gym name). Names follow
+// ActiveSG's gym directory (activesg.gov.sg/gym-pool-crowd, verified Nov
+// 2026); the dataset is stale (last updated Oct 2024):
+//  - "ActiveSG Hockey Village @ Boon Lay" omits the "Gym" suffix the
+//    official name carries.
+//  - Bukit Batok and Katong are listed as swimming complexes, but the gyms
+//    operate from the same sites.
+//  - Ang Mo Kio Swimming Complex became ActiveSG Sport Park @ Teck Ghee
+//    (opened Jan 2026); the dataset still uses the old name.
+const SPORTSG_ADDITIONAL_GYM_VENUES = {
+  "ActiveSG Hockey Village @ Boon Lay": "ActiveSG Hockey Village @ Boon Lay Gym",
+  "Ang Mo Kio Swimming Complex": "ActiveSG Sport Park @ Teck Ghee Gym",
+  "Bukit Batok Swimming Complex": "Bukit Batok ActiveSG Gym",
+  "Katong Swimming Complex": "Katong ActiveSG Gym",
+};
+
+// "Sport Centre" venues with no ActiveSG gym (checked against ActiveSG's
+// gym directory, Nov 2026):
+//  - Kallang (squash/tennis/netball/lawn bowl/Home of Athletics only) and
+//    Serangoon (pool/stadium/hall only) never had one; Serangoon's gym is
+//    the separate "ActiveSG Gym @ Serangoon Central".
+//  - Toa Payoh Sport Centre (301 Lorong 6 Toa Payoh) closed 31 Oct 2023 for
+//    redevelopment into a Regional Sport Centre; its gym moved to 127A
+//    Lorong 1 Toa Payoh ("ActiveSG Gym @ Toa Payoh", already covered).
+//  - St Wilfred Sport Centre ceased operations permanently in H2 2025 on
+//    lease expiry (SportSG media release, 13 Jun 2025).
+const SPORTSG_NON_GYM_VENUES = new Set([
+  "Kallang Sport Centre",
+  "Serangoon Sport Centre",
+  "St. Wilfred Sport Centre",
+  "Toa Payoh Sport Centre",
+]);
+
+const keepsSportsgVenue = (venue) =>
+  !SPORTSG_NON_GYM_VENUES.has(venue) &&
+  (defaultSportsgVenue(venue) || Object.hasOwn(SPORTSG_ADDITIONAL_GYM_VENUES, venue));
 
 async function fetchSportsg() {
   const poll = await fetchJson(`https://api-open.data.gov.sg/v1/public/api/datasets/${SPORTSG_DATASET}/poll-download`);
@@ -238,7 +283,7 @@ async function fetchSportsg() {
     const postcode = text(props.POSTAL_CODE);
     gyms.push({
       id: `sportsg-${normalizeName(venue)}`,
-      name: venue,
+      name: SPORTSG_ADDITIONAL_GYM_VENUES[venue] ?? venue,
       brand: /activesg/i.test(venue) ? "ActiveSG" : "SportSG",
       category: "public",
       address: street ? `${street}${postcode ? `, Singapore ${postcode}` : ""}` : null,
@@ -293,6 +338,37 @@ const osmToGym = (element) => {
 
 const [atpGyms, sportsgGyms, osmElements] = await Promise.all([fetchAtp(), fetchSportsg(), fetchOsm()]);
 
+// ActiveSG gyms absent from every open dataset (verified against
+// ActiveSG's gym directory, activesg.gov.sg/gym-pool-crowd, Nov 2026).
+// Coordinates are the OneMap point linked from the official ActiveSG
+// Circle facility page (token-free OneMap postal search returns no
+// results; fetch-schools.mjs notes the API needs a name to match on).
+// Each entry cites its facility page; keep this list small and check the
+// directory before adding — most ActiveSG gyms are covered by SportSG.
+const CURATED_ACTIVESG_GYMS = [
+  {
+    name: "Punggol ActiveSG Gym",
+    address: "11 Sentul Crescent, Singapore 828656",
+    lat: 1.4087625,
+    lng: 103.9068686,
+    website: "https://www.activesgcircle.gov.sg/facilities/punggol-activesg-gym",
+  },
+];
+
+const curatedGyms = CURATED_ACTIVESG_GYMS.map((entry) => ({
+  id: `curated-${normalizeName(entry.name)}`,
+  name: entry.name,
+  brand: "ActiveSG",
+  category: "public",
+  address: entry.address,
+  lat: round(entry.lat),
+  lng: round(entry.lng),
+  openingHours: null,
+  website: entry.website,
+  source: "curated",
+}));
+console.log(`Curated: ${curatedGyms.length} gyms (absent from open datasets)`);
+
 // OSM: drop junk, then node/way duplicates of the same name within 100 m
 // (IQ Fightclub, ATP Fitness). Co-located tenants with different names are
 // distinct gyms, so — unlike malls — same-spot alone does not dedupe.
@@ -312,20 +388,22 @@ const osmAfterAtp = osmGyms.filter((gym) => {
   return !atpGyms.some((atp) => coveredKey(atp.brand) === key && distMetres(atp, gym) <= 150);
 });
 
-// Drop OSM ActiveSG gyms matching a public SportSG venue. The threshold is
-// wider than the brand-storefront one because sport centres are large
-// complexes whose stored point can sit well offset from the gym inside.
-// An OSM gym at an ActiveSG Gym venue (e.g. Jurong Lake Gardens Gym) is the
-// same gym; independent commercial gyms near other Sport Centres stay.
+// Drop OSM ActiveSG gyms matching a public SportSG venue or curated gym.
+// The threshold is wider than the brand-storefront one because sport
+// centres are large complexes whose stored point can sit well offset from
+// the gym inside. An OSM gym at an ActiveSG Gym venue (e.g. Jurong Lake
+// Gardens Gym) is the same gym; independent commercial gyms near other
+// Sport Centres stay.
+const publicGyms = [...sportsgGyms, ...curatedGyms];
 const osmKept = osmAfterAtp.filter((gym) => {
   const isOsmActiveSg = /activesg/i.test(gym.name);
-  return !sportsgGyms.some((sportsg) => {
-    if (distMetres(sportsg, gym) > 300) return false;
-    return isOsmActiveSg || (/activesg/i.test(sportsg.name) && /gym/i.test(gym.name));
+  return !publicGyms.some((publicGym) => {
+    if (distMetres(publicGym, gym) > 300) return false;
+    return isOsmActiveSg || (/activesg/i.test(publicGym.name) && /gym/i.test(gym.name));
   });
 });
 
-const merged = [...atpGyms, ...osmKept, ...sportsgGyms];
+const merged = [...atpGyms, ...osmKept, ...sportsgGyms, ...curatedGyms];
 // Normalise the operator brand now that dedupe (which compares raw brand
 // text) is done; brandWikidata is build-only and never reaches the bundle.
 const gyms = merged
@@ -341,6 +419,6 @@ const brandCounts = Object.entries(
 ).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
 console.log(
   `Gyms bundle: ${gyms.length} gyms (${atpGyms.length} All The Places, ${osmKept.length} OpenStreetMap, ` +
-    `${sportsgGyms.length} SportSG; OSM raw ${osmElements.length}, junk/duped ${osmElements.length - osmKept.length}), ${Buffer.byteLength(serialized)} bytes`,
+    `${sportsgGyms.length} SportSG, ${curatedGyms.length} curated; OSM raw ${osmElements.length}, junk/duped ${osmElements.length - osmKept.length}), ${Buffer.byteLength(serialized)} bytes`,
 );
 console.log(`Brands: ${brandCounts.map(([brand, count]) => `${brand} ${count}`).join(", ")}`);

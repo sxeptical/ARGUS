@@ -43,6 +43,41 @@ describe("gyms bundle", () => {
     expect(GYMS.some((g) => g.brand === "Independent")).toBe(true);
   });
 
+  // Regression guard for the Nov 2026 ActiveSG directory gap: every gym in
+  // ActiveSG's official list (activesg.gov.sg/gym-pool-crowd) is on the map,
+  // and Sport Centres with no gym (or closed ones) are not shown as gyms.
+  // Gyms whose SportSG venue name hides the gym (swimming complexes,
+  // Hockey Village, Teck Ghee) and Punggol (not in the dataset) are the
+  // formerly missing ones.
+  test("covers the official ActiveSG gym list, not stale Sport Centres", () => {
+    const activeSg = new Set(GYMS.filter((g) => g.brand === "ActiveSG").map((g) => g.name));
+    for (const name of [
+      "Katong ActiveSG Gym",
+      "Punggol ActiveSG Gym",
+      "ActiveSG Sport Park @ Teck Ghee Gym",
+      "ActiveSG Hockey Village @ Boon Lay Gym",
+      "Bukit Batok ActiveSG Gym",
+      "ActiveSG Gym@Ang Mo Kio Community Centre",
+      "ActiveSG Gym@Enabling Village",
+      "ActiveSG Gym@Fernvale Square",
+      "ActiveSG Gym@Serangoon Central",
+      "ActiveSG Gym@Toa Payoh",
+      "ActiveSG Gym@Toa Payoh West Community Centre",
+    ]) {
+      expect(activeSg.has(name)).toBe(true);
+    }
+    for (const name of [
+      // No gym at these Sport Centres (checked against the directory).
+      "Kallang Sport Centre",
+      "Serangoon Sport Centre",
+      // Closed for redevelopment / lease expiry.
+      "Toa Payoh Sport Centre",
+      "St. Wilfred Sport Centre",
+    ]) {
+      expect(activeSg.has(name)).toBe(false);
+    }
+  });
+
   test("rejects malformed bundles", () => {
     expect(validateGymsBundle([gym()])).toBe(true);
     expect(validateGymsBundle({ gyms: [gym()] })).toBe(false);

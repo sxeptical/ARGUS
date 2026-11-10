@@ -14,6 +14,7 @@ const GYM_SOURCES: ReadonlySet<string> = new Set([
   "alltheplaces",
   "osm",
   "sportsg",
+  "curated",
 ]);
 
 /** Every operator brand the bundle can carry, in display order. */
