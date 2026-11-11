@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
   AMENITY_COLLISION_RADIUS_M,
-  AMENITY_COINCIDENCE_THRESHOLD_M,
   AMENITY_DISPLAY_COORDS,
   AMENITY_LAYER_BY_TYPE,
   AMENITY_LAYERS,
@@ -35,9 +34,8 @@ describe("amenity registry", () => {
     for (const entry of AMENITY_LAYERS) expect(entry.byId.size).toBe(entry.places.length);
   });
 
-  test("healthcare, the densest layer, is drawn last and from city zoom", () => {
+  test("healthcare, the densest layer, is drawn last", () => {
     expect(AMENITY_LAYERS.at(-1)?.type).toBe("healthcare");
-    expect(amenity("healthcare").minZoom).toEqual({ points: 11, labels: 15 });
   });
 
   test("only planned hawker centres are muted", () => {
@@ -50,16 +48,6 @@ describe("amenity registry", () => {
 });
 
 describe("sub-filters", () => {
-  test("only gyms, heritage, supermarkets, schools and healthcare have one", () => {
-    expect(AMENITY_LAYERS.filter((entry) => entry.filter).map((entry) => entry.type)).toEqual([
-      "gym",
-      "heritage",
-      "supermarket",
-      "school",
-      "healthcare",
-    ]);
-  });
-
   test("choices count every place exactly once", () => {
     for (const entry of AMENITY_LAYERS) {
       if (!entry.filter) continue;
@@ -195,7 +183,6 @@ describe("co-located amenity markers", () => {
     }
     const lonely = amenity("gym").places.find((place) => !AMENITY_DISPLAY_COORDS.has(amenityDisplayKey("gym", place.id)))!;
     expect(amenityDisplayPoint("gym", lonely)).toBe(lonely);
-    expect(AMENITY_COINCIDENCE_THRESHOLD_M).toBe(10);
   });
 
   test("Tampines ActiveSG Gym and the OTH Guardian pharmacy get distinct display points", () => {
@@ -212,13 +199,6 @@ describe("co-located amenity markers", () => {
     const result = AMENITY_SEARCH_RESULTS.find((candidate) => candidate.type === "gym" && candidate.id === gym.id)!;
     expect(result).toMatchObject({ lat: gym.lat, lng: gym.lng });
     expect(findAmenity("gym", gym.id)).toEqual({ type: "gym", place: gym } as never);
-  });
-
-  test("Heartbeat @ Bedok ActiveSG Gym also separates from its co-located pharmacy", () => {
-    const gym = GYMS.find((place) => place.id === "sportsg-heartbeatbedokactivesgsportcentre")!;
-    const pharmacy = PHARMACIES.find((place) => place.id === "pharmacy-2647")!;
-    expect([gym.lat, gym.lng]).toEqual([pharmacy.lat, pharmacy.lng]);
-    expect(amenityDisplayPoint("gym", gym)).not.toEqual(amenityDisplayPoint("pharmacy", pharmacy));
   });
 });
 

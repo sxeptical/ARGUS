@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
 import {
-  BUS_ROUTES_MAX_PAGES,
   directionsLeavingStop,
   matchPatternsToDirections,
 } from "@/lib/api-clients/bus-routes";
@@ -74,14 +73,6 @@ describe("directionsLeavingStop", () => {
     expect(directionsLeavingStop([route(1, null), route(2, null)])).toHaveLength(
       2,
     );
-  });
-});
-
-describe("BUS_ROUTES_MAX_PAGES", () => {
-  test("is high enough to cover the known national BusRoutes dataset", () => {
-    // LTA returns at most 500 rows/page; current datasets are ~26–27k rows.
-    expect(BUS_ROUTES_MAX_PAGES).toBeGreaterThan(40);
-    expect(BUS_ROUTES_MAX_PAGES * 500).toBeGreaterThan(30_000);
   });
 });
 

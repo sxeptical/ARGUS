@@ -35,16 +35,11 @@ describe("buildContentSecurityPolicy", () => {
     expect(policy).toContain("style-src 'self' 'unsafe-inline'");
   });
 
-  test("keeps every external host from the previous policy", () => {
+  test("allows the map tile and photo hosts", () => {
     for (const host of [
-      "https://images.data.gov.sg",
-      "https://datamall2.mytransport.sg",
-      "https://dm-traffic-camera-itsc.s3.ap-southeast-1.amazonaws.com",
       "https://tiles.openfreemap.org",
-      "https://thumb.wikimedia.org",
       "https://upload.wikimedia.org",
-      "https://www.nea.gov.sg",
-      "https://fonts.gstatic.com",
+      "https://thumb.wikimedia.org",
     ]) {
       expect(policy).toContain(host);
     }

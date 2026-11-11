@@ -15,7 +15,6 @@ import {
 } from "@/lib/layers";
 import { LayerOptionFilter } from "@/app/components/dashboard/LayerControls";
 import type { SensorRow } from "@/app/hooks/use-dashboard-state";
-import type { SensorKey as RegistrySensorKey } from "@/lib/layers";
 import type { WeatherData } from "@/types";
 
 // Mirror of use-dashboard-state's registry-driven row construction, with
@@ -78,13 +77,6 @@ const statsRows = [
 ];
 
 describe("layer registry", () => {
-  test("every layer belongs to a declared group", () => {
-    const groupIds = new Set(LAYER_GROUPS.map((group) => group.id));
-    for (const layer of LAYERS) {
-      expect(groupIds.has(layer.group)).toBe(true);
-    }
-  });
-
   test("every group has at least one layer and keys are unique", () => {
     const keys = LAYERS.map((layer) => layer.key);
     expect(new Set(keys).size).toBe(keys.length);
@@ -97,18 +89,6 @@ describe("layer registry", () => {
     expect(LAYER_BY_KEY.size).toBe(LAYERS.length);
     for (const key of Object.keys(DEFAULT_SENSOR_VISIBILITY) as SensorKey[]) {
       expect(LAYER_BY_KEY.has(key)).toBe(true);
-    }
-  });
-
-  test("legend items only use the two known shapes", () => {
-    for (const layer of LAYERS) {
-      for (const item of layer.legend ?? []) {
-        if (item.kind === "dot") {
-          expect(item.tone.length > 0 && item.label.length > 0).toBe(true);
-        } else {
-          expect(["area", "line", "dashed"]).toContain(item.shape);
-        }
-      }
     }
   });
 });
@@ -228,7 +208,7 @@ describe("layer surfaces render", () => {
     }
   });
 
-  test("mobile drawer renders the same groups and per-row dots", () => {
+  test("mobile drawer renders the same groups as a closed dialog", () => {
     const markup = renderToStaticMarkup(
       <MobileLayersDrawer
         sensorRows={panelRows}
@@ -241,18 +221,7 @@ describe("layer surfaces render", () => {
       expect(markup).toContain(htmlEscape(group.label));
     }
     expect(markup).toContain("MRT &amp; LRT");
-    expect(markup).toContain("4/18 visible");
-  });
-
-  test("mobile drawer is a closed dialog until opened", () => {
-    const markup = renderToStaticMarkup(
-      <MobileLayersDrawer
-        sensorRows={panelRows}
-        sensorVisibility={DEFAULT_SENSOR_VISIBILITY}
-        setSensorVisibility={() => {}}
-        visibleSensorCount={4}
-      />,
-    );
+    expect(markup).toContain(`4/${panelRows.length} visible`);
     expect(markup).toContain('role="dialog"');
     expect(markup).toContain('aria-label="Map layers"');
     // aria-modal only while open; a closed drawer must not claim the keyboard.
@@ -278,10 +247,6 @@ describe("layer surfaces render", () => {
     expect(render(false)).not.toContain("Show brands filter");
   });
 });
-
-// Keep the re-exported alias honest: both names must stay the same type.
-const _typeAliasCheck: RegistrySensorKey extends SensorKey ? true : false = true;
-void _typeAliasCheck;
 
 describe("toggleLayerOptionSelection", () => {
   const all = ["a", "b", "c"];

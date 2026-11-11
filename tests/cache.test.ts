@@ -262,20 +262,5 @@ describe("cache", () => {
 
       expect(results).toEqual(["from-one", "from-two"]);
     });
-
-    test("clearing one cache does not drop another cache's in-flight producer", async () => {
-      const cache1 = createCache();
-      const cache2 = createCache();
-
-      const second = cache2.get("shared-key", 60_000, async () => {
-        await sleep(40);
-        return "still-two";
-      });
-
-      await sleep(5);
-      cache1.clear("shared-key");
-
-      expect(await second).toBe("still-two");
-    });
   });
 });

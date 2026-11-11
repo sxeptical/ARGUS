@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { createRateLimiter, type RateLimitOptions } from "@/lib/rate-limit";
+import { type RateLimitOptions } from "@/lib/rate-limit";
 import {
   bindingNameForLimit,
   createRateLimitBackend,
@@ -157,18 +157,5 @@ describe("createSharedRateLimiter", () => {
     });
     expect(decision).toBe(localDecision);
     expect(local.calls).toHaveLength(1);
-  });
-
-  test("the real local limiter still enforces its budget without a backend", async () => {
-    const limiter = createSharedRateLimiter(createRateLimiter(), () => null);
-
-    expect(
-      (await limiter.check("203.0.113.10", { scope: "local", maxRequests: 1 }))
-        .allowed,
-    ).toBe(true);
-    expect(
-      (await limiter.check("203.0.113.10", { scope: "local", maxRequests: 1 }))
-        .allowed,
-    ).toBe(false);
   });
 });

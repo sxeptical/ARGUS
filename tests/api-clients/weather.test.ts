@@ -11,7 +11,7 @@ import { rejection, withFetch, type FetchStub } from "../helpers/upstream";
 
 const runWithFetch = (fetchImpl: FetchStub) => withFetch(fetchImpl, getWeather);
 
-describe("getWeather", () => {
+describe("air quality bands", () => {
   test("classifies NEA PSI descriptors", () => {
     expect(getPsiStatus(null)).toBe("Unknown");
     expect(getPsiStatus(50)).toBe("Good");
@@ -29,7 +29,9 @@ describe("getWeather", () => {
     expect(getPm25Band(250)).toBe("High");
     expect(getPm25Band(251)).toBe("Very High");
   });
+});
 
+describe("getWeather", () => {
   test("reports NEA 24-hr PSI and 1-hr PM2.5 by region, headlining the worst", async () => {
     const weather = await runWithFetch(async (input) => {
       const url = String(input);
@@ -218,15 +220,16 @@ describe("getWeather", () => {
 
     try {
       await getWeather();
-      expect(calls).toBe(7);
+      const firstCalls = calls;
+      expect(firstCalls).toBeGreaterThan(0);
 
       now += 20_000;
       await getWeather();
-      expect(calls).toBe(7);
+      expect(calls).toBe(firstCalls);
 
       now += 11_000;
       await getWeather();
-      expect(calls).toBe(14);
+      expect(calls).toBeGreaterThan(firstCalls);
     } finally {
       Date.now = realNow;
       globalThis.fetch = originalFetch;

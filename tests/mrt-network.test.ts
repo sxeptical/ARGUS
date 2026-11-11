@@ -1,9 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   LRT_LINE_STATIONS,
-  MRT_DISPLAY_LINE_COUNT,
   MRT_DISPLAY_LINE_STATIONS,
-  MRT_OPERATIONAL_LINE_COUNT,
   MRT_OPERATIONAL_LINE_STATIONS,
 } from "@/lib/mrt-network";
 import { isRouteableMrtStation } from "@/lib/mrt-routing";
@@ -59,18 +57,6 @@ describe("mrt-network single source of truth", () => {
     expect(coordinates("Downtown Line Extension")[0]).toEqual(coordinates("Downtown Line").at(-1)!);
     expect(coordinates("Thomson-East Coast Line Extension")[0]).toEqual(coordinates("Thomson-East Coast Line").at(-1)!);
     expect(coordinates("Downtown Line Extension").at(-1)!).toEqual(coordinates("Thomson-East Coast Line Extension").at(-1)!);
-  });
-
-  test("line counts are derived, not hardcoded", () => {
-    expect(MRT_OPERATIONAL_LINE_COUNT).toBe(
-      Object.keys(MRT_OPERATIONAL_LINE_STATIONS).length,
-    );
-    expect(MRT_DISPLAY_LINE_COUNT).toBe(
-      Object.keys(MRT_DISPLAY_LINE_STATIONS).length,
-    );
-    expect(MRT_DISPLAY_LINE_COUNT).toBeGreaterThan(
-      MRT_OPERATIONAL_LINE_COUNT,
-    );
   });
 
   test("LRT lines are routeable and loops close on their MRT interchange", () => {

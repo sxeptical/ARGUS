@@ -1,9 +1,31 @@
 import { describe, expect, test } from "bun:test";
-import { PARK_LABELS_GEOJSON, PARKS_GEOJSON } from "@/lib/data/parks";
+import { PARK_COUNT, PARK_LABELS_GEOJSON, PARKS_GEOJSON, TRAIL_COUNT } from "@/lib/data/parks";
 import { areaHectares, buildParkSearchResults, describeParkFeature, formatParkName, parkLabelPoint } from "@/lib/parks";
 import { PARK_PHOTOS, photosForPark, validateParkPhotos } from "@/lib/park-photos";
 
 const texts = (lines: ReadonlyArray<{ text: string }>) => lines.map((line) => line.text);
+
+function coordinates(value: unknown): number[][] {
+  if (!Array.isArray(value)) return [];
+  if (typeof value[0] === "number") return [value as number[]];
+  return value.flatMap(coordinates);
+}
+
+describe("parks geometry", () => {
+  test("contains valid Singapore recreation features", () => {
+    for (const feature of PARKS_GEOJSON.features) {
+      expect(["park", "pcn", "trail"]).toContain(feature.properties.kind);
+      for (const [lng, lat] of coordinates(feature.geometry.coordinates)) {
+        expect(lng).toBeGreaterThanOrEqual(103.5);
+        expect(lng).toBeLessThanOrEqual(104.1);
+        expect(lat).toBeGreaterThanOrEqual(1.1);
+        expect(lat).toBeLessThanOrEqual(1.5);
+      }
+    }
+    expect(PARK_COUNT).toBeGreaterThan(100);
+    expect(TRAIL_COUNT).toBeGreaterThan(100);
+  });
+});
 
 describe("formatParkName", () => {
   test("expands NParks abbreviations and title-cases all-caps names", () => {
@@ -104,7 +126,6 @@ describe("park photos", () => {
   });
 
   test("share photos across a split park and leave playgrounds empty", () => {
-    expect(photosForPark("East Coast Park Area C")).toBe(photosForPark("East Coast Park Area C"));
     expect(photosForPark("East Coast Park Area C").map((p) => p.thumb)).toEqual(photosForPark("East Coast Park Area D").map((p) => p.thumb));
     expect(photosForPark("Not A Real Playground")).toEqual([]);
   });
