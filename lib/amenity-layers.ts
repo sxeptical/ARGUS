@@ -254,6 +254,141 @@ export function visiblePlaces(amenity: AmenityLayer, filters: AmenityFilters): R
   return amenity.places.filter((place) => selection[filter.of(place)] !== false);
 }
 
+/** Points this close (centre to centre) are treated as one on-map collision. */
+export const AMENITY_COINCIDENCE_THRESHOLD_M = 10;
+/** Display-only radius of the ring drawn around a collision group. */
+export const AMENITY_COLLISION_RADIUS_M = 24;
+/** Keep ring members at least this far apart, widening the ring for big groups. */
+const AMENITY_COLLISION_SPACING_M = 12;
+const METRES_PER_DEGREE_LAT = (Math.PI / 180) * 6_371_000;
+
+/** Least it takes for the offset maths: a layer name and its points. */
+type OffsetLayer = {
+  readonly type: string;
+  readonly places: ReadonlyArray<{ readonly id: string; readonly lat: number; readonly lng: number }>;
+};
+
+/** A display position; never used for popups, search or radius filtering. */
+export type AmenityDisplayPoint = { readonly lat: number; readonly lng: number };
+
+/** Display offsets are keyed per amenity type, since ids are only unique within a type. */
+export function amenityDisplayKey(type: string, id: string): string {
+  return `${type}:${id}`;
+}
+
+function metresBetween(a: AmenityDisplayPoint, b: AmenityDisplayPoint): number {
+  const dLat = ((b.lat - a.lat) * Math.PI) / 180 * 6_371_000;
+  const dLng = ((b.lng - a.lng) * Math.PI) / 180 * 6_371_000 * Math.cos((((a.lat + b.lat) / 2) * Math.PI) / 180);
+  return Math.hypot(dLat, dLng);
+}
+
+/**
+ * Spread co-located points onto a deterministic ring so every dot is visible
+ * and clickable. Grouping runs over every registry layer, not just the enabled
+ * ones: toggling a layer or sub-filter must not move the markers that remain,
+ * so a hidden layer's points still take their places in the ring.
+ *
+ * Only the returned display positions move. Place records, search results,
+ * popups, focus dialogs and radius filtering keep their true coordinates.
+ */
+export function computeAmenityOffsets(
+  layers: ReadonlyArray<OffsetLayer>,
+  { thresholdM = AMENITY_COINCIDENCE_THRESHOLD_M, radiusM = AMENITY_COLLISION_RADIUS_M } = {},
+): ReadonlyMap<string, AmenityDisplayPoint> {
+  const items = layers
+    .flatMap((layer, layerIndex) =>
+      layer.places.map((place) => ({ ...place, layerIndex, key: amenityDisplayKey(layer.type, place.id) })),
+    )
+    // Registry order, then id: ring positions are independent of source order.
+    .sort((a, b) => a.layerIndex - b.layerIndex || a.id.localeCompare(b.id, "en-SG"));
+
+  const offsets = new Map<string, AmenityDisplayPoint>();
+  if (items.length < 2 || thresholdM <= 0) return offsets;
+
+  // Grid-bucket nearby points so ~5k places stay cheap; bucket by a cell a bit
+  // wider than the threshold so every neighbour is in the 3x3 block around it.
+  const cellLatDeg = (thresholdM * 1.5) / METRES_PER_DEGREE_LAT;
+  let maxAbsLat = 0;
+  for (const item of items) maxAbsLat = Math.max(maxAbsLat, Math.abs(item.lat));
+  const cellLngDeg = cellLatDeg / Math.max(0.2, Math.cos((Math.min(maxAbsLat, 80) * Math.PI) / 180));
+  const buckets = new Map<string, number[]>();
+  const cellOf = (lat: number, lng: number) => `${Math.floor(lat / cellLatDeg)}:${Math.floor(lng / cellLngDeg)}`;
+  items.forEach((item, index) => {
+    const key = cellOf(item.lat, item.lng);
+    const bucket = buckets.get(key);
+    if (bucket) bucket.push(index);
+    else buckets.set(key, [index]);
+  });
+
+  // Union-find over every pair within the threshold (transitive, so a cluster
+  // of nearby points becomes one group rather than overlapping sub-rings).
+  const parent = items.map((_, index) => index);
+  const find = (index: number): number => {
+    let root = index;
+    while (parent[root] !== root) root = parent[root];
+    while (parent[index] !== index) {
+      const next = parent[index];
+      parent[index] = root;
+      index = next;
+    }
+    return root;
+  };
+  items.forEach((item, index) => {
+    const cellLat = Math.floor(item.lat / cellLatDeg);
+    const cellLng = Math.floor(item.lng / cellLngDeg);
+    for (let dy = -1; dy <= 1; dy += 1) {
+      for (let dx = -1; dx <= 1; dx += 1) {
+        for (const other of buckets.get(`${cellLat + dy}:${cellLng + dx}`) ?? []) {
+          if (other <= index) continue;
+          if (metresBetween(item, items[other]) <= thresholdM) {
+            const a = find(index);
+            const b = find(other);
+            if (a !== b) parent[a] = b;
+          }
+        }
+      }
+    }
+  });
+
+  const groups = new Map<number, number[]>();
+  items.forEach((_, index) => {
+    const root = find(index);
+    const group = groups.get(root);
+    if (group) group.push(index);
+    else groups.set(root, [index]);
+  });
+
+  for (const members of groups.values()) {
+    if (members.length < 2) continue;
+    // Members sit on a ring; enough spacing that each dot keeps its own hit area.
+    const ringRadius = Math.max(radiusM, (members.length * AMENITY_COLLISION_SPACING_M) / (2 * Math.PI));
+    members.forEach((index, position) => {
+      const item = items[index];
+      const angle = (2 * Math.PI * position) / members.length;
+      const eastM = Math.cos(angle) * ringRadius;
+      const northM = Math.sin(angle) * ringRadius;
+      const cosLat = Math.max(0.2, Math.cos((item.lat * Math.PI) / 180));
+      offsets.set(item.key, {
+        lat: item.lat + northM / METRES_PER_DEGREE_LAT,
+        lng: item.lng + eastM / (METRES_PER_DEGREE_LAT * cosLat),
+      });
+    });
+  }
+  return offsets;
+}
+
+/**
+ * Display positions for the whole registry, computed once. Every render and
+ * source update reads this map, so toggling layers or filters cannot shift a
+ * marker: collisions are derived from all layers regardless of visibility.
+ */
+export const AMENITY_DISPLAY_COORDS: ReadonlyMap<string, AmenityDisplayPoint> = computeAmenityOffsets(AMENITY_LAYERS);
+
+/** The point to draw for a place; its true coordinates when nothing collides. */
+export function amenityDisplayPoint(type: AmenityType, place: AmenityPlace): AmenityDisplayPoint {
+  return AMENITY_DISPLAY_COORDS.get(amenityDisplayKey(type, place.id)) ?? place;
+}
+
 /** A selected amenity resolved to its record, discriminated by `type`. */
 export type SelectedAmenity = { [K in AmenityType]: { type: K; place: AmenityPlaces[K] } }[AmenityType];
 

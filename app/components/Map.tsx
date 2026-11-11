@@ -25,6 +25,7 @@ import {
   buildGeoFilterCircleGeoJson,
   buildGeoFilterMaskGeoJson,
   featuresTouchingRadius,
+  withinRadius,
   type GeoFilter,
 } from "@/lib/geo-filter";
 import mrtLinesData from "@/public/mrt-lines.json";
@@ -43,6 +44,7 @@ import {
 } from "@/lib/mobility";
 import {
   AMENITY_LAYERS,
+  amenityDisplayPoint,
   visiblePlaces,
   type AmenityFilters,
   type AmenityLayer,
@@ -129,14 +131,22 @@ const MAP_COLORS = {
 
 const NO_AMENITY_FILTERS: AmenityFilters = {};
 
-/** One amenity's points, after its sub-filter; the radius filter applies on top. */
-const buildAmenityGeoJson = (amenity: AmenityLayer, filters: AmenityFilters) => ({
+/**
+ * One amenity's points, after its sub-filter and the radius filter. The radius
+ * test uses the true coordinates, then each feature moves to its registry
+ * display position so co-located markers do not hide each other. Hit-testing
+ * follows that display geometry; popups and selection still read the record.
+ */
+const buildAmenityGeoJson = (amenity: AmenityLayer, filters: AmenityFilters, geoFilter: GeoFilter | null = null) => ({
   type: "FeatureCollection" as const,
-  features: visiblePlaces(amenity, filters).map((place) => ({
-    type: "Feature" as const,
-    properties: { id: place.id, name: place.name, muted: amenity.muted?.(place) ?? false },
-    geometry: { type: "Point" as const, coordinates: [place.lng, place.lat] },
-  })),
+  features: withinRadius([...visiblePlaces(amenity, filters)], geoFilter, (place) => [place.lng, place.lat]).map((place) => {
+    const display = amenityDisplayPoint(amenity.type, place);
+    return {
+      type: "Feature" as const,
+      properties: { id: place.id, name: place.name, muted: amenity.muted?.(place) ?? false },
+      geometry: { type: "Point" as const, coordinates: [display.lng, display.lat] },
+    };
+  }),
 });
 
 // Carpark/EV points keep their layer colour while available, so the two
@@ -449,9 +459,7 @@ function setAmenitySourceData(
     map.getSource(`${amenity.layer}-data`) as
       | maplibregl.GeoJSONSource
       | undefined
-  )?.setData(
-    filterPointFeatures(buildAmenityGeoJson(amenity, filters), geoFilter),
-  );
+  )?.setData(buildAmenityGeoJson(amenity, filters, geoFilter));
 }
 
 function useLazyRef<T>(createValue: () => T): { current: T } {
@@ -1813,7 +1821,7 @@ function useMapController({
           // Dense layers start later and smaller so they do not flood the map.
           const pointsFrom = amenity.minZoom?.points;
           const { onEnter, onClick } = amenityHandlers(amenity);
-          map.addSource(sourceId, { type: "geojson", data: filterPointFeatures(buildAmenityGeoJson(amenity, amenityFiltersRef.current), geoFilterRef.current) });
+          map.addSource(sourceId, { type: "geojson", data: buildAmenityGeoJson(amenity, amenityFiltersRef.current, geoFilterRef.current) });
           map.addLayer({ id: pointLayerId, type: "circle", source: sourceId, ...(pointsFrom === undefined ? {} : { minzoom: pointsFrom }), layout: { visibility }, paint: {
             "circle-color": color,
             "circle-radius": pointsFrom === undefined ? ["interpolate", ["linear"], ["zoom"], 10, 3.5, 15, 7] : ["interpolate", ["linear"], ["zoom"], pointsFrom, 2.5, 15, 5.5],

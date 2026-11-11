@@ -1,13 +1,20 @@
 import { describe, expect, test } from "bun:test";
 import {
+  AMENITY_COLLISION_RADIUS_M,
+  AMENITY_COINCIDENCE_THRESHOLD_M,
+  AMENITY_DISPLAY_COORDS,
   AMENITY_LAYER_BY_TYPE,
   AMENITY_LAYERS,
   AMENITY_SEARCH_RESULTS,
+  amenityDisplayKey,
+  amenityDisplayPoint,
+  computeAmenityOffsets,
   findAmenity,
   parseAmenityFilters,
   visiblePlaces,
 } from "@/lib/amenity-layers";
 import { GYMS } from "@/lib/data/gyms";
+import { PHARMACIES } from "@/lib/data/pharmacies";
 import { HEALTHCARE_SITES } from "@/lib/data/healthcare";
 import { HOTELS } from "@/lib/data/hotels";
 import { LAYER_BY_KEY } from "@/lib/layers";
@@ -130,6 +137,88 @@ describe("sub-filters", () => {
     } finally {
       mutable.options = options;
     }
+  });
+});
+
+describe("co-located amenity markers", () => {
+  const metresBetween = (a: { lat: number; lng: number }, b: { lat: number; lng: number }) => {
+    const dLat = ((b.lat - a.lat) * Math.PI) / 180 * 6_371_000;
+    const dLng = ((b.lng - a.lng) * Math.PI) / 180 * 6_371_000 * Math.cos((((a.lat + b.lat) / 2) * Math.PI) / 180);
+    return Math.hypot(dLat, dLng);
+  };
+  const point = (id: string, lat: number, lng: number) => ({ id, lat, lng });
+  const layer = (type: string, places: ReturnType<typeof point>[]) => [{ type, places }];
+
+  test("points within the threshold are grouped, farther ones are untouched", () => {
+    const near = computeAmenityOffsets(layer("mall", [point("a", 1.3, 103.8), point("b", 1.3 + 5 / 111_320, 103.8)]));
+    expect(near.size).toBe(2);
+    expect(near.has(amenityDisplayKey("mall", "a"))).toBe(true);
+    expect(near.has(amenityDisplayKey("mall", "b"))).toBe(true);
+
+    const far = computeAmenityOffsets(layer("mall", [point("a", 1.3, 103.8), point("b", 1.3 + 20 / 111_320, 103.8)]));
+    expect(far.size).toBe(0);
+  });
+
+  test("grouping is deterministic and independent of source order", () => {
+    const places = [point("b", 1.3, 103.8), point("a", 1.3 + 4 / 111_320, 103.8), point("c", 1.3, 103.8 + 4 / 111_320)];
+    const forward = computeAmenityOffsets(layer("gym", places));
+    const reversed = computeAmenityOffsets(layer("gym", [...places].reverse()));
+    expect([...forward]).toEqual([...reversed]);
+    expect([...forward.keys()]).toEqual([
+      amenityDisplayKey("gym", "a"),
+      amenityDisplayKey("gym", "b"),
+      amenityDisplayKey("gym", "c"),
+    ]);
+  });
+
+  test("adding another, far-away layer does not move a collision group", () => {
+    const colliding = [
+      { type: "gym", places: [point("z", 1.3, 103.8)] },
+      { type: "pharmacy", places: [point("y", 1.3, 103.8)] },
+    ];
+    const base = computeAmenityOffsets(colliding);
+    const withExtra = computeAmenityOffsets([...colliding, { type: "hotel", places: [point("h", 1.4, 103.9)] }]);
+    expect(withExtra.get(amenityDisplayKey("gym", "z"))).toEqual(base.get(amenityDisplayKey("gym", "z")));
+    expect(withExtra.get(amenityDisplayKey("pharmacy", "y"))).toEqual(base.get(amenityDisplayKey("pharmacy", "y")));
+    expect(withExtra.has(amenityDisplayKey("hotel", "h"))).toBe(false);
+  });
+
+  test("every offset is small and every place keeps its true coordinates", () => {
+    expect(AMENITY_DISPLAY_COORDS.size).toBeGreaterThan(0);
+    for (const [key, display] of AMENITY_DISPLAY_COORDS) {
+      const separator = key.indexOf(":");
+      const type = key.slice(0, separator) as AmenityType;
+      const place = amenity(type).byId.get(key.slice(separator + 1))!;
+      expect(metresBetween(place, display)).toBeLessThanOrEqual(AMENITY_COLLISION_RADIUS_M + 1);
+      expect(amenityDisplayPoint(type, place)).toBe(display);
+      expect([place.lat, place.lng]).not.toEqual([display.lat, display.lng]);
+    }
+    const lonely = amenity("gym").places.find((place) => !AMENITY_DISPLAY_COORDS.has(amenityDisplayKey("gym", place.id)))!;
+    expect(amenityDisplayPoint("gym", lonely)).toBe(lonely);
+    expect(AMENITY_COINCIDENCE_THRESHOLD_M).toBe(10);
+  });
+
+  test("Tampines ActiveSG Gym and the OTH Guardian pharmacy get distinct display points", () => {
+    const gym = GYMS.find((place) => place.id === "sportsg-tampinessportcentre")!;
+    const pharmacy = PHARMACIES.find((place) => place.id === "pharmacy-2617")!;
+    expect([gym.lat, gym.lng]).toEqual([pharmacy.lat, pharmacy.lng]);
+    const gymPoint = amenityDisplayPoint("gym", gym);
+    const pharmacyPoint = amenityDisplayPoint("pharmacy", pharmacy);
+    expect(gymPoint).not.toEqual(pharmacyPoint);
+    expect(metresBetween(gymPoint, pharmacyPoint)).toBeGreaterThan(AMENITY_COLLISION_RADIUS_M);
+    expect(metresBetween(gym, gymPoint)).toBeLessThanOrEqual(AMENITY_COLLISION_RADIUS_M);
+    expect(metresBetween(pharmacy, pharmacyPoint)).toBeLessThanOrEqual(AMENITY_COLLISION_RADIUS_M);
+    // Search still points at the true location.
+    const result = AMENITY_SEARCH_RESULTS.find((candidate) => candidate.type === "gym" && candidate.id === gym.id)!;
+    expect(result).toMatchObject({ lat: gym.lat, lng: gym.lng });
+    expect(findAmenity("gym", gym.id)).toEqual({ type: "gym", place: gym } as never);
+  });
+
+  test("Heartbeat @ Bedok ActiveSG Gym also separates from its co-located pharmacy", () => {
+    const gym = GYMS.find((place) => place.id === "sportsg-heartbeatbedokactivesgsportcentre")!;
+    const pharmacy = PHARMACIES.find((place) => place.id === "pharmacy-2647")!;
+    expect([gym.lat, gym.lng]).toEqual([pharmacy.lat, pharmacy.lng]);
+    expect(amenityDisplayPoint("gym", gym)).not.toEqual(amenityDisplayPoint("pharmacy", pharmacy));
   });
 });
 
