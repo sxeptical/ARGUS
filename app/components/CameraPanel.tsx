@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import TerminalPanel from "@/app/components/TerminalPanel";
+import { googleMapsUrl } from "@/lib/maps-links";
 import type { TrafficCamera } from "@/types";
 
 type CameraPanelProps = {
@@ -131,7 +132,24 @@ export default function CameraPanel({
               unoptimized
             />
             <div className="flex items-center justify-between p-2">
-              <span className="truncate text-sm text-ink">{expanded.location}</span>
+              <a
+                href={
+                  googleMapsUrl({
+                    lat: expanded.Latitude,
+                    lng: expanded.Longitude,
+                  }) ?? undefined
+                }
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label={`Open ${expanded.location} camera location in Google Maps`}
+                title={`Open ${expanded.location} camera location in Google Maps`}
+                className="truncate text-sm text-info underline decoration-info/40 underline-offset-2 hover:decoration-info"
+              >
+                {expanded.location}
+                <span aria-hidden="true" className="ml-1 text-[10px]">
+                  ↗
+                </span>
+              </a>
               <button
                 ref={closeButtonRef}
                 type="button"

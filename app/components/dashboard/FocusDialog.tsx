@@ -3,6 +3,7 @@
 import { useEffect, useRef, type ReactNode } from "react";
 import type { SelectedAmenity } from "@/app/hooks/use-dashboard-state";
 import { KeyValue } from "@/app/components/dashboard/IntelPanel";
+import { MapLocationLink } from "@/app/components/dashboard/MapLocationLink";
 import { hasStoreDirectory, MallStoreDirectory } from "@/app/components/dashboard/MallDirectory";
 import { PlacePhotoGallery } from "@/app/components/dashboard/PlacePhotoGallery";
 import { describeHawkerClosure, formatOpeningHours } from "@/lib/amenities";
@@ -83,7 +84,7 @@ export function FocusDialog({
             />
             {closure ? <KeyValue label="Closure" value={closure.text} /> : null}
             {hawker.stalls !== null ? <KeyValue label="Stalls" value={`${hawker.stalls.toLocaleString("en-SG")} cooked food`} /> : null}
-            {hawker.address ? <KeyValue label="Address" value={hawker.address} /> : null}
+            <MapLocationLink name={hawker.name} address={hawker.address} lat={hawker.lat} lng={hawker.lng} />
           </div>
         </div>
       </FocusShell>
@@ -99,7 +100,7 @@ export function FocusDialog({
             <KeyValue label="Type" value={GYM_CATEGORY_LABEL[gym.category]} />
             {gym.brand !== "Independent" ? <KeyValue label="Brand" value={gym.brand} /> : null}
             {gym.openingHours ? <KeyValue label="Hours" value={formatOpeningHours(gym.openingHours) ?? gym.openingHours} /> : null}
-            {gym.address ? <KeyValue label="Address" value={gym.address} /> : null}
+            <MapLocationLink name={gym.name} address={gym.address} lat={gym.lat} lng={gym.lng} />
             {gym.website ? (
               <div className="flex gap-2 py-1">
                 <span className="data-label w-20 shrink-0">Website</span>
@@ -128,7 +129,7 @@ export function FocusDialog({
           <PlacePhotoGallery key={club.id} name={club.name} photos={club.photos} />
           <div>
             <KeyValue label="Type" value={COMMUNITY_CLUB_KIND_LABEL[club.kind]} />
-            {club.address ? <KeyValue label="Address" value={club.address} /> : null}
+            <MapLocationLink name={club.name} address={club.address} lat={club.lat} lng={club.lng} />
           </div>
           <p className="text-[11px] leading-relaxed text-muted">{COMMUNITY_CLUB_SOURCE_HINT}</p>
         </div>
@@ -142,7 +143,7 @@ export function FocusDialog({
       <FocusShell kind="Pharmacy" title={pharmacy.name} onClose={onClose}>
         <div className="space-y-2 p-4 text-xs">
           <div>
-            {pharmacy.address ? <KeyValue label="Address" value={pharmacy.address} /> : null}
+            <MapLocationLink name={pharmacy.name} address={pharmacy.address} lat={pharmacy.lat} lng={pharmacy.lng} />
           </div>
           <p className="text-[11px] leading-relaxed text-muted">{PHARMACY_SOURCE_HINT}</p>
         </div>
@@ -158,7 +159,7 @@ export function FocusDialog({
           <PlacePhotoGallery key={site.id} name={site.name} photos={site.photos} />
           <div>
             {site.description ? <KeyValue label="About" value={site.description} /> : null}
-            {site.address ? <KeyValue label="Address" value={site.address} /> : null}
+            <MapLocationLink name={site.name} address={site.address} lat={site.lat} lng={site.lng} />
             {site.website ? (
               <div className="flex gap-2 py-1">
                 <span className="data-label w-20 shrink-0">{site.source === "nhb" ? "Roots.sg" : "Website"}</span>
@@ -188,7 +189,7 @@ export function FocusDialog({
           <div>
             {site.programmes.length ? <KeyValue label="Schemes" value={site.programmes.join(" · ")} /> : null}
             {site.phone ? <KeyValue label="Telephone" value={site.phone} /> : null}
-            {site.address ? <KeyValue label="Address" value={site.address} /> : null}
+            <MapLocationLink name={site.name} address={site.address} lat={site.lat} lng={site.lng} />
           </div>
           <p className="text-[11px] leading-relaxed text-muted">{HEALTHCARE_SOURCE_HINT[site.source]}</p>
         </div>
@@ -204,7 +205,7 @@ export function FocusDialog({
           <PlacePhotoGallery key={library.id} name={library.name} photos={library.photos} />
           <div>
             {library.branch ? <KeyValue label="Branch" value={library.branch} /> : null}
-            {library.address ? <KeyValue label="Address" value={library.address} /> : null}
+            <MapLocationLink name={library.name} address={library.address} lat={library.lat} lng={library.lng} />
           </div>
           <p className="text-[11px] leading-relaxed text-muted">{LIBRARY_SOURCE_HINT[library.source]}</p>
         </div>
@@ -220,7 +221,7 @@ export function FocusDialog({
           <div>
             {market.brand !== "Other" ? <KeyValue label="Brand" value={market.brand} /> : null}
             {market.openingHours ? <KeyValue label="Hours" value={formatOpeningHours(market.openingHours) ?? market.openingHours} /> : null}
-            {market.address ? <KeyValue label="Address" value={market.address} /> : null}
+            <MapLocationLink name={market.name} address={market.address} lat={market.lat} lng={market.lng} />
             {market.website ? (
               <div className="flex gap-2 py-1">
                 <span className="data-label w-20 shrink-0">Website</span>
@@ -247,7 +248,7 @@ export function FocusDialog({
       <FocusShell kind={`${SCHOOL_LEVEL_LABEL[school.level]} School`} title={school.name} onClose={onClose}>
         <div className="space-y-2 p-4 text-xs">
           <div>
-            {school.address ? <KeyValue label="Address" value={school.address} /> : null}
+            <MapLocationLink name={school.name} address={school.address} lat={school.lat} lng={school.lng} />
             {school.phone ? <KeyValue label="Telephone" value={school.phone} /> : null}
             {school.mrt ? <KeyValue label="MRT" value={school.mrt} /> : null}
             {school.bus ? <KeyValue label="Bus" value={school.bus} /> : null}
@@ -279,7 +280,7 @@ export function FocusDialog({
           <PlacePhotoGallery key={hotel.id} name={hotel.name} photos={hotel.photos} />
           <div>
             {hotel.rooms !== null ? <KeyValue label="Licensed rooms" value={hotel.rooms.toLocaleString("en-SG")} /> : null}
-            {hotel.address ? <KeyValue label="Address" value={hotel.address} /> : null}
+            <MapLocationLink name={hotel.name} address={hotel.address} lat={hotel.lat} lng={hotel.lng} />
           </div>
           <p className="text-[11px] leading-relaxed text-muted">{HOTEL_SOURCE_HINT}</p>
         </div>
@@ -298,7 +299,7 @@ export function FocusDialog({
           {mall.fnb !== null ? <KeyValue label="Food & Drink" value={mall.fnb.toLocaleString("en-SG")} /> : null}
           {mall.nearestMrt ? <KeyValue label="Nearest MRT" value={mall.nearestMrt} /> : null}
           {mall.openingHours ? <KeyValue label="Hours" value={formatOpeningHours(mall.openingHours) ?? mall.openingHours} /> : null}
-          {mall.address ? <KeyValue label="Address" value={mall.address} /> : null}
+          <MapLocationLink name={mall.name} address={mall.address} lat={mall.lat} lng={mall.lng} />
         </div>
       </div>
     );
