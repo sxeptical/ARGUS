@@ -2,24 +2,64 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
+import { Fragment } from "react";
 import {
   EyeGlyph,
   LayerFilterInput,
   LayerGroupHeader,
+  LayerOptionFilter,
 } from "@/app/components/dashboard/LayerControls";
 import { useLayerList } from "@/app/hooks/use-layer-list";
 import type { SensorRow } from "@/app/hooks/use-dashboard-state";
 import type { SensorKey } from "@/lib/layers";
+import type { GymBrandCount } from "@/lib/gyms";
+import type { HeritageKindCount } from "@/lib/heritage";
+import { HERITAGE_KIND_LABEL } from "@/lib/heritage";
+import type { HealthcareKindCount } from "@/lib/healthcare";
+import { HEALTHCARE_KIND_LABEL } from "@/lib/healthcare";
+import type { SupermarketBrandCount } from "@/lib/supermarkets";
+import type { SchoolLevelCount } from "@/lib/schools";
+import { SCHOOL_LEVEL_LABEL } from "@/lib/schools";
 
 export function MobileLayersDrawer({
   sensorRows,
   sensorVisibility,
   setSensorVisibility,
+  gymBrands,
+  gymBrandCounts,
+  onGymBrandsChange,
+  heritageKinds,
+  heritageKindCounts,
+  onHeritageKindsChange,
+  healthcareKinds,
+  healthcareKindCounts,
+  onHealthcareKindsChange,
+  supermarketBrands,
+  supermarketBrandCounts,
+  onSupermarketBrandsChange,
+  schoolLevels,
+  schoolLevelCounts,
+  onSchoolLevelsChange,
   visibleSensorCount,
 }: {
   sensorRows: ReadonlyArray<SensorRow>;
   sensorVisibility: Record<SensorKey, boolean>;
   setSensorVisibility: Dispatch<SetStateAction<Record<SensorKey, boolean>>>;
+  gymBrands: Record<string, boolean>;
+  gymBrandCounts: GymBrandCount[];
+  onGymBrandsChange: (next: Record<string, boolean>) => void;
+  heritageKinds: Record<string, boolean>;
+  heritageKindCounts: HeritageKindCount[];
+  onHeritageKindsChange: (next: Record<string, boolean>) => void;
+  healthcareKinds: Record<string, boolean>;
+  healthcareKindCounts: HealthcareKindCount[];
+  onHealthcareKindsChange: (next: Record<string, boolean>) => void;
+  supermarketBrands: Record<string, boolean>;
+  supermarketBrandCounts: SupermarketBrandCount[];
+  onSupermarketBrandsChange: (next: Record<string, boolean>) => void;
+  schoolLevels: Record<string, boolean>;
+  schoolLevelCounts: SchoolLevelCount[];
+  onSchoolLevelsChange: (next: Record<string, boolean>) => void;
   visibleSensorCount: number;
 }) {
   const [open, setOpen] = useState(false);
@@ -151,8 +191,8 @@ export function MobileLayersDrawer({
                     {group.rows.map((row) => {
                       const visible = sensorVisibility[row.key];
                       return (
+                        <Fragment key={row.key}>
                         <button
-                          key={row.key}
                           type="button"
                           onClick={() =>
                             setSensorVisibility((previous) => ({
@@ -205,6 +245,52 @@ export function MobileLayersDrawer({
                             />
                           </span>
                         </button>
+                        {row.key === "gyms" && visible ? (
+                          <LayerOptionFilter
+                            summaryLabel="Brands"
+                            options={gymBrandCounts.map(({ brand, count }) => ({ value: brand, label: brand, count }))}
+                            selected={gymBrands}
+                            onChange={onGymBrandsChange}
+                            accentClass="bg-signal-gym"
+                          />
+                        ) : null}
+                        {row.key === "heritage" && visible ? (
+                          <LayerOptionFilter
+                            summaryLabel="Types"
+                            options={heritageKindCounts.map(({ kind, count }) => ({ value: kind, label: HERITAGE_KIND_LABEL[kind], count }))}
+                            selected={heritageKinds}
+                            onChange={onHeritageKindsChange}
+                            accentClass="bg-signal-heritage"
+                          />
+                        ) : null}
+                        {row.key === "healthcare" && visible ? (
+                          <LayerOptionFilter
+                            summaryLabel="Types"
+                            options={healthcareKindCounts.map(({ kind, count }) => ({ value: kind, label: HEALTHCARE_KIND_LABEL[kind], count }))}
+                            selected={healthcareKinds}
+                            onChange={onHealthcareKindsChange}
+                            accentClass="bg-signal-healthcare"
+                          />
+                        ) : null}
+                        {row.key === "supermarkets" && visible ? (
+                          <LayerOptionFilter
+                            summaryLabel="Brands"
+                            options={supermarketBrandCounts.map(({ brand, count }) => ({ value: brand, label: brand, count }))}
+                            selected={supermarketBrands}
+                            onChange={onSupermarketBrandsChange}
+                            accentClass="bg-signal-supermarket"
+                          />
+                        ) : null}
+                        {row.key === "schools" && visible ? (
+                          <LayerOptionFilter
+                            summaryLabel="Levels"
+                            options={schoolLevelCounts.map(({ level, count }) => ({ value: level, label: SCHOOL_LEVEL_LABEL[level], count }))}
+                            selected={schoolLevels}
+                            onChange={onSchoolLevelsChange}
+                            accentClass="bg-signal-school"
+                          />
+                        ) : null}
+                        </Fragment>
                       );
                     })}
                   </div>

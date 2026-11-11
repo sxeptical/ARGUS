@@ -3,9 +3,19 @@
 import { useEffect, useRef, type ReactNode } from "react";
 import type { SelectedAmenity } from "@/app/hooks/use-dashboard-state";
 import { KeyValue } from "@/app/components/dashboard/IntelPanel";
+import { MapLocationLink } from "@/app/components/dashboard/MapLocationLink";
 import { hasStoreDirectory, MallStoreDirectory } from "@/app/components/dashboard/MallDirectory";
 import { PlacePhotoGallery } from "@/app/components/dashboard/PlacePhotoGallery";
-import { formatOpeningHours } from "@/lib/amenities";
+import { describeHawkerClosure, formatOpeningHours } from "@/lib/amenities";
+import { GYM_CATEGORY_LABEL, GYM_SOURCE_HINT } from "@/lib/gyms";
+import { COMMUNITY_CLUB_KIND_LABEL, COMMUNITY_CLUB_SOURCE_HINT } from "@/lib/community-clubs";
+import { PHARMACY_SOURCE_HINT } from "@/lib/pharmacies";
+import { HOTEL_SOURCE_HINT } from "@/lib/hotels";
+import { HERITAGE_KIND_LABEL, HERITAGE_SOURCE_HINT } from "@/lib/heritage";
+import { HEALTHCARE_KIND_LABEL, HEALTHCARE_SOURCE_HINT } from "@/lib/healthcare";
+import { LIBRARY_SOURCE_HINT } from "@/lib/libraries";
+import { SUPERMARKET_SOURCE_HINT } from "@/lib/supermarkets";
+import { SCHOOL_LEVEL_LABEL, SCHOOL_SOURCE_HINT } from "@/lib/schools";
 import { formatAltitudeFeet, formatSpeedKmh } from "@/lib/formatters";
 import { photosForPark } from "@/lib/park-photos";
 import { PARK_KIND_TITLE } from "@/lib/parks";
@@ -62,6 +72,7 @@ export function FocusDialog({
 
   if (amenity?.type === "hawker") {
     const { hawker } = amenity;
+    const closure = describeHawkerClosure(hawker.closures);
     return (
       <FocusShell kind="Hawker Centre" title={hawker.name} onClose={onClose}>
         <div className="space-y-2 p-4 text-xs">
@@ -71,9 +82,207 @@ export function FocusDialog({
               label="Status"
               value={hawker.status === "planned" ? (hawker.expectedYear ? `Under construction · expected ${hawker.expectedYear}` : "Under construction") : "In operation"}
             />
+            {closure ? <KeyValue label="Closure" value={closure.text} /> : null}
             {hawker.stalls !== null ? <KeyValue label="Stalls" value={`${hawker.stalls.toLocaleString("en-SG")} cooked food`} /> : null}
-            {hawker.address ? <KeyValue label="Address" value={hawker.address} /> : null}
+            <MapLocationLink name={hawker.name} address={hawker.address} lat={hawker.lat} lng={hawker.lng} />
           </div>
+        </div>
+      </FocusShell>
+    );
+  }
+
+  if (amenity?.type === "gym") {
+    const { gym } = amenity;
+    return (
+      <FocusShell kind="Gym" title={gym.name} onClose={onClose}>
+        <div className="space-y-2 p-4 text-xs">
+          <div>
+            <KeyValue label="Type" value={GYM_CATEGORY_LABEL[gym.category]} />
+            {gym.brand !== "Independent" ? <KeyValue label="Brand" value={gym.brand} /> : null}
+            {gym.openingHours ? <KeyValue label="Hours" value={formatOpeningHours(gym.openingHours) ?? gym.openingHours} /> : null}
+            <MapLocationLink name={gym.name} address={gym.address} lat={gym.lat} lng={gym.lng} />
+            {gym.website ? (
+              <div className="flex gap-2 py-1">
+                <span className="data-label w-20 shrink-0">Website</span>
+                <a
+                  href={gym.website}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="min-w-0 break-all text-info underline decoration-info/40 hover:decoration-info"
+                >
+                  {gym.website}
+                </a>
+              </div>
+            ) : null}
+          </div>
+          <p className="text-[11px] leading-relaxed text-muted">{GYM_SOURCE_HINT[gym.source]}</p>
+        </div>
+      </FocusShell>
+    );
+  }
+
+  if (amenity?.type === "community-club") {
+    const { club } = amenity;
+    return (
+      <FocusShell kind={COMMUNITY_CLUB_KIND_LABEL[club.kind]} title={club.name} onClose={onClose}>
+        <div className="space-y-2 p-4 text-xs">
+          <PlacePhotoGallery key={club.id} name={club.name} photos={club.photos} />
+          <div>
+            <KeyValue label="Type" value={COMMUNITY_CLUB_KIND_LABEL[club.kind]} />
+            <MapLocationLink name={club.name} address={club.address} lat={club.lat} lng={club.lng} />
+          </div>
+          <p className="text-[11px] leading-relaxed text-muted">{COMMUNITY_CLUB_SOURCE_HINT}</p>
+        </div>
+      </FocusShell>
+    );
+  }
+
+  if (amenity?.type === "pharmacy") {
+    const { pharmacy } = amenity;
+    return (
+      <FocusShell kind="Pharmacy" title={pharmacy.name} onClose={onClose}>
+        <div className="space-y-2 p-4 text-xs">
+          <div>
+            <MapLocationLink name={pharmacy.name} address={pharmacy.address} lat={pharmacy.lat} lng={pharmacy.lng} />
+          </div>
+          <p className="text-[11px] leading-relaxed text-muted">{PHARMACY_SOURCE_HINT}</p>
+        </div>
+      </FocusShell>
+    );
+  }
+
+  if (amenity?.type === "heritage") {
+    const { site } = amenity;
+    return (
+      <FocusShell kind={HERITAGE_KIND_LABEL[site.kind]} title={site.name} onClose={onClose}>
+        <div className="space-y-2 p-4 text-xs">
+          <PlacePhotoGallery key={site.id} name={site.name} photos={site.photos} />
+          <div>
+            {site.description ? <KeyValue label="About" value={site.description} /> : null}
+            <MapLocationLink name={site.name} address={site.address} lat={site.lat} lng={site.lng} />
+            {site.website ? (
+              <div className="flex gap-2 py-1">
+                <span className="data-label w-20 shrink-0">{site.source === "nhb" ? "Roots.sg" : "Website"}</span>
+                <a
+                  href={site.website}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="min-w-0 break-all text-info underline decoration-info/40 hover:decoration-info"
+                >
+                  {site.source === "nhb" ? "More on Roots.sg" : site.website}
+                </a>
+              </div>
+            ) : null}
+          </div>
+          <p className="text-[11px] leading-relaxed text-muted">{HERITAGE_SOURCE_HINT[site.source]}</p>
+        </div>
+      </FocusShell>
+    );
+  }
+
+  if (amenity?.type === "healthcare") {
+    const { site } = amenity;
+    return (
+      <FocusShell kind={HEALTHCARE_KIND_LABEL[site.kind]} title={site.name} onClose={onClose}>
+        <div className="space-y-2 p-4 text-xs">
+          <PlacePhotoGallery key={site.id} name={site.name} photos={site.photos} />
+          <div>
+            {site.programmes.length ? <KeyValue label="Schemes" value={site.programmes.join(" · ")} /> : null}
+            {site.phone ? <KeyValue label="Telephone" value={site.phone} /> : null}
+            <MapLocationLink name={site.name} address={site.address} lat={site.lat} lng={site.lng} />
+          </div>
+          <p className="text-[11px] leading-relaxed text-muted">{HEALTHCARE_SOURCE_HINT[site.source]}</p>
+        </div>
+      </FocusShell>
+    );
+  }
+
+  if (amenity?.type === "library") {
+    const { library } = amenity;
+    return (
+      <FocusShell kind="Public Library" title={library.name} onClose={onClose}>
+        <div className="space-y-2 p-4 text-xs">
+          <PlacePhotoGallery key={library.id} name={library.name} photos={library.photos} />
+          <div>
+            {library.branch ? <KeyValue label="Branch" value={library.branch} /> : null}
+            <MapLocationLink name={library.name} address={library.address} lat={library.lat} lng={library.lng} />
+          </div>
+          <p className="text-[11px] leading-relaxed text-muted">{LIBRARY_SOURCE_HINT[library.source]}</p>
+        </div>
+      </FocusShell>
+    );
+  }
+
+  if (amenity?.type === "supermarket") {
+    const { market } = amenity;
+    return (
+      <FocusShell kind="Supermarket" title={market.name} onClose={onClose}>
+        <div className="space-y-2 p-4 text-xs">
+          <div>
+            {market.brand !== "Other" ? <KeyValue label="Brand" value={market.brand} /> : null}
+            {market.openingHours ? <KeyValue label="Hours" value={formatOpeningHours(market.openingHours) ?? market.openingHours} /> : null}
+            <MapLocationLink name={market.name} address={market.address} lat={market.lat} lng={market.lng} />
+            {market.website ? (
+              <div className="flex gap-2 py-1">
+                <span className="data-label w-20 shrink-0">Website</span>
+                <a
+                  href={market.website}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="min-w-0 break-all text-info underline decoration-info/40 hover:decoration-info"
+                >
+                  {market.website}
+                </a>
+              </div>
+            ) : null}
+          </div>
+          <p className="text-[11px] leading-relaxed text-muted">{SUPERMARKET_SOURCE_HINT}</p>
+        </div>
+      </FocusShell>
+    );
+  }
+
+  if (amenity?.type === "school") {
+    const { school } = amenity;
+    return (
+      <FocusShell kind={`${SCHOOL_LEVEL_LABEL[school.level]} School`} title={school.name} onClose={onClose}>
+        <div className="space-y-2 p-4 text-xs">
+          <div>
+            <MapLocationLink name={school.name} address={school.address} lat={school.lat} lng={school.lng} />
+            {school.phone ? <KeyValue label="Telephone" value={school.phone} /> : null}
+            {school.mrt ? <KeyValue label="MRT" value={school.mrt} /> : null}
+            {school.bus ? <KeyValue label="Bus" value={school.bus} /> : null}
+            {school.website ? (
+              <div className="flex gap-2 py-1">
+                <span className="data-label w-20 shrink-0">Website</span>
+                <a
+                  href={school.website}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="min-w-0 break-all text-info underline decoration-info/40 hover:decoration-info"
+                >
+                  {school.website}
+                </a>
+              </div>
+            ) : null}
+          </div>
+          <p className="text-[11px] leading-relaxed text-muted">{SCHOOL_SOURCE_HINT}</p>
+        </div>
+      </FocusShell>
+    );
+  }
+
+  if (amenity?.type === "hotel") {
+    const { hotel } = amenity;
+    return (
+      <FocusShell kind="Hotel" title={hotel.name} onClose={onClose}>
+        <div className="space-y-2 p-4 text-xs">
+          <PlacePhotoGallery key={hotel.id} name={hotel.name} photos={hotel.photos} />
+          <div>
+            {hotel.rooms !== null ? <KeyValue label="Licensed rooms" value={hotel.rooms.toLocaleString("en-SG")} /> : null}
+            <MapLocationLink name={hotel.name} address={hotel.address} lat={hotel.lat} lng={hotel.lng} />
+          </div>
+          <p className="text-[11px] leading-relaxed text-muted">{HOTEL_SOURCE_HINT}</p>
         </div>
       </FocusShell>
     );
@@ -90,7 +299,7 @@ export function FocusDialog({
           {mall.fnb !== null ? <KeyValue label="Food & Drink" value={mall.fnb.toLocaleString("en-SG")} /> : null}
           {mall.nearestMrt ? <KeyValue label="Nearest MRT" value={mall.nearestMrt} /> : null}
           {mall.openingHours ? <KeyValue label="Hours" value={formatOpeningHours(mall.openingHours) ?? mall.openingHours} /> : null}
-          {mall.address ? <KeyValue label="Address" value={mall.address} /> : null}
+          <MapLocationLink name={mall.name} address={mall.address} lat={mall.lat} lng={mall.lng} />
         </div>
       </div>
     );

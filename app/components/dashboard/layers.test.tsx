@@ -2,6 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { LayersSidebar } from "./LayersSidebar";
 import { MobileLayersDrawer } from "./MobileLayersDrawer";
+import { gymBrandCounts } from "@/lib/gyms";
+import { GYMS } from "@/lib/gyms-data";
 import { buildLayerGroups } from "@/app/hooks/use-layer-list";
 import { FLIGHTS_ENABLED } from "@/lib/features";
 import {
@@ -10,8 +12,11 @@ import {
   LAYER_BY_KEY,
   LAYER_GROUPS,
   SensorKey,
+  allLayerOptionsOn,
   coerceSensorVisibility,
+  toggleLayerOptionSelection,
 } from "@/lib/layers";
+import { LayerOptionFilter } from "./LayerControls";
 import type { SensorRow } from "@/app/hooks/use-dashboard-state";
 import type { SensorKey as RegistrySensorKey } from "@/lib/layers";
 import type { WeatherData } from "@/types";
@@ -29,6 +34,15 @@ const layerCounts: Record<SensorKey, number> = {
   evChargers: 0,
   malls: 26,
   hawkers: 114,
+  gyms: 381,
+  communityClubs: 128,
+  pharmacies: 249,
+  hotels: 468,
+  heritage: 249,
+  healthcare: 1460,
+  libraries: 28,
+  supermarkets: 553,
+  schools: 337,
 };
 
 const allRows: SensorRow[] = LAYERS.map((layer) => ({
@@ -153,6 +167,15 @@ describe("buildLayerGroups", () => {
       "parks",
       "malls",
       "hawkers",
+      "gyms",
+      "communityClubs",
+      "pharmacies",
+      "hotels",
+      "heritage",
+      "healthcare",
+      "libraries",
+      "supermarkets",
+      "schools",
     ]);
   });
 
@@ -222,6 +245,21 @@ describe("layer surfaces render", () => {
         sensorVisibility={DEFAULT_SENSOR_VISIBILITY}
         setSelectedFlight={() => {}}
         setSensorVisibility={() => {}}
+        gymBrands={{}}
+        gymBrandCounts={gymBrandCounts(GYMS)}
+        onGymBrandsChange={() => {}}
+        heritageKinds={{}}
+        heritageKindCounts={[]}
+        onHeritageKindsChange={() => {}}
+        healthcareKinds={{}}
+        healthcareKindCounts={[]}
+        onHealthcareKindsChange={() => {}}
+        supermarketBrands={{}}
+        supermarketBrandCounts={[]}
+        onSupermarketBrandsChange={() => {}}
+        schoolLevels={{}}
+        schoolLevelCounts={[]}
+        onSchoolLevelsChange={() => {}}
         visibleSensorCount={4}
         weather={weather}
         weatherHistory={[]}
@@ -244,6 +282,21 @@ describe("layer surfaces render", () => {
         sensorRows={panelRows}
         sensorVisibility={DEFAULT_SENSOR_VISIBILITY}
         setSensorVisibility={() => {}}
+        gymBrands={{}}
+        gymBrandCounts={gymBrandCounts(GYMS)}
+        onGymBrandsChange={() => {}}
+        heritageKinds={{}}
+        heritageKindCounts={[]}
+        onHeritageKindsChange={() => {}}
+        healthcareKinds={{}}
+        healthcareKindCounts={[]}
+        onHealthcareKindsChange={() => {}}
+        supermarketBrands={{}}
+        supermarketBrandCounts={[]}
+        onSupermarketBrandsChange={() => {}}
+        schoolLevels={{}}
+        schoolLevelCounts={[]}
+        onSchoolLevelsChange={() => {}}
         visibleSensorCount={4}
       />,
     );
@@ -251,10 +304,65 @@ describe("layer surfaces render", () => {
       expect(markup).toContain(htmlEscape(group.label));
     }
     expect(markup).toContain("MRT &amp; LRT");
-    expect(markup).toContain("4/9 visible");
+    expect(markup).toContain("4/18 visible");
   });
 });
 
 // Keep the re-exported alias honest: both names must stay the same type.
 const _typeAliasCheck: RegistrySensorKey extends SensorKey ? true : false = true;
 void _typeAliasCheck;
+
+describe("toggleLayerOptionSelection", () => {
+  const all = ["a", "b", "c"];
+  const allOn = allLayerOptionsOn(all);
+
+  test("first tap when all on solos the option", () => {
+    expect(toggleLayerOptionSelection(allOn, "b", all)).toEqual({ a: false, b: true, c: false });
+  });
+
+  test("later taps toggle options normally", () => {
+    const solo = toggleLayerOptionSelection(allOn, "b", all);
+    expect(toggleLayerOptionSelection(solo, "c", all)).toEqual({ a: false, b: true, c: true });
+    expect(toggleLayerOptionSelection(solo, "b", all)).toEqual(allOn);
+  });
+
+  test("deselecting the last on-option reverts to all", () => {
+    expect(toggleLayerOptionSelection({ a: false, b: true, c: false }, "b", all)).toEqual(allOn);
+  });
+
+  test("absent keys read as on", () => {
+    expect(toggleLayerOptionSelection({}, "b", all)).toEqual({ a: false, b: true, c: false });
+  });
+});
+
+const subFilterOptions = [
+  { value: "ActiveSG", label: "ActiveSG", count: 31 },
+  { value: "Anytime Fitness", label: "Anytime Fitness", count: 130 },
+  { value: "F45 Training", label: "F45 Training", count: 16 },
+  { value: "Snap Fitness", label: "Snap Fitness", count: 14 },
+  { value: "CrossFit", label: "CrossFit", count: 13 },
+  { value: "Independent", label: "Independent", count: 137 },
+  { value: "Fitness First", label: "Fitness First", count: 8 },
+];
+
+describe("LayerOptionFilter", () => {
+  const render = (selected: Record<string, boolean>) =>
+    renderToStaticMarkup(
+      <LayerOptionFilter
+        summaryLabel="Brands"
+        options={subFilterOptions}
+        selected={selected}
+        onChange={() => {}}
+        accentClass="bg-signal-gym"
+      />,
+    );
+
+  test("collapses to a summary line by default", () => {
+    expect(render({})).toContain("Brands");
+    expect(render({})).toContain("All");
+    expect(render({})).not.toContain("+1 more");
+    expect(render({})).toContain('aria-expanded="false"');
+    expect(render({ "Anytime Fitness": true, ActiveSG: true, "F45 Training": false, "Snap Fitness": false, CrossFit: false, Independent: false, "Fitness First": false })).toContain("ActiveSG, Anytime Fitness");
+    expect(render({ "Anytime Fitness": true, ActiveSG: false, "F45 Training": true, "Snap Fitness": true, CrossFit: false, Independent: false, "Fitness First": false })).toContain("3 selected");
+  });
+});

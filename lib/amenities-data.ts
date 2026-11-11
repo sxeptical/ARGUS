@@ -1,4 +1,5 @@
 import amenitiesData from "@/public/amenities.json";
+import { HAWKER_CLOSURES } from "@/lib/hawker-closures-data";
 import type { AmenitiesBundle, PlacePhoto } from "@/types";
 
 const isPlace = (
@@ -62,5 +63,15 @@ export function validateAmenitiesBundle(
 if (!validateAmenitiesBundle(amenitiesData))
   throw new Error("Invalid amenities bundle");
 const AMENITIES = amenitiesData as AmenitiesBundle;
-export const HAWKER_CENTRES = AMENITIES.hawkers;
 export const MALLS = AMENITIES.malls;
+
+// Closures live in their own bundle (scripts/fetch-hawker-closures.mjs) so
+// they can be refreshed without regenerating malls/photos; join by hawker id.
+export const HAWKER_CENTRES = AMENITIES.hawkers.map((hawker) => ({
+  ...hawker,
+  closures: HAWKER_CLOSURES.get(hawker.id) ?? [],
+}));
+for (const id of HAWKER_CLOSURES.keys()) {
+  if (!AMENITIES.hawkers.some((hawker) => hawker.id === id))
+    throw new Error(`Hawker closures reference unknown hawker centre ${id}`);
+}

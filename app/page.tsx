@@ -27,6 +27,24 @@ import { useDashboardState } from "@/app/hooks/use-dashboard-state";
 import { useNotifications } from "@/app/hooks/use-notifications";
 import { buildHawkerSearchResults, buildMallSearchResults } from "@/lib/amenities";
 import { HAWKER_CENTRES, MALLS } from "@/lib/amenities-data";
+import { buildGymSearchResults } from "@/lib/gyms";
+import { GYMS } from "@/lib/gyms-data";
+import { buildCommunityClubSearchResults } from "@/lib/community-clubs";
+import { COMMUNITY_CLUBS } from "@/lib/community-clubs-data";
+import { buildPharmacySearchResults } from "@/lib/pharmacies";
+import { PHARMACIES } from "@/lib/pharmacies-data";
+import { buildHotelSearchResults } from "@/lib/hotels";
+import { HOTELS } from "@/lib/hotels-data";
+import { buildHeritageSearchResults } from "@/lib/heritage";
+import { HERITAGE_SITES } from "@/lib/heritage-data";
+import { buildHealthcareSearchResults } from "@/lib/healthcare";
+import { HEALTHCARE_SITES } from "@/lib/healthcare-data";
+import { buildLibrarySearchResults } from "@/lib/libraries";
+import { LIBRARIES } from "@/lib/libraries-data";
+import { buildSupermarketSearchResults } from "@/lib/supermarkets";
+import { SUPERMARKETS } from "@/lib/supermarkets-data";
+import { buildSchoolSearchResults } from "@/lib/schools";
+import { SCHOOLS } from "@/lib/schools-data";
 import { buildParkSearchResults } from "@/lib/parks";
 import { PARKS_GEOJSON } from "@/lib/parks-data";
 import { formatRadius, withinRadius } from "@/lib/geo-filter";
@@ -39,9 +57,18 @@ import type { AirQualityOverlay } from "@/types";
 const AMENITY_SEARCH_RESULTS = [
   ...buildMallSearchResults(MALLS),
   ...buildHawkerSearchResults(HAWKER_CENTRES),
+  ...buildGymSearchResults(GYMS),
+  ...buildCommunityClubSearchResults(COMMUNITY_CLUBS),
+  ...buildPharmacySearchResults(PHARMACIES),
+  ...buildHotelSearchResults(HOTELS),
+  ...buildHeritageSearchResults(HERITAGE_SITES),
+  ...buildHealthcareSearchResults(HEALTHCARE_SITES),
+  ...buildLibrarySearchResults(LIBRARIES),
+  ...buildSupermarketSearchResults(SUPERMARKETS),
+  ...buildSchoolSearchResults(SCHOOLS),
   ...buildParkSearchResults(PARKS_GEOJSON),
 ];
-const SEARCH_LAYER_BY_TYPE = { mall: "malls", hawker: "hawkers", park: "parks" } as const;
+const SEARCH_LAYER_BY_TYPE = { mall: "malls", hawker: "hawkers", gym: "gyms", "community-club": "communityClubs", pharmacy: "pharmacies", hotel: "hotels", heritage: "heritage", healthcare: "healthcare", library: "libraries", supermarket: "supermarkets", school: "schools", park: "parks" } as const;
 
 export default function Home() {
   const {
@@ -64,6 +91,26 @@ export default function Home() {
     geoFilter,
     geoFilterPicking,
     geoFilterRadiusM,
+    gymBrandCountList,
+    gymBrands,
+    setGymBrands,
+    toggleGymBrand,
+    heritageKindCountList,
+    heritageKinds,
+    setHeritageKinds,
+    toggleHeritageKind,
+    healthcareKindCountList,
+    healthcareKinds,
+    setHealthcareKinds,
+    toggleHealthcareKind,
+    supermarketBrandCountList,
+    supermarketBrands,
+    setSupermarketBrands,
+    toggleSupermarketBrand,
+    schoolLevelCountList,
+    schoolLevels,
+    setSchoolLevels,
+    toggleSchoolLevel,
     incidents,
     handleSelectStop,
     mrtEndStation,
@@ -158,6 +205,17 @@ export default function Home() {
     : undefined;
   const signalToneClass = (tone: "danger" | "warning" | "info" | "muted") =>
     tone === "danger" ? "text-danger" : tone === "warning" ? "text-warning" : tone === "info" ? "text-info" : "text-muted";
+  // Radius filter lives in the right column below Source Health (see below).
+  const radiusFilterPanel = (
+    <GeoFilterPanel
+      filter={geoFilter}
+      radiusM={geoFilterRadiusM}
+      picking={geoFilterPicking}
+      onRadiusChange={setGeoFilterRadiusM}
+      onPickingChange={setGeoFilterPicking}
+      onClear={clearGeoFilter}
+    />
+  );
 
   if (!bootComplete) {
     return <LoadingScreen sources={sources} />;
@@ -206,20 +264,25 @@ export default function Home() {
           sensorVisibility={sensorVisibility}
           setSelectedFlight={setSelectedFlight}
           setSensorVisibility={setSensorVisibility}
+          gymBrands={gymBrands}
+          gymBrandCounts={gymBrandCountList}
+          onGymBrandsChange={setGymBrands}
+          heritageKinds={heritageKinds}
+          heritageKindCounts={heritageKindCountList}
+          onHeritageKindsChange={setHeritageKinds}
+          healthcareKinds={healthcareKinds}
+          healthcareKindCounts={healthcareKindCountList}
+          onHealthcareKindsChange={setHealthcareKinds}
+          supermarketBrands={supermarketBrands}
+          supermarketBrandCounts={supermarketBrandCountList}
+          onSupermarketBrandsChange={setSupermarketBrands}
+          schoolLevels={schoolLevels}
+          schoolLevelCounts={schoolLevelCountList}
+          onSchoolLevelsChange={setSchoolLevels}
           visibleSensorCount={visibleSensorCount}
           weather={weather}
           weatherHistory={weatherHistory}
           onAirQualityOverlayChange={setAirQualityOverlay}
-          geoFilterPanel={
-            <GeoFilterPanel
-              filter={geoFilter}
-              radiusM={geoFilterRadiusM}
-              picking={geoFilterPicking}
-              onRadiusChange={setGeoFilterRadiusM}
-              onPickingChange={setGeoFilterPicking}
-              onClear={clearGeoFilter}
-            />
-          }
         />
 
         <section className="contents xl:order-2 xl:grid xl:min-w-0 xl:gap-3 xl:min-h-0 xl:grid-rows-[minmax(0,1fr)_minmax(236px,38%)]">
@@ -234,6 +297,11 @@ export default function Home() {
               evChargers={evChargers}
               airQualityOverlay={airQualityOverlay}
               sensorVisibility={sensorVisibility}
+              gymBrands={gymBrands}
+              heritageKinds={heritageKinds}
+              healthcareKinds={healthcareKinds}
+              supermarketBrands={supermarketBrands}
+              schoolLevels={schoolLevels}
               onStopClick={handleSelectStop}
               onCameraClick={setSelectedCamera}
               onFlightClick={setSelectedFlight}
@@ -260,12 +328,34 @@ export default function Home() {
                 if (result.type === "bus-stop") {
                   const stop = busStops.find((item) => item.BusStopCode === result.id);
                   if (stop) handleSelectStop(stop);
-                } else if (result.type === "mall" || result.type === "hawker") {
+                } else if (result.type === "mall" || result.type === "hawker" || result.type === "gym" || result.type === "community-club" || result.type === "pharmacy" || result.type === "hotel" || result.type === "heritage" || result.type === "healthcare" || result.type === "library" || result.type === "supermarket" || result.type === "school") {
                   // Open it in focus mode, not just on the map, and make sure
                   // the searched place is actually drawn when we get there.
                   setSelectedAmenity({ type: result.type, id: result.id });
                   const layer = SEARCH_LAYER_BY_TYPE[result.type];
                   setSensorVisibility((previous) => ({ ...previous, [layer]: true }));
+                  // A brand-filtered-out gym would not be drawn; switch its
+                  // brand chip back on for the selection.
+                  if (result.type === "gym") {
+                    const gym = GYMS.find((candidate) => candidate.id === result.id);
+                    if (gym) toggleGymBrand(gym.brand, true);
+                  }
+                  if (result.type === "heritage") {
+                    const site = HERITAGE_SITES.find((candidate) => candidate.id === result.id);
+                    if (site) toggleHeritageKind(site.kind, true);
+                  }
+                  if (result.type === "healthcare") {
+                    const site = HEALTHCARE_SITES.find((candidate) => candidate.id === result.id);
+                    if (site) toggleHealthcareKind(site.kind, true);
+                  }
+                  if (result.type === "supermarket") {
+                    const market = SUPERMARKETS.find((candidate) => candidate.id === result.id);
+                    if (market) toggleSupermarketBrand(market.brand, true);
+                  }
+                  if (result.type === "school") {
+                    const school = SCHOOLS.find((candidate) => candidate.id === result.id);
+                    if (school) toggleSchoolLevel(school.level, true);
+                  }
                 } else if (result.type === "park") {
                   const park = PARKS_GEOJSON.features.find(
                     (feature) => `park:${feature.properties.name}` === result.id,
@@ -279,6 +369,21 @@ export default function Home() {
               sensorRows={sensorRows}
               sensorVisibility={sensorVisibility}
               setSensorVisibility={setSensorVisibility}
+              gymBrands={gymBrands}
+              gymBrandCounts={gymBrandCountList}
+              onGymBrandsChange={setGymBrands}
+              heritageKinds={heritageKinds}
+              heritageKindCounts={heritageKindCountList}
+              onHeritageKindsChange={setHeritageKinds}
+              healthcareKinds={healthcareKinds}
+              healthcareKindCounts={healthcareKindCountList}
+              onHealthcareKindsChange={setHealthcareKinds}
+              supermarketBrands={supermarketBrands}
+              supermarketBrandCounts={supermarketBrandCountList}
+              onSupermarketBrandsChange={setSupermarketBrands}
+              schoolLevels={schoolLevels}
+              schoolLevelCounts={schoolLevelCountList}
+              onSchoolLevelsChange={setSchoolLevels}
               visibleSensorCount={visibleSensorCount}
             />
             <div className="pointer-events-none absolute left-2 top-2 border border-line bg-overlay px-2.5 py-1.5 text-[10px] uppercase tracking-[0.12em] text-ink">
@@ -391,13 +496,15 @@ export default function Home() {
               ))}
             </div>
           </IntelPanel>
+
+          {radiusFilterPanel}
         </aside>
       </main>
 
       <DashboardFooter />
 
       <FocusDialog
-        key={selectedFlight?.id ?? selectedPark?.name ?? (selectedAmenity ? (selectedAmenity.type === "mall" ? selectedAmenity.mall.id : selectedAmenity.hawker.id) : "none")}
+        key={selectedFlight?.id ?? selectedPark?.name ?? (selectedAmenity ? (selectedAmenity.type === "mall" ? selectedAmenity.mall.id : selectedAmenity.type === "hawker" ? selectedAmenity.hawker.id : selectedAmenity.type === "gym" ? selectedAmenity.gym.id : selectedAmenity.type === "community-club" ? selectedAmenity.club.id : selectedAmenity.type === "pharmacy" ? selectedAmenity.pharmacy.id : selectedAmenity.type === "heritage" ? selectedAmenity.site.id : selectedAmenity.type === "healthcare" ? selectedAmenity.site.id : selectedAmenity.type === "library" ? selectedAmenity.library.id : selectedAmenity.type === "supermarket" ? selectedAmenity.market.id : selectedAmenity.type === "school" ? selectedAmenity.school.id : selectedAmenity.hotel.id) : "none")}
         flight={selectedFlight}
         park={selectedPark}
         amenity={selectedAmenity}

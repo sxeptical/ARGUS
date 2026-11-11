@@ -43,6 +43,24 @@ import {
 } from "@/lib/mobility";
 import { describeHawkerCentre, describeMall } from "@/lib/amenities";
 import { HAWKER_CENTRES, MALLS } from "@/lib/amenities-data";
+import { describeGym, filterGymsByBrand } from "@/lib/gyms";
+import { GYMS } from "@/lib/gyms-data";
+import { describeCommunityClub } from "@/lib/community-clubs";
+import { COMMUNITY_CLUBS } from "@/lib/community-clubs-data";
+import { describePharmacy } from "@/lib/pharmacies";
+import { PHARMACIES } from "@/lib/pharmacies-data";
+import { describeHotel } from "@/lib/hotels";
+import { HOTELS } from "@/lib/hotels-data";
+import { describeHeritage, filterHeritageByKind } from "@/lib/heritage";
+import { HERITAGE_SITES } from "@/lib/heritage-data";
+import { describeHealthcare, filterHealthcareByKind } from "@/lib/healthcare";
+import { HEALTHCARE_SITES } from "@/lib/healthcare-data";
+import { describeLibrary } from "@/lib/libraries";
+import { LIBRARIES } from "@/lib/libraries-data";
+import { describeSupermarket, filterSupermarketsByBrand } from "@/lib/supermarkets";
+import { SUPERMARKETS } from "@/lib/supermarkets-data";
+import { describeSchool, filterSchoolsByLevel } from "@/lib/schools";
+import { SCHOOLS } from "@/lib/schools-data";
 import { PARK_LABELS_GEOJSON, PARKS_GEOJSON } from "@/lib/parks-data";
 import { describeParkFeature, PARK_KIND_TITLE } from "@/lib/parks";
 import { photosForPark } from "@/lib/park-photos";
@@ -57,6 +75,11 @@ import type {
   AirQualityOverlay,
   TrafficCamera,
   TrafficIncident,
+  GymBrand,
+  SchoolLevel,
+  SupermarketBrand,
+  HealthcareKind,
+  HeritageKind,
   ParkFeatureKind,
 } from "@/types";
 
@@ -85,14 +108,24 @@ type MapProps = {
   disruptedMrtLines?: ReadonlyArray<string>;
   /** On/off state per map layer; keys are defined in the layer registry. */
   sensorVisibility: Record<SensorKey, boolean>;
+  /** Which gym operator brands are shown; unset brands default to visible. */
+  gymBrands?: Readonly<Record<GymBrand, boolean>>;
+  /** Which heritage kinds are shown; unset kinds default to visible. */
+  heritageKinds?: Readonly<Record<HeritageKind, boolean>>;
+  /** Which healthcare kinds are shown; unset kinds default to visible. */
+  healthcareKinds?: Readonly<Record<HealthcareKind, boolean>>;
+  /** Which supermarket brands are shown; unset brands default to visible. */
+  supermarketBrands?: Readonly<Record<SupermarketBrand, boolean>>;
+  /** Which school levels are shown; unset levels default to visible. */
+  schoolLevels?: Readonly<Record<SchoolLevel, boolean>>;
   searchTarget?: MapSearchTarget | null;
   onStopClick: (stop: BusStop) => void;
   onCameraClick: (camera: TrafficCamera) => void;
   onFlightClick: (flight: FlightState) => void;
   onMrtStationClick?: (stationName: string) => void;
   onParkClick: (feature: { kind: ParkFeatureKind; name: string; park?: string; type?: string; cycle?: boolean }) => void;
-  /** Opens the clicked mall/hawker centre in the focus dialog. */
-  onAmenityClick?: (target: { type: "mall" | "hawker"; id: string }) => void;
+  /** Opens the clicked mall/hawker centre/gym/community club/pharmacy/hotel/heritage/healthcare/library/supermarket/school site in the focus dialog. */
+  onAmenityClick?: (target: { type: "mall" | "hawker" | "gym" | "community-club" | "pharmacy" | "hotel" | "heritage" | "healthcare" | "library" | "supermarket" | "school"; id: string }) => void;
   mrtRouteSegments?: MrtRouteSegment[];
   busRouteOverlay?: BusRouteOverlay | null;
   /** Active radius filter, drawn as a circle; scopes MRT stations and parks. */
@@ -119,12 +152,30 @@ const MAP_COLORS = {
   ev: "#4fd6e6",
   mall: "#e879c6",
   hawker: "#f0b060",
+  gym: "#c084fc",
+  communityClub: "#4fc3e5",
+  pharmacy: "#f0715f",
+  hotel: "#5f9fe8",
+  heritage: "#d9c84f",
+  healthcare: "#d9553f",
+  library: "#5fd6a8",
+  supermarket: "#d95fb0",
+  school: "#a678ff",
   geoFilter: "#73b9d9",
 } as const;
 
-// Malls and hawker centres are a static bundle: build their sources once.
+// Malls, hawker centres, gyms, community clubs, pharmacies, hotels, heritage, healthcare, libraries, supermarkets and schools are static bundles: build their sources once.
 const MALLS_BY_ID = new globalThis.Map(MALLS.map((mall) => [mall.id, mall]));
 const HAWKERS_BY_ID = new globalThis.Map(HAWKER_CENTRES.map((hawker) => [hawker.id, hawker]));
+const GYMS_BY_ID = new globalThis.Map(GYMS.map((gym) => [gym.id, gym]));
+const COMMUNITY_CLUBS_BY_ID = new globalThis.Map(COMMUNITY_CLUBS.map((club) => [club.id, club]));
+const PHARMACIES_BY_ID = new globalThis.Map(PHARMACIES.map((pharmacy) => [pharmacy.id, pharmacy]));
+const HOTELS_BY_ID = new globalThis.Map(HOTELS.map((hotel) => [hotel.id, hotel]));
+const HERITAGE_BY_ID = new globalThis.Map(HERITAGE_SITES.map((site) => [site.id, site]));
+const HEALTHCARE_BY_ID = new globalThis.Map(HEALTHCARE_SITES.map((site) => [site.id, site]));
+const LIBRARIES_BY_ID = new globalThis.Map(LIBRARIES.map((library) => [library.id, library]));
+const SUPERMARKETS_BY_ID = new globalThis.Map(SUPERMARKETS.map((market) => [market.id, market]));
+const SCHOOLS_BY_ID = new globalThis.Map(SCHOOLS.map((school) => [school.id, school]));
 const MALLS_GEOJSON = {
   type: "FeatureCollection" as const,
   features: MALLS.map((mall) => ({
@@ -141,6 +192,142 @@ const HAWKERS_GEOJSON = {
     geometry: { type: "Point" as const, coordinates: [hawker.lng, hawker.lat] },
   })),
 };
+/** Gyms whose operator brand is on; the radius filter applies on top of this. */
+const buildGymsGeoJson = (
+  brands: Readonly<Record<GymBrand, boolean>> | undefined,
+) => ({
+  type: "FeatureCollection" as const,
+  features: filterGymsByBrand(GYMS, brands ?? {}).map((gym) => ({
+    type: "Feature" as const,
+    properties: { id: gym.id, name: gym.name, brand: gym.brand },
+    geometry: { type: "Point" as const, coordinates: renderedGymCoords(gym.id) ?? [gym.lng, gym.lat] },
+  })),
+});
+
+// Gyms are drawn beneath community clubs, pharmacies, hotels, heritage,
+// libraries, supermarkets, schools and healthcare, so a gym stored at the
+// same lat/lng as one of those points (e.g. Tampines Sport Centre and
+// Guardian (Our Tampines Hub) share exact coordinates, as do the
+// Heartbeat@Bedok gym and Kampong Chai Chee CC) renders invisible under the
+// later dot. Nudge a gym within 10 m of such a point by 28 m in a stable
+// direction so both render; co-located gyms 10 m+ away already overlap only
+// partially and are untouched.
+const GYM_COINCIDENCE_M = 10;
+const GYM_COINCIDENCE_NUDGE_M = 28;
+const LATER_DRAWN_POINTS: ReadonlyArray<readonly [number, number]> = [
+  ...COMMUNITY_CLUBS.map((point) => [point.lng, point.lat] as const),
+  ...PHARMACIES.map((point) => [point.lng, point.lat] as const),
+  ...HOTELS.map((point) => [point.lng, point.lat] as const),
+  ...HERITAGE_SITES.map((point) => [point.lng, point.lat] as const),
+  ...LIBRARIES.map((point) => [point.lng, point.lat] as const),
+  ...SUPERMARKETS.map((point) => [point.lng, point.lat] as const),
+  ...SCHOOLS.map((point) => [point.lng, point.lat] as const),
+  ...HEALTHCARE_SITES.map((point) => [point.lng, point.lat] as const),
+];
+
+const coincideNudge = (gym: { id: string; lat: number; lng: number }): [number, number] | undefined => {
+  const lon = (gym.lng * Math.PI) / 180;
+  const cosLat = Math.cos(lon);
+  const over = LATER_DRAWN_POINTS.some(([lng, lat]) => {
+    const dx = (lng - gym.lng) * Math.PI / 180 * cosLat * 6371000;
+    const dy = (lat - gym.lat) * Math.PI / 180 * 6371000;
+    return Math.hypot(dx, dy) <= GYM_COINCIDENCE_M;
+  });
+  if (!over) return undefined;
+  // Stable direction per gym so the offset doesn't jump between re-renders.
+  let hash = 0;
+  for (const ch of gym.id) hash = (hash * 31 + ch.charCodeAt(0)) >>> 0;
+  const angle = ((hash % 360) * Math.PI) / 180;
+  const eastM = Math.cos(angle) * GYM_COINCIDENCE_NUDGE_M;
+  const northM = Math.sin(angle) * GYM_COINCIDENCE_NUDGE_M;
+  const dLat = (northM / 6371000) * (180 / Math.PI);
+  const dLng = (eastM / (6371000 * Math.max(0.5, Math.cos((gym.lat * Math.PI) / 180)))) * (180 / Math.PI);
+  return [gym.lng + dLng, gym.lat + dLat] as [number, number];
+};
+
+const GYM_RENDERED_COORDS = new globalThis.Map<string, [number, number]>();
+for (const gym of GYMS) {
+  const nudged = coincideNudge(gym);
+  if (nudged) GYM_RENDERED_COORDS.set(gym.id, nudged);
+}
+
+const renderedGymCoords = (id: string) => GYM_RENDERED_COORDS.get(id);
+const COMMUNITY_CLUBS_GEOJSON = {
+  type: "FeatureCollection" as const,
+  features: COMMUNITY_CLUBS.map((club) => ({
+    type: "Feature" as const,
+    properties: { id: club.id, name: club.name },
+    geometry: { type: "Point" as const, coordinates: [club.lng, club.lat] },
+  })),
+};
+const PHARMACIES_GEOJSON = {
+  type: "FeatureCollection" as const,
+  features: PHARMACIES.map((pharmacy) => ({
+    type: "Feature" as const,
+    properties: { id: pharmacy.id, name: pharmacy.name },
+    geometry: { type: "Point" as const, coordinates: [pharmacy.lng, pharmacy.lat] },
+  })),
+};
+const HOTELS_GEOJSON = {
+  type: "FeatureCollection" as const,
+  features: HOTELS.map((hotel) => ({
+    type: "Feature" as const,
+    properties: { id: hotel.id, name: hotel.name },
+    geometry: { type: "Point" as const, coordinates: [hotel.lng, hotel.lat] },
+  })),
+};
+/** Heritage sites whose kind is on; the radius filter applies on top of this. */
+const buildHeritageGeoJson = (
+  kinds: Readonly<Record<HeritageKind, boolean>> | undefined,
+) => ({
+  type: "FeatureCollection" as const,
+  features: filterHeritageByKind(HERITAGE_SITES, kinds ?? {}).map((site) => ({
+    type: "Feature" as const,
+    properties: { id: site.id, name: site.name },
+    geometry: { type: "Point" as const, coordinates: [site.lng, site.lat] },
+  })),
+});
+const LIBRARIES_GEOJSON = {
+  type: "FeatureCollection" as const,
+  features: LIBRARIES.map((library) => ({
+    type: "Feature" as const,
+    properties: { id: library.id, name: library.name },
+    geometry: { type: "Point" as const, coordinates: [library.lng, library.lat] },
+  })),
+};
+/** Supermarkets whose brand is on; the radius filter applies on top of this. */
+const buildSupermarketsGeoJson = (
+  brands: Readonly<Record<SupermarketBrand, boolean>> | undefined,
+) => ({
+  type: "FeatureCollection" as const,
+  features: filterSupermarketsByBrand(SUPERMARKETS, brands ?? {}).map((market) => ({
+    type: "Feature" as const,
+    properties: { id: market.id, name: market.name },
+    geometry: { type: "Point" as const, coordinates: [market.lng, market.lat] },
+  })),
+});
+/** Schools whose level is on; the radius filter applies on top of this. */
+const buildSchoolsGeoJson = (
+  levels: Readonly<Record<SchoolLevel, boolean>> | undefined,
+) => ({
+  type: "FeatureCollection" as const,
+  features: filterSchoolsByLevel(SCHOOLS, levels ?? {}).map((school) => ({
+    type: "Feature" as const,
+    properties: { id: school.id, name: school.name },
+    geometry: { type: "Point" as const, coordinates: [school.lng, school.lat] },
+  })),
+});
+/** Healthcare sites whose kind is on; the radius filter applies on top of this. */
+const buildHealthcareGeoJson = (
+  kinds: Readonly<Record<HealthcareKind, boolean>> | undefined,
+) => ({
+  type: "FeatureCollection" as const,
+  features: filterHealthcareByKind(HEALTHCARE_SITES, kinds ?? {}).map((site) => ({
+    type: "Feature" as const,
+    properties: { id: site.id, name: site.name },
+    geometry: { type: "Point" as const, coordinates: [site.lng, site.lat] },
+  })),
+});
 
 // Carpark/EV points keep their layer colour while available, so the two
 // layers stay distinguishable; only low/full/unknown points change colour.
@@ -404,7 +591,7 @@ function filterMrtStations(
   };
 }
 
-/** Static point layers (park labels, malls, hawker centres) inside the radius. */
+/** Static point layers (park labels, malls, hawker centres, gyms, community clubs, pharmacies, hotels, heritage, healthcare, libraries, supermarkets, schools) inside the radius. */
 function filterPointFeatures<C extends { features: Array<{ geometry: { type: "Point"; coordinates: number[] } }> }>(
   collection: C,
   filter: GeoFilter | null,
@@ -481,6 +668,11 @@ function useMapController({
   airQualityOverlay = null,
   disruptedMrtLines = EMPTY_DISRUPTED_MRT_LINES,
   sensorVisibility,
+  gymBrands,
+  heritageKinds,
+  healthcareKinds,
+  supermarketBrands,
+  schoolLevels,
   onStopClick,
   onCameraClick,
   onFlightClick,
@@ -515,6 +707,11 @@ function useMapController({
   const busRouteOverlayRef = useRef<BusRouteOverlay | null>(busRouteOverlay);
   const airQualityOverlayRef = useRef<AirQualityOverlay | null>(airQualityOverlay);
   const sensorVisibilityRef = useRef(sensorVisibility);
+  const gymBrandsRef = useRef(gymBrands);
+  const heritageKindsRef = useRef(heritageKinds);
+  const healthcareKindsRef = useRef(healthcareKinds);
+  const supermarketBrandsRef = useRef(supermarketBrands);
+  const schoolLevelsRef = useRef(schoolLevels);
   const geoFilterRef = useRef<GeoFilter | null>(geoFilter);
   const geoFilterPickingRef = useRef(geoFilterPicking);
   const onGeoFilterPickRef = useRef(onGeoFilterPick);
@@ -544,6 +741,46 @@ function useMapController({
   }, [sensorVisibility]);
 
   useEffect(() => {
+    gymBrandsRef.current = gymBrands;
+    const map = mapRef.current;
+    if (!map) return;
+    (map.getSource("gyms-data") as maplibregl.GeoJSONSource | undefined)
+      ?.setData(filterPointFeatures(buildGymsGeoJson(gymBrands), geoFilterRef.current));
+  }, [gymBrands]);
+
+  useEffect(() => {
+    heritageKindsRef.current = heritageKinds;
+    const map = mapRef.current;
+    if (!map) return;
+    (map.getSource("heritage-data") as maplibregl.GeoJSONSource | undefined)
+      ?.setData(filterPointFeatures(buildHeritageGeoJson(heritageKinds), geoFilterRef.current));
+  }, [heritageKinds]);
+
+  useEffect(() => {
+    healthcareKindsRef.current = healthcareKinds;
+    const map = mapRef.current;
+    if (!map) return;
+    (map.getSource("healthcare-data") as maplibregl.GeoJSONSource | undefined)
+      ?.setData(filterPointFeatures(buildHealthcareGeoJson(healthcareKinds), geoFilterRef.current));
+  }, [healthcareKinds]);
+
+  useEffect(() => {
+    supermarketBrandsRef.current = supermarketBrands;
+    const map = mapRef.current;
+    if (!map) return;
+    (map.getSource("supermarkets-data") as maplibregl.GeoJSONSource | undefined)
+      ?.setData(filterPointFeatures(buildSupermarketsGeoJson(supermarketBrands), geoFilterRef.current));
+  }, [supermarketBrands]);
+
+  useEffect(() => {
+    schoolLevelsRef.current = schoolLevels;
+    const map = mapRef.current;
+    if (!map) return;
+    (map.getSource("schools-data") as maplibregl.GeoJSONSource | undefined)
+      ?.setData(filterPointFeatures(buildSchoolsGeoJson(schoolLevels), geoFilterRef.current));
+  }, [schoolLevels]);
+
+  useEffect(() => {
     onGeoFilterPickRef.current = onGeoFilterPick;
   }, [onGeoFilterPick]);
 
@@ -555,7 +792,8 @@ function useMapController({
   }, [geoFilterPicking]);
 
   // Live feeds arrive pre-filtered via props; the static MRT station, park,
-  // mall and hawker sources are filtered here, and the circle is redrawn.
+  // mall, hawker centre, gym, community club, pharmacy and hotel sources are
+  // filtered here, and the circle is redrawn.
   useEffect(() => {
     geoFilterRef.current = geoFilter;
     const map = mapRef.current;
@@ -576,6 +814,24 @@ function useMapController({
       ?.setData(filterPointFeatures(MALLS_GEOJSON, geoFilter));
     (map.getSource("hawkers-data") as maplibregl.GeoJSONSource | undefined)
       ?.setData(filterPointFeatures(HAWKERS_GEOJSON, geoFilter));
+    (map.getSource("gyms-data") as maplibregl.GeoJSONSource | undefined)
+      ?.setData(filterPointFeatures(buildGymsGeoJson(gymBrandsRef.current), geoFilter));
+    (map.getSource("community-clubs-data") as maplibregl.GeoJSONSource | undefined)
+      ?.setData(filterPointFeatures(COMMUNITY_CLUBS_GEOJSON, geoFilter));
+    (map.getSource("pharmacies-data") as maplibregl.GeoJSONSource | undefined)
+      ?.setData(filterPointFeatures(PHARMACIES_GEOJSON, geoFilter));
+    (map.getSource("hotels-data") as maplibregl.GeoJSONSource | undefined)
+      ?.setData(filterPointFeatures(HOTELS_GEOJSON, geoFilter));
+    (map.getSource("heritage-data") as maplibregl.GeoJSONSource | undefined)
+      ?.setData(filterPointFeatures(buildHeritageGeoJson(heritageKindsRef.current), geoFilter));
+    (map.getSource("healthcare-data") as maplibregl.GeoJSONSource | undefined)
+      ?.setData(filterPointFeatures(buildHealthcareGeoJson(healthcareKindsRef.current), geoFilter));
+    (map.getSource("libraries-data") as maplibregl.GeoJSONSource | undefined)
+      ?.setData(filterPointFeatures(LIBRARIES_GEOJSON, geoFilter));
+    (map.getSource("supermarkets-data") as maplibregl.GeoJSONSource | undefined)
+      ?.setData(filterPointFeatures(buildSupermarketsGeoJson(supermarketBrandsRef.current), geoFilter));
+    (map.getSource("schools-data") as maplibregl.GeoJSONSource | undefined)
+      ?.setData(filterPointFeatures(buildSchoolsGeoJson(schoolLevelsRef.current), geoFilter));
   }, [geoFilter]);
 
   useEffect(() => {
@@ -618,6 +874,24 @@ function useMapController({
     setLayerVisibility("malls-label-layer", sensorVisibility.malls);
     setLayerVisibility("hawkers-point-layer", sensorVisibility.hawkers);
     setLayerVisibility("hawkers-label-layer", sensorVisibility.hawkers);
+    setLayerVisibility("gyms-point-layer", sensorVisibility.gyms);
+    setLayerVisibility("gyms-label-layer", sensorVisibility.gyms);
+    setLayerVisibility("community-clubs-point-layer", sensorVisibility.communityClubs);
+    setLayerVisibility("community-clubs-label-layer", sensorVisibility.communityClubs);
+    setLayerVisibility("pharmacies-point-layer", sensorVisibility.pharmacies);
+    setLayerVisibility("pharmacies-label-layer", sensorVisibility.pharmacies);
+    setLayerVisibility("hotels-point-layer", sensorVisibility.hotels);
+    setLayerVisibility("hotels-label-layer", sensorVisibility.hotels);
+    setLayerVisibility("heritage-point-layer", sensorVisibility.heritage);
+    setLayerVisibility("heritage-label-layer", sensorVisibility.heritage);
+    setLayerVisibility("healthcare-point-layer", sensorVisibility.healthcare);
+    setLayerVisibility("healthcare-label-layer", sensorVisibility.healthcare);
+    setLayerVisibility("libraries-point-layer", sensorVisibility.libraries);
+    setLayerVisibility("libraries-label-layer", sensorVisibility.libraries);
+    setLayerVisibility("supermarkets-point-layer", sensorVisibility.supermarkets);
+    setLayerVisibility("supermarkets-label-layer", sensorVisibility.supermarkets);
+    setLayerVisibility("schools-point-layer", sensorVisibility.schools);
+    setLayerVisibility("schools-label-layer", sensorVisibility.schools);
   }, [sensorVisibility]);
 
   useEffect(() => {
@@ -829,6 +1103,16 @@ function useMapController({
       const hawker = typeof id === "string" ? HAWKERS_BY_ID.get(id) : undefined;
       if (hawker) showHoverPopup(event.lngLat, "HAWKER CENTRE", "text-signal-hawker", describeHawkerCentre(hawker), hawker.photos.map((photo, index) => ({ src: photo.thumb, alt: `${hawker.name} photo ${index + 1}` })));
     };
+    const handleGymEnter = (event: maplibregl.MapLayerMouseEvent) => {
+      const id = event.features?.[0]?.properties?.id;
+      const gym = typeof id === "string" ? GYMS_BY_ID.get(id) : undefined;
+      if (gym) showHoverPopup(event.lngLat, "GYM", "text-signal-gym", describeGym(gym));
+    };
+    const handleCommunityClubEnter = (event: maplibregl.MapLayerMouseEvent) => {
+      const id = event.features?.[0]?.properties?.id;
+      const club = typeof id === "string" ? COMMUNITY_CLUBS_BY_ID.get(id) : undefined;
+      if (club) showHoverPopup(event.lngLat, club.kind === "passionwave" ? "PASSIONWAVE" : "COMMUNITY CLUB", "text-signal-community-club", describeCommunityClub(club), club.photos.map((photo, index) => ({ src: photo.thumb, alt: `${club.name} photo ${index + 1}` })));
+    };
     const handleMallClick = (event: maplibregl.MapLayerMouseEvent) => {
       if (geoFilterPickingRef.current) return;
       const id = event.features?.[0]?.properties?.id;
@@ -840,6 +1124,95 @@ function useMapController({
       const id = event.features?.[0]?.properties?.id;
       if (typeof id !== "string") return;
       onAmenityClickRef.current?.({ type: "hawker", id });
+    };
+    const handleGymClick = (event: maplibregl.MapLayerMouseEvent) => {
+      if (geoFilterPickingRef.current) return;
+      const id = event.features?.[0]?.properties?.id;
+      if (typeof id !== "string") return;
+      onAmenityClickRef.current?.({ type: "gym", id });
+    };
+    const handleCommunityClubClick = (event: maplibregl.MapLayerMouseEvent) => {
+      if (geoFilterPickingRef.current) return;
+      const id = event.features?.[0]?.properties?.id;
+      if (typeof id !== "string") return;
+      onAmenityClickRef.current?.({ type: "community-club", id });
+    };
+    const handlePharmacyEnter = (event: maplibregl.MapLayerMouseEvent) => {
+      const id = event.features?.[0]?.properties?.id;
+      const pharmacy = typeof id === "string" ? PHARMACIES_BY_ID.get(id) : undefined;
+      if (pharmacy) showHoverPopup(event.lngLat, "PHARMACY", "text-signal-pharmacy", describePharmacy(pharmacy));
+    };
+    const handlePharmacyClick = (event: maplibregl.MapLayerMouseEvent) => {
+      if (geoFilterPickingRef.current) return;
+      const id = event.features?.[0]?.properties?.id;
+      if (typeof id !== "string") return;
+      onAmenityClickRef.current?.({ type: "pharmacy", id });
+    };
+    const handleHotelEnter = (event: maplibregl.MapLayerMouseEvent) => {
+      const id = event.features?.[0]?.properties?.id;
+      const hotel = typeof id === "string" ? HOTELS_BY_ID.get(id) : undefined;
+      if (hotel) showHoverPopup(event.lngLat, "HOTEL", "text-signal-hotel", describeHotel(hotel), hotel.photos.map((photo, index) => ({ src: photo.thumb, alt: `${hotel.name} photo ${index + 1}` })));
+    };
+    const handleHotelClick = (event: maplibregl.MapLayerMouseEvent) => {
+      if (geoFilterPickingRef.current) return;
+      const id = event.features?.[0]?.properties?.id;
+      if (typeof id !== "string") return;
+      onAmenityClickRef.current?.({ type: "hotel", id });
+    };
+    const handleHeritageEnter = (event: maplibregl.MapLayerMouseEvent) => {
+      const id = event.features?.[0]?.properties?.id;
+      const site = typeof id === "string" ? HERITAGE_BY_ID.get(id) : undefined;
+      if (site) showHoverPopup(event.lngLat, "HERITAGE", "text-signal-heritage", describeHeritage(site), site.photos.map((photo, index) => ({ src: photo.thumb, alt: `${site.name} photo ${index + 1}` })));
+    };
+    const handleHeritageClick = (event: maplibregl.MapLayerMouseEvent) => {
+      if (geoFilterPickingRef.current) return;
+      const id = event.features?.[0]?.properties?.id;
+      if (typeof id !== "string") return;
+      onAmenityClickRef.current?.({ type: "heritage", id });
+    };
+    const handleHealthcareEnter = (event: maplibregl.MapLayerMouseEvent) => {
+      const id = event.features?.[0]?.properties?.id;
+      const site = typeof id === "string" ? HEALTHCARE_BY_ID.get(id) : undefined;
+      if (site) showHoverPopup(event.lngLat, "HEALTHCARE", "text-signal-healthcare", describeHealthcare(site), site.photos.map((photo, index) => ({ src: photo.thumb, alt: `${site.name} photo ${index + 1}` })));
+    };
+    const handleHealthcareClick = (event: maplibregl.MapLayerMouseEvent) => {
+      if (geoFilterPickingRef.current) return;
+      const id = event.features?.[0]?.properties?.id;
+      if (typeof id !== "string") return;
+      onAmenityClickRef.current?.({ type: "healthcare", id });
+    };
+    const handleLibraryEnter = (event: maplibregl.MapLayerMouseEvent) => {
+      const id = event.features?.[0]?.properties?.id;
+      const library = typeof id === "string" ? LIBRARIES_BY_ID.get(id) : undefined;
+      if (library) showHoverPopup(event.lngLat, "LIBRARY", "text-signal-library", describeLibrary(library), library.photos.map((photo, index) => ({ src: photo.thumb, alt: `${library.name} photo ${index + 1}` })));
+    };
+    const handleLibraryClick = (event: maplibregl.MapLayerMouseEvent) => {
+      if (geoFilterPickingRef.current) return;
+      const id = event.features?.[0]?.properties?.id;
+      if (typeof id !== "string") return;
+      onAmenityClickRef.current?.({ type: "library", id });
+    };
+    const handleSupermarketEnter = (event: maplibregl.MapLayerMouseEvent) => {
+      const id = event.features?.[0]?.properties?.id;
+      const market = typeof id === "string" ? SUPERMARKETS_BY_ID.get(id) : undefined;
+      if (market) showHoverPopup(event.lngLat, "SUPERMARKET", "text-signal-supermarket", describeSupermarket(market));
+    };
+    const handleSupermarketClick = (event: maplibregl.MapLayerMouseEvent) => {
+      if (geoFilterPickingRef.current) return;
+      const id = event.features?.[0]?.properties?.id;
+      if (typeof id !== "string") return;
+      onAmenityClickRef.current?.({ type: "supermarket", id });
+    };
+    const handleSchoolEnter = (event: maplibregl.MapLayerMouseEvent) => {
+      const id = event.features?.[0]?.properties?.id;
+      const school = typeof id === "string" ? SCHOOLS_BY_ID.get(id) : undefined;
+      if (school) showHoverPopup(event.lngLat, "SCHOOL", "text-signal-school", describeSchool(school));
+    };
+    const handleSchoolClick = (event: maplibregl.MapLayerMouseEvent) => {
+      if (geoFilterPickingRef.current) return;
+      const id = event.features?.[0]?.properties?.id;
+      if (typeof id !== "string") return;
+      onAmenityClickRef.current?.({ type: "school", id });
     };
     // Parks overlap their own connectors and trails, so one map-level hover
     // picks the topmost recreation feature rather than racing per-layer
@@ -1667,6 +2040,14 @@ function useMapController({
         for (const [sourceId, prefix, visible, color, data, onEnter, onClick] of [
           ["malls-data", "malls", sensorVisibilityRef.current.malls, MAP_COLORS.mall, MALLS_GEOJSON, handleMallEnter, handleMallClick],
           ["hawkers-data", "hawkers", sensorVisibilityRef.current.hawkers, ["match", ["get", "status"], "planned", MAP_COLORS.muted, MAP_COLORS.hawker], HAWKERS_GEOJSON, handleHawkerEnter, handleHawkerClick],
+          ["gyms-data", "gyms", sensorVisibilityRef.current.gyms, MAP_COLORS.gym, buildGymsGeoJson(gymBrandsRef.current), handleGymEnter, handleGymClick],
+          ["community-clubs-data", "community-clubs", sensorVisibilityRef.current.communityClubs, MAP_COLORS.communityClub, COMMUNITY_CLUBS_GEOJSON, handleCommunityClubEnter, handleCommunityClubClick],
+          ["pharmacies-data", "pharmacies", sensorVisibilityRef.current.pharmacies, MAP_COLORS.pharmacy, PHARMACIES_GEOJSON, handlePharmacyEnter, handlePharmacyClick],
+          ["hotels-data", "hotels", sensorVisibilityRef.current.hotels, MAP_COLORS.hotel, HOTELS_GEOJSON, handleHotelEnter, handleHotelClick],
+          ["heritage-data", "heritage", sensorVisibilityRef.current.heritage, MAP_COLORS.heritage, buildHeritageGeoJson(heritageKindsRef.current), handleHeritageEnter, handleHeritageClick],
+          ["libraries-data", "libraries", sensorVisibilityRef.current.libraries, MAP_COLORS.library, LIBRARIES_GEOJSON, handleLibraryEnter, handleLibraryClick],
+          ["supermarkets-data", "supermarkets", sensorVisibilityRef.current.supermarkets, MAP_COLORS.supermarket, buildSupermarketsGeoJson(supermarketBrandsRef.current), handleSupermarketEnter, handleSupermarketClick],
+          ["schools-data", "schools", sensorVisibilityRef.current.schools, MAP_COLORS.school, buildSchoolsGeoJson(schoolLevelsRef.current), handleSchoolEnter, handleSchoolClick],
         ] as const) {
           const visibility = visible ? "visible" : "none";
           map.addSource(sourceId, { type: "geojson", data: filterPointFeatures(data, geoFilterRef.current) });
@@ -1678,6 +2059,20 @@ function useMapController({
           } });
           map.addLayer({ id: `${prefix}-label-layer`, type: "symbol", source: sourceId, minzoom: 14, layout: { visibility, "text-font": MAP_FONT, "text-field": ["get", "name"], "text-size": 10, "text-offset": [0, 1.1], "text-anchor": "top" }, paint: { "text-color": color as maplibregl.DataDrivenPropertyValueSpecification<string>, "text-halo-color": MAP_COLORS.paper, "text-halo-width": 1 } });
           layerListenerCleanups.push(registerLayerMouseListener(map, "click", `${prefix}-point-layer`, onClick), registerLayerMouseListener(map, "mouseenter", `${prefix}-point-layer`, onEnter), registerLayerMouseListener(map, "mouseleave", `${prefix}-point-layer`, handleHoverPopupLeave), registerLayerMouseListener(map, "mouseenter", `${prefix}-point-layer`, handleInteractiveLayerEnter), registerLayerMouseListener(map, "mouseleave", `${prefix}-point-layer`, handleInteractiveLayerLeave));
+        }
+        // Healthcare is denser than any other static bundle (1,400+ points),
+        // so it only draws from city zoom with street-level labels.
+        {
+          const visibility = sensorVisibilityRef.current.healthcare ? "visible" : "none";
+          map.addSource("healthcare-data", { type: "geojson", data: filterPointFeatures(buildHealthcareGeoJson(healthcareKindsRef.current), geoFilterRef.current) });
+          map.addLayer({ id: "healthcare-point-layer", type: "circle", source: "healthcare-data", minzoom: 11, layout: { visibility }, paint: {
+            "circle-color": MAP_COLORS.healthcare,
+            "circle-radius": ["interpolate", ["linear"], ["zoom"], 11, 2.5, 15, 5.5],
+            "circle-stroke-color": MAP_COLORS.paper,
+            "circle-stroke-width": 1.5,
+          } });
+          map.addLayer({ id: "healthcare-label-layer", type: "symbol", source: "healthcare-data", minzoom: 15, layout: { visibility, "text-font": MAP_FONT, "text-field": ["get", "name"], "text-size": 10, "text-offset": [0, 1.1], "text-anchor": "top" }, paint: { "text-color": MAP_COLORS.healthcare, "text-halo-color": MAP_COLORS.paper, "text-halo-width": 1 } });
+          layerListenerCleanups.push(registerLayerMouseListener(map, "click", "healthcare-point-layer", handleHealthcareClick), registerLayerMouseListener(map, "mouseenter", "healthcare-point-layer", handleHealthcareEnter), registerLayerMouseListener(map, "mouseleave", "healthcare-point-layer", handleHoverPopupLeave), registerLayerMouseListener(map, "mouseenter", "healthcare-point-layer", handleInteractiveLayerEnter), registerLayerMouseListener(map, "mouseleave", "healthcare-point-layer", handleInteractiveLayerLeave));
         }
       } catch (error) {
         console.warn("MRT layer failed to initialize", error);

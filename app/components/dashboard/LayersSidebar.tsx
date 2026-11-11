@@ -1,12 +1,13 @@
 "use client";
 
-import type { Dispatch, ReactNode, SetStateAction } from "react";
+import { Fragment, type Dispatch, type SetStateAction } from "react";
 import FlightPanel from "@/app/components/FlightPanel";
 import WeatherPanel from "@/app/components/WeatherPanel";
 import {
   EyeGlyph,
   LayerFilterInput,
   LayerGroupHeader,
+  LayerOptionFilter,
 } from "@/app/components/dashboard/LayerControls";
 import { IntelPanel } from "@/app/components/dashboard/IntelPanel";
 import { useLayerList } from "@/app/hooks/use-layer-list";
@@ -15,6 +16,14 @@ import type {
   SensorStatsRow,
 } from "@/app/hooks/use-dashboard-state";
 import type { SensorKey } from "@/lib/layers";
+import type { GymBrandCount } from "@/lib/gyms";
+import type { HeritageKindCount } from "@/lib/heritage";
+import { HERITAGE_KIND_LABEL } from "@/lib/heritage";
+import type { HealthcareKindCount } from "@/lib/healthcare";
+import { HEALTHCARE_KIND_LABEL } from "@/lib/healthcare";
+import type { SupermarketBrandCount } from "@/lib/supermarkets";
+import type { SchoolLevelCount } from "@/lib/schools";
+import { SCHOOL_LEVEL_LABEL } from "@/lib/schools";
 import { FLIGHTS_ENABLED } from "@/lib/features";
 import type {
   FlightState,
@@ -31,11 +40,25 @@ export function LayersSidebar({
   sensorVisibility,
   setSelectedFlight,
   setSensorVisibility,
+  gymBrands,
+  gymBrandCounts,
+  onGymBrandsChange,
+  heritageKinds,
+  heritageKindCounts,
+  onHeritageKindsChange,
+  healthcareKinds,
+  healthcareKindCounts,
+  onHealthcareKindsChange,
+  supermarketBrands,
+  supermarketBrandCounts,
+  onSupermarketBrandsChange,
+  schoolLevels,
+  schoolLevelCounts,
+  onSchoolLevelsChange,
   visibleSensorCount,
   weather,
   weatherHistory,
   onAirQualityOverlayChange,
-  geoFilterPanel,
 }: {
   flights: FlightState[];
   selectedFlight: FlightState | null;
@@ -44,12 +67,25 @@ export function LayersSidebar({
   sensorVisibility: Record<SensorKey, boolean>;
   setSelectedFlight: (flight: FlightState) => void;
   setSensorVisibility: Dispatch<SetStateAction<Record<SensorKey, boolean>>>;
+  gymBrands: Record<string, boolean>;
+  gymBrandCounts: GymBrandCount[];
+  onGymBrandsChange: (next: Record<string, boolean>) => void;
+  heritageKinds: Record<string, boolean>;
+  heritageKindCounts: HeritageKindCount[];
+  onHeritageKindsChange: (next: Record<string, boolean>) => void;
+  healthcareKinds: Record<string, boolean>;
+  healthcareKindCounts: HealthcareKindCount[];
+  onHealthcareKindsChange: (next: Record<string, boolean>) => void;
+  supermarketBrands: Record<string, boolean>;
+  supermarketBrandCounts: SupermarketBrandCount[];
+  onSupermarketBrandsChange: (next: Record<string, boolean>) => void;
+  schoolLevels: Record<string, boolean>;
+  schoolLevelCounts: SchoolLevelCount[];
+  onSchoolLevelsChange: (next: Record<string, boolean>) => void;
   visibleSensorCount: number;
   weather: WeatherData;
   weatherHistory: WeatherHistoryPoint[];
   onAirQualityOverlayChange?: (overlay: AirQualityOverlay | null) => void;
-  /** Radius filter controls, rendered directly under the layer toggles. */
-  geoFilterPanel?: ReactNode;
 }) {
   const {
     groups,
@@ -66,17 +102,24 @@ export function LayersSidebar({
   });
 
   return (
-    <aside className="order-4 flex min-w-0 flex-col gap-2 sm:gap-3 xl:order-1 xl:min-h-0 xl:overflow-y-auto xl:pr-1">
+    // `xl:overflow-hidden` + a capped Weather panel keep Weather visible at
+    // the bottom of the viewport while the Layers list scrolls internally.
+    <aside className="order-4 flex min-w-0 flex-col gap-2 sm:gap-3 xl:order-1 xl:min-h-0 xl:overflow-hidden">
       <IntelPanel
         title="Layers"
         badge={`${visibleSensorCount}/${sensorRows.length}`}
-      >
-        <div className="space-y-2">
-          {/* Layer controls live in the map drawer below xl; keep this panel
-              to the stat summary there. */}
-          <div className="max-xl:hidden space-y-2">
+        className="xl:flex xl:min-h-0 xl:flex-1 xl:flex-col xl:overflow-hidden"
+        contentClassName="space-y-2 xl:min-h-0 xl:flex-1 xl:overflow-y-auto xl:pr-1"
+        headerContent={
+          // Layer controls live in the map drawer below xl, so the filter
+          // is desktop-only; the stat summary below still shows everywhere.
+          <span className="block max-xl:hidden">
             <LayerFilterInput value={filter} onChange={setFilter} />
-            {groups.map((group) => (
+          </span>
+        }
+      >
+        <div className="max-xl:hidden space-y-2">
+          {groups.map((group) => (
               <div key={group.id}>
                 <LayerGroupHeader
                   label={group.label}
@@ -90,8 +133,8 @@ export function LayersSidebar({
                 {isGroupCollapsed(group.id) ? null : (
                   <div className="space-y-1 pt-1">
                     {group.rows.map((row) => (
+                      <Fragment key={row.label}>
                       <div
-                        key={row.label}
                         className="data-row flex items-center justify-between gap-3 px-2.5 py-2"
                       >
                         <div className="min-w-0">
@@ -127,6 +170,52 @@ export function LayersSidebar({
                           </div>
                         </div>
                       </div>
+                      {row.key === "gyms" && sensorVisibility.gyms ? (
+                        <LayerOptionFilter
+                          summaryLabel="Brands"
+                          options={gymBrandCounts.map(({ brand, count }) => ({ value: brand, label: brand, count }))}
+                          selected={gymBrands}
+                          onChange={onGymBrandsChange}
+                          accentClass="bg-signal-gym"
+                        />
+                      ) : null}
+                      {row.key === "heritage" && sensorVisibility.heritage ? (
+                        <LayerOptionFilter
+                          summaryLabel="Types"
+                          options={heritageKindCounts.map(({ kind, count }) => ({ value: kind, label: HERITAGE_KIND_LABEL[kind], count }))}
+                          selected={heritageKinds}
+                          onChange={onHeritageKindsChange}
+                          accentClass="bg-signal-heritage"
+                        />
+                      ) : null}
+                      {row.key === "healthcare" && sensorVisibility.healthcare ? (
+                        <LayerOptionFilter
+                          summaryLabel="Types"
+                          options={healthcareKindCounts.map(({ kind, count }) => ({ value: kind, label: HEALTHCARE_KIND_LABEL[kind], count }))}
+                          selected={healthcareKinds}
+                          onChange={onHealthcareKindsChange}
+                          accentClass="bg-signal-healthcare"
+                        />
+                      ) : null}
+                      {row.key === "supermarkets" && sensorVisibility.supermarkets ? (
+                        <LayerOptionFilter
+                          summaryLabel="Brands"
+                          options={supermarketBrandCounts.map(({ brand, count }) => ({ value: brand, label: brand, count }))}
+                          selected={supermarketBrands}
+                          onChange={onSupermarketBrandsChange}
+                          accentClass="bg-signal-supermarket"
+                        />
+                      ) : null}
+                      {row.key === "schools" && sensorVisibility.schools ? (
+                        <LayerOptionFilter
+                          summaryLabel="Levels"
+                          options={schoolLevelCounts.map(({ level, count }) => ({ value: level, label: SCHOOL_LEVEL_LABEL[level], count }))}
+                          selected={schoolLevels}
+                          onChange={onSchoolLevelsChange}
+                          accentClass="bg-signal-school"
+                        />
+                      ) : null}
+                      </Fragment>
                     ))}
                   </div>
                 )}
@@ -154,15 +243,13 @@ export function LayersSidebar({
               </div>
             ))}
           </div>
-        </div>
       </IntelPanel>
-
-      {geoFilterPanel}
 
       <WeatherPanel
         weather={weather}
         history={weatherHistory}
         onAirQualityOverlayChange={onAirQualityOverlayChange}
+        className="xl:max-h-[38%] xl:min-h-0 xl:shrink-0"
       />
       {FLIGHTS_ENABLED ? (
         <FlightPanel

@@ -26,7 +26,16 @@ export type SensorKey =
   | "carparks"
   | "evChargers"
   | "malls"
-  | "hawkers";
+  | "hawkers"
+  | "gyms"
+  | "communityClubs"
+  | "pharmacies"
+  | "hotels"
+  | "heritage"
+  | "healthcare"
+  | "libraries"
+  | "supermarkets"
+  | "schools";
 
 /**
  * Layer groups, in display order. Groups are what keep the panel readable as
@@ -177,6 +186,87 @@ export const LAYERS: readonly LayerDefinition[] = [
     dot: "bg-signal-hawker",
     legend: [{ kind: "dot", tone: "bg-signal-hawker", label: "Hawkers" }],
   },
+  {
+    key: "gyms",
+    group: "amenities",
+    label: "Gyms",
+    note: "fitness centres",
+    tone: "text-signal-gym",
+    dot: "bg-signal-gym",
+    legend: [{ kind: "dot", tone: "bg-signal-gym", label: "Gyms" }],
+  },
+  {
+    key: "communityClubs",
+    group: "amenities",
+    label: "Community Clubs",
+    note: "PA outlets",
+    tone: "text-signal-community-club",
+    dot: "bg-signal-community-club",
+    legend: [{ kind: "dot", tone: "bg-signal-community-club", label: "Community Clubs" }],
+  },
+  {
+    key: "pharmacies",
+    group: "amenities",
+    label: "Pharmacies",
+    note: "retail pharmacies",
+    tone: "text-signal-pharmacy",
+    dot: "bg-signal-pharmacy",
+    legend: [{ kind: "dot", tone: "bg-signal-pharmacy", label: "Pharmacies" }],
+  },
+  {
+    key: "hotels",
+    group: "amenities",
+    label: "Hotels",
+    note: "licensed hotels",
+    tone: "text-signal-hotel",
+    dot: "bg-signal-hotel",
+    legend: [{ kind: "dot", tone: "bg-signal-hotel", label: "Hotels" }],
+  },
+  {
+    key: "heritage",
+    group: "amenities",
+    label: "Heritage",
+    note: "historic sites · monuments · museums",
+    tone: "text-signal-heritage",
+    dot: "bg-signal-heritage",
+    legend: [{ kind: "dot", tone: "bg-signal-heritage", label: "Heritage" }],
+  },
+  {
+    key: "healthcare",
+    group: "amenities",
+    label: "Healthcare",
+    note: "GP · hospitals · dental",
+    tone: "text-signal-healthcare",
+    dot: "bg-signal-healthcare",
+    legend: [{ kind: "dot", tone: "bg-signal-healthcare", label: "Healthcare" }],
+  },
+  {
+    key: "libraries",
+    group: "amenities",
+    label: "Libraries",
+    note: "public libraries",
+    tone: "text-signal-library",
+    dot: "bg-signal-library",
+    legend: [{ kind: "dot", tone: "bg-signal-library", label: "Libraries" }],
+  },
+  {
+    key: "supermarkets",
+    group: "amenities",
+    label: "Supermarkets",
+    note: "grocery supermarkets",
+    tone: "text-signal-supermarket",
+    dot: "bg-signal-supermarket",
+    legend: [{ kind: "dot", tone: "bg-signal-supermarket", label: "Supermarkets" }],
+  },
+  {
+    key: "schools",
+    group: "amenities",
+    label: "Schools",
+    note: "MOE schools",
+    tone: "text-signal-school",
+    dot: "bg-signal-school",
+    legend: [{ kind: "dot", tone: "bg-signal-school", label: "Schools" }],
+  },
 ];
 
 export const LAYER_BY_KEY: ReadonlyMap<SensorKey, LayerDefinition> = new Map(
@@ -195,6 +285,15 @@ export const DEFAULT_SENSOR_VISIBILITY: Record<SensorKey, boolean> = {
   evChargers: false,
   malls: false,
   hawkers: false,
+  gyms: false,
+  communityClubs: false,
+  pharmacies: false,
+  hotels: false,
+  heritage: false,
+  healthcare: false,
+  libraries: false,
+  supermarkets: false,
+  schools: false,
 };
 
 /**
@@ -213,5 +312,36 @@ export function coerceSensorVisibility(
     const entry = stored[layer.key];
     if (typeof entry === "boolean") next[layer.key] = entry;
   }
+  return next;
+}
+
+/**
+ * Totally-on record for a sub-filter's options. A sub-filter tracks
+ * `Record<option, boolean>` like layer visibility does; an option absent
+ * from the record reads as on.
+ */
+export function allLayerOptionsOn(
+  allValues: ReadonlyArray<string>,
+): Record<string, boolean> {
+  return Object.fromEntries(allValues.map((value) => [value, true]));
+}
+
+/**
+ * Toggle one sub-filter option (e.g. a gym brand). When everything is on,
+ * tapping an option solos it; later taps toggle options normally, and
+ * deselecting the last on-option reverts to all-on rather than stranding
+ * an empty layer.
+ */
+export function toggleLayerOptionSelection(
+  selected: Readonly<Record<string, boolean>>,
+  value: string,
+  allValues: ReadonlyArray<string>,
+): Record<string, boolean> {
+  const onCount = allValues.filter((option) => selected[option] !== false).length;
+  if (onCount === allValues.length) {
+    return Object.fromEntries(allValues.map((option) => [option, option === value]));
+  }
+  const next = { ...selected, [value]: selected[value] === false };
+  if (allValues.every((option) => next[option] === false)) return allLayerOptionsOn(allValues);
   return next;
 }

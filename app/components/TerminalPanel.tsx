@@ -47,7 +47,7 @@ export default function TerminalPanel({
       {expanded ? (
         <div
           id={contentId}
-          className={`terminal-content flex-1 overflow-auto ${contentClassName ?? ""}`}
+          className={`terminal-content min-h-0 flex-1 overflow-auto ${contentClassName ?? ""}`}
         >
           {children}
         </div>

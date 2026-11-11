@@ -108,8 +108,7 @@ export function LayerGroupHeader({
 }
 
 /** Compact filter box for the layer list (and other panel lists); matches panel density. */
-export function LayerFilterInput({
-  value,
+export function LayerFilterInput({  value,
   onChange,
   placeholder = "Filter layers…",
   label = "Filter layers",
@@ -140,6 +139,117 @@ export function LayerFilterInput({
         aria-label={label}
         className="min-w-0 flex-1 bg-transparent text-xs text-ink outline-none placeholder:text-muted"
       />
+    </div>
+  );
+}
+
+import { useState } from "react";
+import {
+  allLayerOptionsOn,
+  toggleLayerOptionSelection,
+} from "@/lib/layers";
+
+/** First N options shown in a sub-filter; the rest wait behind "+N more". */
+const SUB_FILTER_TOP_COUNT = 6;
+
+/**
+ * Collapsed-by-default sub-filter under a layer row (e.g. gym operator
+ * brands). Generic over any layer's options-with-counts: the summary line
+ * (`Brands: All`, `Brands: Anytime Fitness, ActiveSG`, `Brands: 3 selected`)
+ * expands to multi-select chips where the first tap solos an option and
+ * deselecting the last one reverts to all. Selection is a Record like layer
+ * visibility, so it persists the same way.
+ */
+export function LayerOptionFilter({
+  summaryLabel,
+  options,
+  selected,
+  onChange,
+  accentClass,
+}: {
+  /** Short name, e.g. "Brands"; prefixes the summary line and aria labels. */
+  summaryLabel: string;
+  options: ReadonlyArray<{ value: string; label: string; count: number }>;
+  selected: Readonly<Record<string, boolean>>;
+  onChange: (next: Record<string, boolean>) => void;
+  /** Classes for a selected chip (filled layer colour). */
+  accentClass: string;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const [showAll, setShowAll] = useState(false);
+  const allValues = options.map((option) => option.value);
+  const onOptions = options.filter((option) => selected[option.value] !== false);
+  const allOn = onOptions.length === allValues.length;
+  const summary = allOn
+    ? "All"
+    : onOptions.length <= 2
+      ? onOptions.map((option) => option.label).join(", ")
+      : `${onOptions.length} selected`;
+  const shown = showAll ? options : options.slice(0, SUB_FILTER_TOP_COUNT);
+  const overflow = options.slice(SUB_FILTER_TOP_COUNT);
+
+  return (
+    <div className="data-row px-2.5 py-2">
+      <button
+        type="button"
+        onClick={() => setExpanded((value) => !value)}
+        aria-expanded={expanded}
+        aria-label={`${expanded ? "Hide" : "Show"} ${summaryLabel.toLowerCase()} filter`}
+        className="flex w-full items-center justify-between gap-2 text-left"
+      >
+        <span className="min-w-0 truncate text-xs text-ink">
+          <span className="data-label mr-2">{summaryLabel}</span>
+          {summary}
+        </span>
+        <span aria-hidden="true" className={`shrink-0 text-muted transition-transform duration-150 ${expanded ? "rotate-180" : ""}`}>
+          ▾
+        </span>
+      </button>
+      {expanded ? (
+        <div className="flex flex-wrap gap-1 pt-2">
+          <button
+            type="button"
+            onClick={() => onChange(allLayerOptionsOn(allValues))}
+            aria-pressed={allOn}
+            aria-label={`Show all ${summaryLabel.toLowerCase()}`}
+            className={`flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium transition-colors duration-150 ${
+              allOn ? `${accentClass} border-transparent text-paper` : "border-line bg-paper text-muted hover:text-ink"
+            }`}
+          >
+            All
+          </button>
+          {shown.map((option) => {
+            const on = selected[option.value] !== false;
+            return (
+              <button
+                key={option.value}
+                type="button"
+                onClick={() => onChange(toggleLayerOptionSelection(selected, option.value, allValues))}
+                aria-pressed={on}
+                aria-label={`${on ? "Hide" : "Show"} ${option.label} ${summaryLabel.toLowerCase()} (${option.count})`}
+                title={`${option.label} (${option.count})`}
+                className={`flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] transition-colors duration-150 ${
+                  on ? `${accentClass} border-transparent text-paper` : "border-line bg-paper text-faint"
+                }`}
+              >
+                <span>{option.label}</span>
+                <span className={`font-mono text-[9px] ${on ? "text-paper/70" : "text-muted"}`}>{option.count}</span>
+              </button>
+            );
+          })}
+          {!showAll && overflow.length > 0 ? (
+            <button
+              type="button"
+              onClick={() => setShowAll(true)}
+              aria-expanded={showAll}
+              aria-label={`Show ${overflow.length} more ${summaryLabel.toLowerCase()}`}
+              className="rounded-full border border-line bg-paper px-2 py-0.5 text-[10px] text-muted transition-colors duration-150 hover:text-ink"
+            >
+              +{overflow.length} more
+            </button>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   );
 }

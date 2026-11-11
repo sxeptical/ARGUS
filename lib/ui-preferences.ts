@@ -16,6 +16,11 @@ import {
 import type { SignalCategory } from "@/lib/signals";
 
 export const SENSOR_VISIBILITY_KEY = "argus.prefs.sensors.v1";
+export const GYM_BRANDS_KEY = "argus.prefs.gym.brands.v1";
+export const HERITAGE_KINDS_KEY = "argus.prefs.heritage.kinds.v1";
+export const HEALTHCARE_KINDS_KEY = "argus.prefs.healthcare.kinds.v1";
+export const SUPERMARKET_BRANDS_KEY = "argus.prefs.supermarket.brands.v1";
+export const SCHOOL_LEVELS_KEY = "argus.prefs.school.levels.v1";
 export const GEO_FILTER_CENTER_KEY = "argus.prefs.geo-filter.center.v1";
 export const GEO_FILTER_RADIUS_KEY = "argus.prefs.geo-filter.radius.v1";
 
@@ -104,6 +109,22 @@ export function parseSeenSignals(stored: unknown): SeenSignals | undefined {
     }
   }
   return seen;
+}
+
+/**
+ * `parseSensorVisibility` for sub-filters (gym brands, heritage kinds, ...):
+ * like the toggle UI, a stored all-false selection would strand the layer
+ * empty, so it falls back to every option on. Unknown stored keys are
+ * dropped, as with `parseSensorVisibility`.
+ */
+export function parseLayerOptionSelection<K extends string>(
+  stored: unknown,
+  defaults: Readonly<Record<K, boolean>>,
+): Record<K, boolean> | undefined {
+  const parsed = parseSensorVisibility(stored, defaults);
+  if (!parsed) return undefined;
+  if (Object.values(parsed).every((flag) => !flag)) return { ...defaults };
+  return parsed;
 }
 
 // ---------- Boolean flags and derived keys ----------

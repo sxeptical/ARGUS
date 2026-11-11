@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { HAWKER_CENTRES, MALLS, validateAmenitiesBundle } from "@/lib/amenities-data";
-import type { HawkerCentre, Mall, PlacePhoto } from "@/types";
-import { buildHawkerSearchResults, buildMallSearchResults, describeHawkerCentre, describeMall, formatOpeningHours } from "@/lib/amenities";
+import type { HawkerCentre, HawkerClosure, Mall, PlacePhoto } from "@/types";
+import { buildHawkerSearchResults, buildMallSearchResults, describeHawkerCentre, describeHawkerClosure, describeMall, formatClosureRange, formatOpeningHours } from "@/lib/amenities";
 
 const commonsPhoto = (overrides: Partial<PlacePhoto> = {}): PlacePhoto => ({
   thumb: "https://thumb.wikimedia.org/a.jpg",
@@ -25,6 +25,15 @@ const hawker = (overrides: Partial<HawkerCentre> = {}): HawkerCentre => ({
   status: "open",
   expectedYear: null,
   photos: [],
+  closures: [],
+  ...overrides,
+});
+
+const closure = (overrides: Partial<HawkerClosure> = {}): HawkerClosure => ({
+  kind: "cleaning",
+  start: "2026-12-12",
+  end: "2026-12-15",
+  remarks: null,
   ...overrides,
 });
 
@@ -96,6 +105,66 @@ describe("formatOpeningHours", () => {
     expect(formatOpeningHours("Mo-Su,PH 00:00-24:00")).toBe("Open 24 hours");
     expect(formatOpeningHours("Su-Th 10:00-22:00; Fr-Sa 10:00-23:00")).toBe("Sun-Thu 10:00–22:00, Fri-Sat 10:00–23:00");
     expect(formatOpeningHours("off")).toBeNull();
+  });
+});
+
+describe("hawker closure lines", () => {
+  test("formats single-day, same-month, cross-month and cross-year ranges", () => {
+    expect(formatClosureRange("2026-12-12", "2026-12-12")).toBe("12 Dec");
+    expect(formatClosureRange("2026-12-12", "2026-12-15")).toBe("12–15 Dec");
+    expect(formatClosureRange("2026-12-28", "2027-01-02")).toBe("28 Dec 2026–2 Jan 2027");
+    expect(formatClosureRange("2026-03-30", "2026-04-02")).toBe("30 Mar–2 Apr");
+  });
+
+  test("shows the current closure with its reopening date", () => {
+    expect(describeHawkerClosure([closure()], "2026-12-13")).toEqual({
+      current: true,
+      text: "Closed now for cleaning until 15 Dec",
+    });
+    expect(describeHawkerClosure([closure({ kind: "other-works", remarks: "Repairs and Redecoration" })], "2026-12-15")).toEqual({
+      current: true,
+      text: "Closed now for other works until 15 Dec — Repairs and Redecoration",
+    });
+  });
+
+  test("shows the next upcoming closure, and nothing when all are past", () => {
+    expect(describeHawkerClosure([closure()], "2026-11-01")).toEqual({
+      current: false,
+      text: "Closed for cleaning 12–15 Dec",
+    });
+    expect(describeHawkerClosure([closure()], "2026-12-16")).toBeNull();
+    expect(describeHawkerClosure([], "2026-12-13")).toBeNull();
+  });
+
+  test("prefers the earliest-ending current closure, then the soonest next", () => {
+    const status = describeHawkerClosure(
+      [
+        closure({ start: "2026-12-01", end: "2026-12-31" }),
+        closure({ start: "2026-12-10", end: "2026-12-12" }),
+        closure({ start: "2026-12-20", end: "2026-12-21" }),
+      ],
+      "2026-12-11",
+    );
+    expect(status).toEqual({ current: true, text: "Closed now for cleaning until 12 Dec" });
+    expect(describeHawkerClosure(
+      [
+        closure({ start: "2026-01-01", end: "2026-01-02" }),
+        closure({ start: "2026-12-20", end: "2026-12-21" }),
+        closure({ start: "2026-12-12", end: "2026-12-15" }),
+      ],
+      "2026-06-01",
+    )).toEqual({ current: false, text: "Closed for cleaning 12–15 Dec" });
+  });
+
+  test("ignores inverted periods", () => {
+    expect(describeHawkerClosure([closure({ start: "2026-12-15", end: "2026-12-12" })], "2026-12-13")).toBeNull();
+  });
+
+  test("surfaces the closure in the hawker popup lines", () => {
+    const lines = describeHawkerCentre(hawker({ closures: [closure()] }), "2026-12-13");
+    expect(texts(lines)).toContain("Closed now for cleaning until 15 Dec");
+    expect(lines.find((line) => line.text.startsWith("Closed now"))?.tone).toBe("warning");
+    expect(texts(describeHawkerCentre(hawker({ closures: [closure()] }), "2026-11-01"))).toContain("Closed for cleaning 12–15 Dec");
   });
 });
 

@@ -7,6 +7,7 @@ import {
   type BusRouteUiState,
 } from "@/app/hooks/use-bus-route";
 import { apiFetch } from "@/lib/api-fetch";
+import { googleMapsUrl } from "@/lib/maps-links";
 import {
   mergePointStores,
   readPointStore,
@@ -267,7 +268,22 @@ export default function BusPanel({
               {activeStop.Description}
             </div>
             <div className="text-[11px] text-muted">
-              {activeStop.BusStopCode} &bull; {activeStop.RoadName}
+              {activeStop.BusStopCode} &bull;{" "}
+              <a
+                href={
+                  googleMapsUrl({
+                    lat: activeStop.Latitude,
+                    lng: activeStop.Longitude,
+                  }) ?? undefined
+                }
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label={`Open ${activeStop.Description} bus stop in Google Maps`}
+                title={`Open ${activeStop.Description} bus stop in Google Maps`}
+                className="underline decoration-info/40 underline-offset-2 hover:text-info hover:decoration-info"
+              >
+                {activeStop.RoadName} <span aria-hidden="true">↗</span>
+              </a>
             </div>
           </div>
         ) : (

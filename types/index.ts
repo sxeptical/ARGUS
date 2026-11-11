@@ -193,7 +193,20 @@ export interface ParksGeoJson {
 /**
  * NEA hawker centre from the static amenities bundle. `planned` centres are
  * under construction; `expectedYear` is NEA's estimated completion year.
+ * `closures` are the NEA cleaning/other-works periods from
+ * public/hawker-closures.json, joined by hawker id (empty when the centre
+ * has no closure row, e.g. new/planned centres).
  */
+export type HawkerClosureKind = "cleaning" | "other-works";
+
+export interface HawkerClosure {
+  kind: HawkerClosureKind;
+  /** ISO calendar dates (YYYY-MM-DD), inclusive on both ends. */
+  start: string;
+  end: string;
+  remarks: string | null;
+}
+
 export interface HawkerCentre {
   id: string;
   name: string;
@@ -204,6 +217,7 @@ export interface HawkerCentre {
   status: "open" | "planned";
   expectedYear: number | null;
   photos: PlacePhoto[];
+  closures: HawkerClosure[];
 }
 
 /**
@@ -225,6 +239,22 @@ export interface PlacePhoto {
  * `stores`, `fnb`, and `nearestMrt` come from the curated mall dataset and
  * are `null` for malls it doesn't cover.
  */
+/**
+ * Licensed hotel from the static hotel bundle (Hotels Licensing Board via
+ * data.gov.sg). The dataset carries no street address, so `address` is the
+ * bare postcode; `rooms` is the licensed room count when known.
+ */
+export interface Hotel {
+  id: string;
+  name: string;
+  address: string | null;
+  rooms: number | null;
+  lat: number;
+  lng: number;
+  /** Wikimedia Commons photos (credited per file), when the hotel has an item. */
+  photos: PlacePhoto[];
+}
+
 export interface Mall {
   id: string;
   name: string;
@@ -242,6 +272,208 @@ export interface Mall {
  * One shop in a mall's directory (public/mall-stores/<mallId>.json). `level`
  * is a normalized key ("B2", "L1", "B2M") or a named area ("Tower 3").
  */
+/**
+ * Fitness facility from the static gym bundle (All The Places, OpenStreetMap,
+ * SportSG via data.gov.sg, or a small curated ActiveSG list). `category` is
+ * a display hint derived from the source activity tags; `public` gyms are
+ * ActiveSG / SportSG facilities.
+ * `brand` is normalised at build time to the operator, or "Independent"
+ * for chains without a known operator.
+ */
+export type GymCategory =
+  | "gym"
+  | "yoga"
+  | "pilates"
+  | "martial-arts"
+  | "crossfit"
+  | "climbing"
+  | "public";
+
+export type GymBrand =
+  | "ActiveSG"
+  | "Anytime Fitness"
+  | "Snap Fitness"
+  | "F45 Training"
+  | "Virgin Active"
+  | "CrossFit"
+  | "Fitness First"
+  | "True Fitness"
+  | "Pure Fitness"
+  | "UFIT"
+  | "GymmBoxx"
+  | "24/7 Fitness"
+  | "Gold's Gym"
+  | "EnergyOne"
+  | "GoFit"
+  | "Homeground"
+  | "Spartans"
+  | "Independent";
+
+export type GymSource = "alltheplaces" | "osm" | "sportsg" | "curated";
+
+export interface Gym {
+  id: string;
+  name: string;
+  brand: GymBrand;
+  category: GymCategory;
+  address: string | null;
+  lat: number;
+  lng: number;
+  openingHours: string | null;
+  website: string | null;
+  /** Extra strings map search matches (e.g. "OTH" for Tampines ActiveSG Gym). */
+  aliases?: string[];
+  source: GymSource;
+}
+
+/**
+ * People's Association outlet from the static community-club bundle
+ * (data.gov.sg). `passionwave` outlets are PA's sea-sports facilities.
+ */
+export type CommunityClubKind = "community-club" | "passionwave";
+
+export interface CommunityClub {
+  id: string;
+  name: string;
+  kind: CommunityClubKind;
+  address: string | null;
+  lat: number;
+  lng: number;
+  /** Wikimedia Commons photos (credited per file), when the club has an item. */
+  photos: PlacePhoto[];
+}
+
+/**
+ * Heritage place from the static heritage bundle: NHB historic sites and
+ * national monuments (data.gov.sg), plus OpenStreetMap museums. `website`
+ * is the Roots.sg article for NHB records (only when it resolves) or the
+ * OSM `website` tag for museums; `description` is the NHB blurb.
+ */
+export type HeritageKind = "historic-site" | "monument" | "museum";
+
+export type HeritageSource = "nhb" | "osm";
+
+export interface HeritageSite {
+  id: string;
+  name: string;
+  kind: HeritageKind;
+  address: string | null;
+  description: string | null;
+  website: string | null;
+  lat: number;
+  lng: number;
+  /** Wikimedia Commons photos (credited per file), when the site has an item. */
+  photos: PlacePhoto[];
+  source: HeritageSource;
+}
+
+/**
+ * Healthcare point from the static healthcare bundle: MOH CHAS GP clinics
+ * (data.gov.sg, content vintage September 2021) plus OpenStreetMap
+ * hospitals and dental clinics. `programmes` is the CHAS/CDMP/ISP
+ * participation recorded for CHAS clinics (empty for OSM records).
+ */
+export type HealthcareKind = "gp" | "hospital" | "dental";
+
+export type HealthcareSource = "chas" | "osm";
+
+export interface HealthcareSite {
+  id: string;
+  name: string;
+  kind: HealthcareKind;
+  address: string | null;
+  phone: string | null;
+  programmes: string[];
+  lat: number;
+  lng: number;
+  /** Wikimedia Commons photos (hospitals only), credited per file. */
+  photos: PlacePhoto[];
+  source: HealthcareSource;
+}
+
+/**
+ * Public library branch from the static library bundle: NLB's 2019 register
+ * (data.gov.sg, content as of 2019) plus OpenStreetMap branches that
+ * postdate it (Punggol Regional Library). `branch` is the NLB branch code
+ * (SRPL, OCPL, ...), null for OSM-added branches.
+ */
+export interface PublicLibrary {
+  id: string;
+  name: string;
+  branch: string | null;
+  address: string | null;
+  lat: number;
+  lng: number;
+  /** Wikimedia Commons photos (credited per file), when the branch has an item. */
+  photos: PlacePhoto[];
+  source: "nlb" | "osm";
+}
+
+/**
+ * Supermarket from the static supermarket bundle (OpenStreetMap
+ * `shop=supermarket`), with `brand` normalised to the operator at build
+ * time ("Other" for chains without a known operator).
+ */
+export type SupermarketBrand =
+  | "NTUC FairPrice"
+  | "Cold Storage"
+  | "Sheng Siong"
+  | "Giant"
+  | "Prime"
+  | "Don Don Donki"
+  | "Ang Mo"
+  | "U Stars"
+  | "Hao Mart"
+  | "Scarlett"
+  | "Other";
+
+export interface Supermarket {
+  id: string;
+  name: string;
+  brand: SupermarketBrand;
+  address: string | null;
+  lat: number;
+  lng: number;
+  openingHours: string | null;
+  website: string | null;
+}
+
+/**
+ * MOE school from the static schools bundle (MOE via data.gov.sg).
+ * `level` is the `mainlevel_code` mapping used by the level sub-filter;
+ * `coordsSource` records how coordinates were found (OneMap name search,
+ * OpenStreetMap name join). Staff names are never stored.
+ */
+export type SchoolLevel = "primary" | "secondary" | "jc" | "mixed";
+
+export interface School {
+  id: string;
+  name: string;
+  level: SchoolLevel;
+  address: string | null;
+  postalCode: string | null;
+  phone: string | null;
+  website: string | null;
+  /** Nearest MRT station name, as listed by MOE. */
+  mrt: string | null;
+  /** Bus services serving the school, as listed by MOE. */
+  bus: string | null;
+  lat: number;
+  lng: number;
+  coordsSource: "onemap" | "osm";
+}
+
+/**
+ * Retail pharmacy from the static pharmacy bundle (HSA via data.gov.sg).
+ */
+export interface Pharmacy {
+  id: string;
+  name: string;
+  address: string | null;
+  lat: number;
+  lng: number;
+}
+
 export interface MallStore {
   name: string;
   unit: string | null;
@@ -263,7 +495,7 @@ export interface AmenitiesBundle {
   malls: Mall[];
 }
 
-export type SearchResultType = "bus-stop" | "mrt" | "park" | "mall" | "hawker";
+export type SearchResultType = "bus-stop" | "mrt" | "park" | "mall" | "hawker" | "gym" | "community-club" | "pharmacy" | "hotel" | "heritage" | "healthcare" | "library" | "supermarket" | "school";
 
 export interface MapSearchResult {
   id: string;

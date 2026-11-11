@@ -22,22 +22,56 @@ import {
 } from "@/lib/layers";
 import { MRT_DISPLAY_LINE_COUNT } from "@/lib/mrt-network";
 import { HAWKER_CENTRES, MALLS } from "@/lib/amenities-data";
+import { GYMS, DEFAULT_GYM_BRAND_VISIBILITY } from "@/lib/gyms-data";
+import { filterGymsByBrand, orderedGymBrandCounts } from "@/lib/gyms";
+import { COMMUNITY_CLUBS } from "@/lib/community-clubs-data";
+import { PHARMACIES } from "@/lib/pharmacies-data";
+import { HOTELS } from "@/lib/hotels-data";
+import { HERITAGE_SITES, DEFAULT_HERITAGE_KIND_VISIBILITY } from "@/lib/heritage-data";
+import { filterHeritageByKind, orderedHeritageKindCounts } from "@/lib/heritage";
+import { HEALTHCARE_SITES, DEFAULT_HEALTHCARE_KIND_VISIBILITY } from "@/lib/healthcare-data";
+import { filterHealthcareByKind, orderedHealthcareKindCounts } from "@/lib/healthcare";
+import { LIBRARIES } from "@/lib/libraries-data";
+import { SUPERMARKETS, DEFAULT_SUPERMARKET_BRAND_VISIBILITY } from "@/lib/supermarkets-data";
+import { filterSupermarketsByBrand, orderedSupermarketBrandCounts } from "@/lib/supermarkets";
+import { SCHOOLS, DEFAULT_SCHOOL_LEVEL_VISIBILITY } from "@/lib/schools-data";
+import { filterSchoolsByLevel, orderedSchoolLevelCounts } from "@/lib/schools";
 import { DEFAULT_NOTIFICATION_PREFS } from "@/lib/notifications";
 import { PARKS_GEOJSON } from "@/lib/parks-data";
 import {
   GEO_FILTER_CENTER_KEY,
   GEO_FILTER_RADIUS_KEY,
+  GYM_BRANDS_KEY,
+  HERITAGE_KINDS_KEY,
+  HEALTHCARE_KINDS_KEY,
+  SUPERMARKET_BRANDS_KEY,
+  SCHOOL_LEVELS_KEY,
   NOTIFICATION_PREFS_KEY,
   parseGeoFilterCenter,
   parseGeoFilterRadius,
+  parseLayerOptionSelection,
   parseNotificationPrefs,
   SENSOR_VISIBILITY_KEY,
 } from "@/lib/ui-preferences";
 import type { ParkFeatureKind } from "@/types";
 import type {
+  CommunityClub,
   FlightState,
+  Gym,
+  GymBrand,
   HawkerCentre,
+  HealthcareKind,
+  HealthcareSite,
+  HeritageKind,
+  HeritageSite,
+  Hotel,
   Mall,
+  PublicLibrary,
+  School,
+  SchoolLevel,
+  Supermarket,
+  SupermarketBrand,
+  Pharmacy,
   TrafficCamera,
 } from "@/types";
 
@@ -54,12 +88,21 @@ export type SensorRow = {
 export type SensorStatsRow = Omit<SensorRow, "key" | "dot">;
 
 /** Which static amenity the map (or search) picked, by its bundle id. */
-export type AmenitySelectionTarget = { type: "mall" | "hawker"; id: string };
+export type AmenitySelectionTarget = { type: "mall" | "hawker" | "gym" | "community-club" | "pharmacy" | "hotel" | "heritage" | "healthcare" | "library" | "supermarket" | "school"; id: string };
 
 /** A selected amenity resolved to its bundle record. */
 export type SelectedAmenity =
   | { type: "mall"; mall: Mall }
-  | { type: "hawker"; hawker: HawkerCentre };
+  | { type: "hawker"; hawker: HawkerCentre }
+  | { type: "gym"; gym: Gym }
+  | { type: "community-club"; club: CommunityClub }
+  | { type: "pharmacy"; pharmacy: Pharmacy }
+  | { type: "hotel"; hotel: Hotel }
+  | { type: "heritage"; site: HeritageSite }
+  | { type: "healthcare"; site: HealthcareSite }
+  | { type: "library"; library: PublicLibrary }
+  | { type: "supermarket"; market: Supermarket }
+  | { type: "school"; school: School };
 
 export function useDashboardState() {
   // Declared before the sources: carparks and EV chargers only load while
@@ -76,6 +119,36 @@ export function useDashboardState() {
     NOTIFICATION_PREFS_KEY,
     DEFAULT_NOTIFICATION_PREFS,
     parseNotificationPrefs,
+  );
+  // Also declared before the sources: the gym layer and its count follow it.
+  const [gymBrands, setGymBrands] = usePersistentState<Record<GymBrand, boolean>>(
+    GYM_BRANDS_KEY,
+    DEFAULT_GYM_BRAND_VISIBILITY,
+    (stored) => parseLayerOptionSelection(stored, DEFAULT_GYM_BRAND_VISIBILITY),
+  );
+  // Also declared before the sources: the heritage layer and its count follow it.
+  const [heritageKinds, setHeritageKinds] = usePersistentState<Record<HeritageKind, boolean>>(
+    HERITAGE_KINDS_KEY,
+    DEFAULT_HERITAGE_KIND_VISIBILITY,
+    (stored) => parseLayerOptionSelection(stored, DEFAULT_HERITAGE_KIND_VISIBILITY),
+  );
+  // Also declared before the sources: the healthcare layer and its count follow it.
+  const [healthcareKinds, setHealthcareKinds] = usePersistentState<Record<HealthcareKind, boolean>>(
+    HEALTHCARE_KINDS_KEY,
+    DEFAULT_HEALTHCARE_KIND_VISIBILITY,
+    (stored) => parseLayerOptionSelection(stored, DEFAULT_HEALTHCARE_KIND_VISIBILITY),
+  );
+  // Also declared before the sources: the supermarket layer and its count follow it.
+  const [supermarketBrands, setSupermarketBrands] = usePersistentState<Record<SupermarketBrand, boolean>>(
+    SUPERMARKET_BRANDS_KEY,
+    DEFAULT_SUPERMARKET_BRAND_VISIBILITY,
+    (stored) => parseLayerOptionSelection(stored, DEFAULT_SUPERMARKET_BRAND_VISIBILITY),
+  );
+  // Also declared before the sources: the schools layer and its count follow it.
+  const [schoolLevels, setSchoolLevels] = usePersistentState<Record<SchoolLevel, boolean>>(
+    SCHOOL_LEVELS_KEY,
+    DEFAULT_SCHOOL_LEVEL_VISIBILITY,
+    (stored) => parseLayerOptionSelection(stored, DEFAULT_SCHOOL_LEVEL_VISIBILITY),
   );
   const data = useDashboardSources(
     {
@@ -158,6 +231,77 @@ export function useDashboardState() {
     () => withinRadius(HAWKER_CENTRES, geoFilter, (h) => [h.lng, h.lat]).length,
     [geoFilter],
   );
+  const gymCount = useMemo(
+    () => withinRadius(filterGymsByBrand(GYMS, gymBrands), geoFilter, (g) => [g.lng, g.lat]).length,
+    [geoFilter, gymBrands],
+  );
+
+  const toggleGymBrand = useCallback(
+    (brand: GymBrand, on: boolean) =>
+      setGymBrands((previous) => ({ ...previous, [brand]: on })),
+    [setGymBrands],
+  );
+  const gymBrandCountList = useMemo(() => orderedGymBrandCounts(GYMS), []);
+  const communityClubCount = useMemo(
+    () => withinRadius(COMMUNITY_CLUBS, geoFilter, (club) => [club.lng, club.lat]).length,
+    [geoFilter],
+  );
+  const pharmacyCount = useMemo(
+    () => withinRadius(PHARMACIES, geoFilter, (pharmacy) => [pharmacy.lng, pharmacy.lat]).length,
+    [geoFilter],
+  );
+  const hotelCount = useMemo(
+    () => withinRadius(HOTELS, geoFilter, (hotel) => [hotel.lng, hotel.lat]).length,
+    [geoFilter],
+  );
+  const heritageCount = useMemo(
+    () => withinRadius(filterHeritageByKind(HERITAGE_SITES, heritageKinds), geoFilter, (site) => [site.lng, site.lat]).length,
+    [geoFilter, heritageKinds],
+  );
+
+  const toggleHeritageKind = useCallback(
+    (kind: HeritageKind, on: boolean) =>
+      setHeritageKinds((previous) => ({ ...previous, [kind]: on })),
+    [setHeritageKinds],
+  );
+  const heritageKindCountList = useMemo(() => orderedHeritageKindCounts(HERITAGE_SITES), []);
+  const healthcareCount = useMemo(
+    () => withinRadius(filterHealthcareByKind(HEALTHCARE_SITES, healthcareKinds), geoFilter, (site) => [site.lng, site.lat]).length,
+    [geoFilter, healthcareKinds],
+  );
+
+  const toggleHealthcareKind = useCallback(
+    (kind: HealthcareKind, on: boolean) =>
+      setHealthcareKinds((previous) => ({ ...previous, [kind]: on })),
+    [setHealthcareKinds],
+  );
+  const healthcareKindCountList = useMemo(() => orderedHealthcareKindCounts(HEALTHCARE_SITES), []);
+  const libraryCount = useMemo(
+    () => withinRadius(LIBRARIES, geoFilter, (library) => [library.lng, library.lat]).length,
+    [geoFilter],
+  );
+  const supermarketCount = useMemo(
+    () => withinRadius(filterSupermarketsByBrand(SUPERMARKETS, supermarketBrands), geoFilter, (market) => [market.lng, market.lat]).length,
+    [geoFilter, supermarketBrands],
+  );
+
+  const toggleSupermarketBrand = useCallback(
+    (brand: SupermarketBrand, on: boolean) =>
+      setSupermarketBrands((previous) => ({ ...previous, [brand]: on })),
+    [setSupermarketBrands],
+  );
+  const supermarketBrandCountList = useMemo(() => orderedSupermarketBrandCounts(SUPERMARKETS), []);
+  const schoolCount = useMemo(
+    () => withinRadius(filterSchoolsByLevel(SCHOOLS, schoolLevels), geoFilter, (school) => [school.lng, school.lat]).length,
+    [geoFilter, schoolLevels],
+  );
+
+  const toggleSchoolLevel = useCallback(
+    (level: SchoolLevel, on: boolean) =>
+      setSchoolLevels((previous) => ({ ...previous, [level]: on })),
+    [setSchoolLevels],
+  );
+  const schoolLevelCountList = useMemo(() => orderedSchoolLevelCounts(SCHOOLS), []);
 
   const selectedCamera = useMemo(
     () =>
@@ -219,6 +363,44 @@ export function useDashboardState() {
         MALLS.find((mall) => mall.id === selectedAmenityId.id) ?? null;
       return mall ? { type: "mall", mall } : null;
     }
+    if (selectedAmenityId.type === "gym") {
+      const gym = GYMS.find((gym) => gym.id === selectedAmenityId.id) ?? null;
+      return gym ? { type: "gym", gym } : null;
+    }
+    if (selectedAmenityId.type === "community-club") {
+      const club =
+        COMMUNITY_CLUBS.find((club) => club.id === selectedAmenityId.id) ?? null;
+      return club ? { type: "community-club", club } : null;
+    }
+    if (selectedAmenityId.type === "pharmacy") {
+      const pharmacy =
+        PHARMACIES.find((pharmacy) => pharmacy.id === selectedAmenityId.id) ?? null;
+      return pharmacy ? { type: "pharmacy", pharmacy } : null;
+    }
+    if (selectedAmenityId.type === "hotel") {
+      const hotel = HOTELS.find((hotel) => hotel.id === selectedAmenityId.id) ?? null;
+      return hotel ? { type: "hotel", hotel } : null;
+    }
+    if (selectedAmenityId.type === "heritage") {
+      const site = HERITAGE_SITES.find((site) => site.id === selectedAmenityId.id) ?? null;
+      return site ? { type: "heritage", site } : null;
+    }
+    if (selectedAmenityId.type === "healthcare") {
+      const site = HEALTHCARE_SITES.find((site) => site.id === selectedAmenityId.id) ?? null;
+      return site ? { type: "healthcare", site } : null;
+    }
+    if (selectedAmenityId.type === "library") {
+      const library = LIBRARIES.find((library) => library.id === selectedAmenityId.id) ?? null;
+      return library ? { type: "library", library } : null;
+    }
+    if (selectedAmenityId.type === "supermarket") {
+      const market = SUPERMARKETS.find((market) => market.id === selectedAmenityId.id) ?? null;
+      return market ? { type: "supermarket", market } : null;
+    }
+    if (selectedAmenityId.type === "school") {
+      const school = SCHOOLS.find((school) => school.id === selectedAmenityId.id) ?? null;
+      return school ? { type: "school", school } : null;
+    }
     const hawker =
       HAWKER_CENTRES.find((hawker) => hawker.id === selectedAmenityId.id) ??
       null;
@@ -253,6 +435,15 @@ export function useDashboardState() {
     evChargers: evChargers.length,
     malls: mallCount,
     hawkers: hawkerCount,
+    gyms: gymCount,
+    communityClubs: communityClubCount,
+    pharmacies: pharmacyCount,
+    hotels: hotelCount,
+    heritage: heritageCount,
+    healthcare: healthcareCount,
+    libraries: libraryCount,
+    supermarkets: supermarketCount,
+    schools: schoolCount,
   };
   const sensorRows: SensorRow[] = LAYERS.map((layer) => ({
     key: layer.key,
@@ -331,6 +522,24 @@ export function useDashboardState() {
     geoFilter,
     geoFilterPicking,
     geoFilterRadiusM,
+    gymBrandCountList,
+    gymBrands,
+    heritageKindCountList,
+    heritageKinds,
+    setHeritageKinds,
+    toggleHeritageKind,
+    healthcareKindCountList,
+    healthcareKinds,
+    setHealthcareKinds,
+    toggleHealthcareKind,
+    supermarketBrandCountList,
+    supermarketBrands,
+    setSupermarketBrands,
+    toggleSupermarketBrand,
+    schoolLevelCountList,
+    schoolLevels,
+    setSchoolLevels,
+    toggleSchoolLevel,
     clearGeoFilter,
     pickGeoFilterCenter,
     setGeoFilterPicking,
@@ -366,6 +575,8 @@ export function useDashboardState() {
     setSelectedFlight: selectFlight,
     setSelectedPark: selectPark,
     setSensorVisibility,
+    setGymBrands,
+    toggleGymBrand,
     showBusRoute: busRoute.show,
     signalBars,
     signalsLoaded: data.signalsLoaded,
