@@ -1,8 +1,12 @@
 import type { NextConfig } from "next";
 import { initOpenNextCloudflareForDev } from "@opennextjs/cloudflare";
 
-const isDev = process.env.NODE_ENV !== "production";
-
+// Content-Security-Policy is set per request in proxy.ts (nonce-based, so Next
+// can nonce its inline bootstrap scripts). The other headers below are static
+// and safe to apply to every response. Non-document responses (API routes,
+// _next/static, and public assets such as the *.json data bundles and the
+// MapLibre worker) are excluded from the proxy matcher: CSP only governs
+// documents, so those responses do not need a policy.
 const securityHeaders = [
   { key: "X-Content-Type-Options", value: "nosniff" },
   { key: "X-Frame-Options", value: "DENY" },
@@ -14,32 +18,6 @@ const securityHeaders = [
   {
     key: "Permissions-Policy",
     value: "geolocation=(), microphone=(), camera=()",
-  },
-  {
-    key: "Content-Security-Policy",
-    value: [
-      "default-src 'self'",
-      // Next.js needs inline scripts, plus eval for HMR in development.
-      // Cloudflare Web Analytics injects its beacon from cloudflareinsights.com.
-      `script-src 'self' 'unsafe-inline' https://static.cloudflareinsights.com${isDev ? " 'unsafe-eval'" : ""}`,
-      // Tailwind emits inline styles at runtime; runtime style injection.
-      "style-src 'self' 'unsafe-inline'",
-      // Camera images (data.gov.sg, LTA S3), OpenFreeMap raster assets,
-      // Wikimedia Commons place photos (thumb./upload.wikimedia.org), and
-      // NEA's hawker centre photos.
-      "img-src 'self' data: blob: https://images.data.gov.sg https://datamall2.mytransport.sg https://dm-traffic-camera-itsc.s3.ap-southeast-1.amazonaws.com https://tiles.openfreemap.org https://thumb.wikimedia.org https://upload.wikimedia.org https://www.nea.gov.sg",
-      // OpenFreeMap style, vector/raster tiles, sprites, and glyphs, plus the
-      // Cloudflare Web Analytics beacon endpoint.
-      "connect-src 'self' https://tiles.openfreemap.org https://cloudflareinsights.com",
-      // Google Fonts (loaded via stylesheet) and self-hosted font data URIs.
-      "font-src 'self' data: https://fonts.gstatic.com",
-      // MapLibre's worker is copied to public/maplibre/ at build time.
-      "worker-src 'self'",
-      "child-src 'self'",
-      "frame-ancestors 'none'",
-      "base-uri 'self'",
-      "object-src 'none'",
-    ].join("; "),
   },
 ];
 
@@ -55,7 +33,7 @@ const nextConfig: NextConfig = {
   ],
   images: {
     // Disabled because camera images are dynamic external URLs from LTA;
-    // unoptimized avoids Next.js image processing overhead and cost.
+    // unoptimized avoids Next.js image processing overhead and cost on Vercel.
     unoptimized: true,
     remotePatterns: [
       {
@@ -89,5 +67,5 @@ const nextConfig: NextConfig = {
 
 export default nextConfig;
 
-// Exposes wrangler.jsonc bindings to `next dev` via getCloudflareContext().
+// Expose wrangler.jsonc bindings (rate limiters) to `next dev`.
 initOpenNextCloudflareForDev();

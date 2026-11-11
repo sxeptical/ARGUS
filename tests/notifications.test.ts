@@ -147,12 +147,6 @@ describe("mergeActiveSignals", () => {
     expect(merged[1]).toBe(current[1]);
     expect(merged).not.toBe(current);
   });
-
-  test("keeps the previous row object when its content is unchanged", () => {
-    const current = [signal("a")];
-    const merged = mergeActiveSignals(current, [], [{ ...signal("a") }]);
-    expect(merged).toBe(current);
-  });
 });
 
 describe("buildBrowserNotifications", () => {

@@ -12,7 +12,7 @@
  * there would regenerate the whole amenities bundle and its photos for a
  * yearly schedule update. This script only reads the existing
  * public/amenities.json to resolve ids; the runtime join in
- * lib/amenities-data.ts pairs each hawker with its periods, so rerunning
+ * lib/data/amenities.ts pairs each hawker with its periods, so rerunning
  * fetch-amenities.mjs later does not invalidate this file.
  *
  * Join: exact (normalised) name first; the remaining name variants
@@ -24,24 +24,20 @@
  */
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { fetchJson, USER_AGENT } from "./lib/commons-photos.mjs";
+import { inSingapore, text } from "./lib/place-fields.mjs";
 
 const CLOSURE_DATASET = "d_bda4baa634dd1cc7a6c7cad5f19e2d68";
-const SG_BOUNDS = { minLat: 1.1, maxLat: 1.5, minLng: 103.5, maxLng: 104.1 };
 
 // A handful of `other_works` rows announce a centre's opening, not a
 // closure; a closure period for them would mislead the popup.
 const OPENING_REMARKS_RE = /will commence its operations/i;
 
-const text = (value) => (typeof value === "string" && value.trim() ? value.trim() : null);
 const cleanRemark = (value) => {
   const remark = text(value);
   return remark && remark.toLowerCase() !== "nil" ? remark : null;
 };
 const normalizeName = (name) =>
   name.toLowerCase().replace(/&/g, "and").replace(/\bsingapore\b/g, "").replace(/[^a-z0-9]/g, "");
-const inSingapore = (lat, lng) =>
-  Number.isFinite(lat) && Number.isFinite(lng) &&
-  lat >= SG_BOUNDS.minLat && lat <= SG_BOUNDS.maxLat && lng >= SG_BOUNDS.minLng && lng <= SG_BOUNDS.maxLng;
 
 // Equirectangular metres; accurate to well under 1% for sub-km joins.
 const distMetres = (aLat, aLng, bLat, bLng) => {

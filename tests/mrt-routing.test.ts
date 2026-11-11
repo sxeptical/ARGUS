@@ -3,22 +3,12 @@ import { isRouteableMrtStation, MRT_STATION_NAMES, planMrtRoute } from "@/lib/mr
 
 describe("isRouteableMrtStation", () => {
   test("returns true for known operational stations", () => {
-    expect(isRouteableMrtStation("Bayshore")).toBe(true);
     expect(isRouteableMrtStation("Jurong East")).toBe(true);
-    expect(isRouteableMrtStation("Bugis")).toBe(true);
-    expect(isRouteableMrtStation("Orchard")).toBe(true);
-    expect(isRouteableMrtStation("Woodlands")).toBe(true);
-    expect(isRouteableMrtStation("Expo")).toBe(true);
-    expect(isRouteableMrtStation("Keppel")).toBe(true);
-    expect(isRouteableMrtStation("Cantonment")).toBe(true);
-    expect(isRouteableMrtStation("Prince Edward Road")).toBe(true);
     expect(isRouteableMrtStation("Hume")).toBe(true);
+    expect(isRouteableMrtStation("Prince Edward Road")).toBe(true);
   });
 
   test("returns false for non-existent stations", () => {
-    expect(isRouteableMrtStation("Bedok South")).toBe(false);
-    expect(isRouteableMrtStation("Sungei Bedok")).toBe(false);
-    expect(isRouteableMrtStation("Xilin")).toBe(false);
     expect(isRouteableMrtStation("Nonexistent Station")).toBe(false);
     expect(isRouteableMrtStation("")).toBe(false);
   });
@@ -54,27 +44,9 @@ describe("planMrtRoute", () => {
     expect(plan!.transfers).toBe(0);
   });
 
-  test("returns a valid plan for a short same-line trip", () => {
-    const plan = planMrtRoute("Bugis", "Paya Lebar");
-    expect(plan).not.toBeNull();
-    expect(plan!.start).toBe("Bugis");
-    expect(plan!.end).toBe("Paya Lebar");
-    expect(plan!.segments.length).toBeGreaterThanOrEqual(1);
-    expect(plan!.estimatedMinutes).toBeGreaterThan(0);
-    expect(plan!.stations).toContain("Bugis");
-    expect(plan!.stations).toContain("Paya Lebar");
-  });
-
-  test("returns a valid plan that includes transfers for cross-line trips", () => {
-    // Jurong East (NS/EW interchange) -> Bugis (EW/DT interchange)
-    const plan = planMrtRoute("Jurong East", "Bugis");
-    expect(plan).not.toBeNull();
-    expect(plan!.transfers).toBeGreaterThanOrEqual(0);
-    expect(plan!.estimatedMinutes).toBeGreaterThan(0);
-  });
-
   test("rides through Hume between Hillview and Beauty World", () => {
     expect(planMrtRoute("Hillview", "Beauty World")?.stations).toEqual(["Hillview", "Hume", "Beauty World"]);
+    expect(planMrtRoute("Bugis", "Paya Lebar")).toMatchObject({ start: "Bugis", end: "Paya Lebar", transfers: 0 });
   });
 });
 

@@ -1,9 +1,9 @@
 /**
- * Popup copy and search entries for the static mall and hawker centre
+ * Popup copy for the static mall and hawker centre
  * layers. Pure so the map and tests share one definition.
  */
 import type { PopupLine } from "@/lib/mobility";
-import type { HawkerCentre, HawkerClosure, MapSearchResult, Mall, PlacePhoto } from "@/types";
+import type { HawkerCentre, HawkerClosure, Mall, PlacePhoto } from "@/types";
 
 const plural = (count: number, one: string, many: string) =>
   `${count} ${count === 1 ? one : many}`;
@@ -149,25 +149,3 @@ export const describeMall = (mall: Mall): PopupLine[] => {
     },
   ];
 };
-
-export const buildMallSearchResults = (malls: ReadonlyArray<Mall>): MapSearchResult[] =>
-  malls.map((mall) => ({
-    id: mall.id,
-    type: "mall",
-    name: mall.name,
-    lat: mall.lat,
-    lng: mall.lng,
-    zoom: 16,
-    keywords: ["mall", "shopping", ...(mall.address ? [mall.address] : [])],
-  }));
-
-export const buildHawkerSearchResults = (hawkers: ReadonlyArray<HawkerCentre>): MapSearchResult[] =>
-  hawkers.map((hawker) => ({
-    id: hawker.id,
-    type: "hawker",
-    name: hawker.name,
-    lat: hawker.lat,
-    lng: hawker.lng,
-    zoom: 16,
-    keywords: ["hawker", "food centre", ...(hawker.address ? [hawker.address] : [])],
-  }));

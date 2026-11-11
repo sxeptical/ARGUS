@@ -7,6 +7,6 @@ export async function GET(request: Request) {
     request,
     "flights",
     { maxRequests: 60, serviceLabel: "Flight data" },
-    () => (FLIGHTS_ENABLED ? getFlights() : []),
+    (signal) => (FLIGHTS_ENABLED ? getFlights(signal) : []),
   );
 }

@@ -130,6 +130,12 @@ export default function WeatherPanel({
     );
   }, [showOnMap, airWindow, activeRegions, onAirQualityOverlayChange]);
 
+  // A pinned overlay survives collapse (`showOnMap` keeps it), but nothing
+  // should stay on the map once this panel goes away.
+  useEffect(() => {
+    return () => onAirQualityOverlayChange?.(null);
+  }, [onAirQualityOverlayChange]);
+
   const uvClass =
     weather.uvStatus === "Low"
       ? "text-success"
@@ -238,6 +244,13 @@ function ExpandableRow({
   useEffect(() => {
     onExpandedChangeRef.current?.(expanded);
   }, [expanded]);
+
+  // TerminalPanel unmounts its content when collapsed, so this cleanup is how
+  // an outer panel collapse reaches the caller. Without it a collapsed Weather
+  // panel would keep reporting its air section as expanded, pinning the overlay.
+  useEffect(() => {
+    return () => onExpandedChangeRef.current?.(false);
+  }, []);
 
   return (
     <div className="overflow-hidden border border-line">

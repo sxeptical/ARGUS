@@ -209,40 +209,45 @@ const fetchRssText = async (url: string): Promise<string> => {
 
 // ---------- Public client ----------
 
-export const getNews = (): Promise<NewsItem[]> =>
-  cache.get("news", 15 * 60 * 1000, async () => {
-    // Feeds fail independently; only all of them failing is an error.
-    const results = await Promise.allSettled(
-      rssFeeds.map(async (feed) =>
-        parseRssItems(await fetchRssText(feed.url), feed.source),
-      ),
-    );
-    const succeeded = results.flatMap((result) =>
-      result.status === "fulfilled" ? [result.value] : [],
-    );
-    if (succeeded.length === 0) {
-      throw new ExternalApiError({
-        service: "rss",
-        status: 502,
-        message: "All news feeds failed",
-      });
-    }
+export const getNews = (signal?: AbortSignal): Promise<NewsItem[]> =>
+  cache.get(
+    "news",
+    15 * 60 * 1000,
+    async () => {
+      // Feeds fail independently; only all of them failing is an error.
+      const results = await Promise.allSettled(
+        rssFeeds.map(async (feed) =>
+          parseRssItems(await fetchRssText(feed.url), feed.source),
+        ),
+      );
+      const succeeded = results.flatMap((result) =>
+        result.status === "fulfilled" ? [result.value] : [],
+      );
+      if (succeeded.length === 0) {
+        throw new ExternalApiError({
+          service: "rss",
+          status: 502,
+          message: "All news feeds failed",
+        });
+      }
 
-    const seen = new Set<string>();
-    return succeeded
-      .flat()
-      .filter(isSingaporeRelevant)
-      .filter((item) => {
-        if (seen.has(item.url)) return false;
-        seen.add(item.url);
-        return true;
-      })
-      .map((item) => ({
-        title: item.title,
-        source: item.source,
-        url: item.url,
-        publishedAt: item.publishedAt,
-      }))
-      .sort((a, b) => +new Date(b.publishedAt) - +new Date(a.publishedAt))
-      .slice(0, 20);
-  });
+      const seen = new Set<string>();
+      return succeeded
+        .flat()
+        .filter(isSingaporeRelevant)
+        .filter((item) => {
+          if (seen.has(item.url)) return false;
+          seen.add(item.url);
+          return true;
+        })
+        .map((item) => ({
+          title: item.title,
+          source: item.source,
+          url: item.url,
+          publishedAt: item.publishedAt,
+        }))
+        .sort((a, b) => +new Date(b.publishedAt) - +new Date(a.publishedAt))
+        .slice(0, 20);
+    },
+    { signal, shared: true },
+  );

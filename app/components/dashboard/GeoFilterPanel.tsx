@@ -28,11 +28,14 @@ export function GeoFilterPanel({
   onPickingChange: (picking: boolean) => void;
   onClear: () => void;
 }) {
-  // Escape backs out of pick mode, mirroring the map hint overlay.
+  // Escape backs out of pick mode, mirroring the map hint overlay. An open
+  // modal owns Escape instead (it closes itself), so don't also cancel picking.
   useEffect(() => {
     if (!picking) return;
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onPickingChange(false);
+      if (event.key !== "Escape" || event.defaultPrevented) return;
+      if (document.querySelector('[aria-modal="true"]') !== null) return;
+      onPickingChange(false);
     };
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);

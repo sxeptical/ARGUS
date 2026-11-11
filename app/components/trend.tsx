@@ -31,7 +31,7 @@ export function MiniTrend({
         const height = range === 0 ? 50 : 18 + ((value - min) / range) * 82;
         return (
           <div
-            key={`${index}-${value}`}
+            key={index}
             className={`w-full min-w-0 opacity-80 ${rounded ? "rounded-t" : ""} ${barClass}`}
             style={{ height: `${height}%` }}
             title={`${value}${titleUnit}`}

@@ -3,10 +3,6 @@ import {
   directionsLeavingStop,
   matchPatternsToDirections,
 } from "@/lib/api-clients/bus-routes";
-import {
-  BUS_ROUTES_SNAPSHOT,
-  validateBusRoutesSnapshot,
-} from "@/lib/bus-routes-data";
 import type { BusRouteStop } from "@/types";
 
 function stops(longitude: number): BusRouteStop[] {
@@ -77,39 +73,6 @@ describe("directionsLeavingStop", () => {
     expect(directionsLeavingStop([route(1, null), route(2, null)])).toHaveLength(
       2,
     );
-  });
-});
-
-describe("bus routes snapshot", () => {
-  test("covers the national network with both directions", () => {
-    const services = Object.keys(BUS_ROUTES_SNAPSHOT.services);
-    expect(services.length).toBeGreaterThan(500);
-    expect(BUS_ROUTES_SNAPSHOT.services["10"]?.["1"]?.length).toBeGreaterThan(
-      10,
-    );
-    expect(BUS_ROUTES_SNAPSHOT.services["10"]?.["2"]?.length).toBeGreaterThan(
-      10,
-    );
-  });
-
-  test("stores stops ordered by stop sequence", () => {
-    const stops = BUS_ROUTES_SNAPSHOT.services["10"]["1"];
-    const sequences = stops.map(([, sequence]) => sequence);
-    expect([...sequences].sort((a, b) => a - b)).toEqual(sequences);
-  });
-
-  test("rejects malformed snapshots", () => {
-    expect(validateBusRoutesSnapshot(null)).toBe(false);
-    expect(validateBusRoutesSnapshot({})).toBe(false);
-    expect(
-      validateBusRoutesSnapshot({ fetchedAt: "2026-01-01", services: {} }),
-    ).toBe(true);
-    expect(
-      validateBusRoutesSnapshot({
-        fetchedAt: "2026-01-01",
-        services: { 10: { 1: [["01012"]] } },
-      }),
-    ).toBe(false);
   });
 });
 

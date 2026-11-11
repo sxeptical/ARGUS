@@ -1,5 +1,11 @@
 "use client";
 
+import { useState } from "react";
+import {
+  allLayerOptionsOn,
+  toggleLayerOptionSelection,
+} from "@/lib/layers";
+
 /**
  * Small shared pieces of the layer UI (group header, filter input, eye
  * glyphs) used by both the desktop LayersSidebar and the MobileLayersDrawer,
@@ -108,7 +114,8 @@ export function LayerGroupHeader({
 }
 
 /** Compact filter box for the layer list (and other panel lists); matches panel density. */
-export function LayerFilterInput({  value,
+export function LayerFilterInput({
+  value,
   onChange,
   placeholder = "Filter layers…",
   label = "Filter layers",
@@ -142,12 +149,6 @@ export function LayerFilterInput({  value,
     </div>
   );
 }
-
-import { useState } from "react";
-import {
-  allLayerOptionsOn,
-  toggleLayerOptionSelection,
-} from "@/lib/layers";
 
 /** First N options shown in a sub-filter; the rest wait behind "+N more". */
 const SUB_FILTER_TOP_COUNT = 6;

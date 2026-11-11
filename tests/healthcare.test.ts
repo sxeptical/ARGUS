@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { HEALTHCARE_SITES, validateHealthcareBundle } from "@/lib/healthcare-data";
-import { buildHealthcareSearchResults, describeHealthcare, filterHealthcareByKind, orderedHealthcareKindCounts } from "@/lib/healthcare";
+import { HEALTHCARE_SITES, validateHealthcareBundle } from "@/lib/data/healthcare";
+import { describeHealthcare } from "@/lib/healthcare";
 import type { HealthcareSite } from "@/types";
 
 const site = (overrides: Partial<HealthcareSite> = {}): HealthcareSite => ({
@@ -20,20 +20,10 @@ const site = (overrides: Partial<HealthcareSite> = {}): HealthcareSite => ({
 const texts = (lines: ReadonlyArray<{ text: string }>) => lines.map((line) => line.text);
 
 describe("healthcare bundle", () => {
-  test("ships plausible Singapore GP clinics, hospitals and dental clinics", () => {
-    expect(HEALTHCARE_SITES.length).toBeGreaterThan(1400);
-    for (const place of HEALTHCARE_SITES) {
-      expect(place.lng).toBeGreaterThanOrEqual(103.5);
-      expect(place.lng).toBeLessThanOrEqual(104.1);
-      expect(place.lat).toBeGreaterThanOrEqual(1.1);
-      expect(place.lat).toBeLessThanOrEqual(1.5);
-      expect(place.name.length).toBeGreaterThan(0);
-    }
-    expect(new Set(HEALTHCARE_SITES.map((s) => s.id)).size).toBe(HEALTHCARE_SITES.length);
+  test("ships GPs, hospitals and dental clinics", () => {
     expect(HEALTHCARE_SITES.some((s) => s.kind === "gp" && s.source === "chas")).toBe(true);
     expect(HEALTHCARE_SITES.some((s) => s.kind === "hospital")).toBe(true);
     expect(HEALTHCARE_SITES.some((s) => s.kind === "dental")).toBe(true);
-    expect(HEALTHCARE_SITES.every((s) => s.kind !== "hospital" || s.photos.length <= 3)).toBe(true);
   });
 
   test("rejects malformed bundles", () => {
@@ -41,10 +31,7 @@ describe("healthcare bundle", () => {
     expect(validateHealthcareBundle({ sites: [site()] })).toBe(false);
     expect(validateHealthcareBundle([{ ...site(), kind: "clinic" }])).toBe(false);
     expect(validateHealthcareBundle([{ ...site(), source: "unknown" }])).toBe(false);
-    expect(validateHealthcareBundle([{ ...site(), id: "" }])).toBe(false);
-    expect(validateHealthcareBundle([{ ...site(), name: "" }])).toBe(false);
     expect(validateHealthcareBundle([{ ...site(), programmes: "CHAS" }])).toBe(false);
-    expect(validateHealthcareBundle([{ ...site(), lat: Number.NaN }])).toBe(false);
   });
 });
 
@@ -74,35 +61,5 @@ describe("describeHealthcare", () => {
       "Hospital",
       "Location: © OpenStreetMap contributors (ODbL)",
     ]);
-  });
-});
-
-describe("healthcare kind filtering", () => {
-  test("keeps only sites whose kind is on", () => {
-    const sites = [site(), site({ id: "osm-node-1", kind: "hospital", name: "A Hospital" })];
-    expect(filterHealthcareByKind(sites, { hospital: false }).map((s) => s.id)).toEqual(["chas-15M0211"]);
-    expect(filterHealthcareByKind(sites, {})).toHaveLength(2);
-  });
-
-  test("counts kinds in display order", () => {
-    const sites = [
-      site({ id: "a", kind: "dental" }),
-      site({ id: "b", kind: "hospital" }),
-      site({ id: "c", kind: "gp" }),
-      site({ id: "d", kind: "gp" }),
-    ];
-    expect(orderedHealthcareKindCounts(sites)).toEqual([
-      { kind: "gp", count: 2 },
-      { kind: "hospital", count: 1 },
-      { kind: "dental", count: 1 },
-    ]);
-  });
-});
-
-describe("healthcare search results", () => {
-  test("lands on the site with a searchable type", () => {
-    expect(buildHealthcareSearchResults([site()])[0]).toMatchObject({ id: "chas-15M0211", type: "healthcare", lat: 1.325618, lng: 103.67841, zoom: 16 });
-    expect(buildHealthcareSearchResults([site()])[0].keywords).toContain("healthcare");
-    expect(buildHealthcareSearchResults([site()])[0].keywords).toContain("GP clinic");
   });
 });

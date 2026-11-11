@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   mergePointLists,
   readPointList,
@@ -50,46 +50,59 @@ function recordWeather(
 
 export function useWeatherHistory(weather: WeatherData) {
   const [history, setHistory] = useState<WeatherHistoryPoint[]>([]);
+  // Latest history, so storage writes happen outside the state updater
+  // (updaters must stay pure, and StrictMode double-invokes them).
+  const historyRef = useRef(history);
+
+  useEffect(() => {
+    historyRef.current = history;
+  });
 
   // Merge hydration with any point already recorded; never replace state.
   useEffect(() => {
     const timer = window.setTimeout(() => {
-      setHistory((current) => {
-        const persisted = readPointList(
-          STORAGE_KEY,
-          isWeatherHistoryPoint,
-          MAX_POINTS,
-        );
-        const merged = mergePointLists(persisted, current).slice(-MAX_POINTS);
-        writePointList(STORAGE_KEY, merged, MAX_POINTS);
-        return merged;
-      });
+      const persisted = readPointList(
+        STORAGE_KEY,
+        isWeatherHistoryPoint,
+        MAX_POINTS,
+      );
+      const merged = mergePointLists(persisted, historyRef.current).slice(
+        -MAX_POINTS,
+      );
+      writePointList(STORAGE_KEY, merged, MAX_POINTS);
+      if (
+        merged.length === historyRef.current.length &&
+        merged.every((point, index) => point === historyRef.current[index])
+      ) {
+        return;
+      }
+      historyRef.current = merged;
+      setHistory(merged);
     }, 0);
     return () => window.clearTimeout(timer);
   }, []);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
-      setHistory((current) => {
-        // Preserve points recorded before storage hydration completes.
-        const persisted = readPointList(
-          STORAGE_KEY,
-          isWeatherHistoryPoint,
-          MAX_POINTS,
-        );
-        const next = recordWeather(
-          mergePointLists(persisted, current),
-          weather,
-        );
-        if (
-          next.length === current.length &&
-          next.every((point, index) => point === current[index])
-        ) {
-          return current;
-        }
-        writePointList(STORAGE_KEY, next, MAX_POINTS);
-        return next;
-      });
+      // Preserve points recorded before storage hydration completes.
+      const persisted = readPointList(
+        STORAGE_KEY,
+        isWeatherHistoryPoint,
+        MAX_POINTS,
+      );
+      const next = recordWeather(
+        mergePointLists(persisted, historyRef.current),
+        weather,
+      );
+      if (
+        next.length === historyRef.current.length &&
+        next.every((point, index) => point === historyRef.current[index])
+      ) {
+        return;
+      }
+      historyRef.current = next;
+      writePointList(STORAGE_KEY, next, MAX_POINTS);
+      setHistory(next);
     }, 0);
     return () => window.clearTimeout(timer);
   }, [weather]);

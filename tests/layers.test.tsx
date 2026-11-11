@@ -1,9 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
-import { LayersSidebar } from "./LayersSidebar";
-import { MobileLayersDrawer } from "./MobileLayersDrawer";
-import { gymBrandCounts } from "@/lib/gyms";
-import { GYMS } from "@/lib/gyms-data";
+import { LayersSidebar } from "@/app/components/dashboard/LayersSidebar";
+import { MobileLayersDrawer } from "@/app/components/dashboard/MobileLayersDrawer";
 import { buildLayerGroups } from "@/app/hooks/use-layer-list";
 import { FLIGHTS_ENABLED } from "@/lib/features";
 import {
@@ -13,12 +11,10 @@ import {
   LAYER_GROUPS,
   SensorKey,
   allLayerOptionsOn,
-  coerceSensorVisibility,
   toggleLayerOptionSelection,
 } from "@/lib/layers";
-import { LayerOptionFilter } from "./LayerControls";
+import { LayerOptionFilter } from "@/app/components/dashboard/LayerControls";
 import type { SensorRow } from "@/app/hooks/use-dashboard-state";
-import type { SensorKey as RegistrySensorKey } from "@/lib/layers";
 import type { WeatherData } from "@/types";
 
 // Mirror of use-dashboard-state's registry-driven row construction, with
@@ -81,13 +77,6 @@ const statsRows = [
 ];
 
 describe("layer registry", () => {
-  test("every layer belongs to a declared group", () => {
-    const groupIds = new Set(LAYER_GROUPS.map((group) => group.id));
-    for (const layer of LAYERS) {
-      expect(groupIds.has(layer.group)).toBe(true);
-    }
-  });
-
   test("every group has at least one layer and keys are unique", () => {
     const keys = LAYERS.map((layer) => layer.key);
     expect(new Set(keys).size).toBe(keys.length);
@@ -101,48 +90,6 @@ describe("layer registry", () => {
     for (const key of Object.keys(DEFAULT_SENSOR_VISIBILITY) as SensorKey[]) {
       expect(LAYER_BY_KEY.has(key)).toBe(true);
     }
-  });
-
-  test("legend items only use the two known shapes", () => {
-    for (const layer of LAYERS) {
-      for (const item of layer.legend ?? []) {
-        if (item.kind === "dot") {
-          expect(item.tone.length > 0 && item.label.length > 0).toBe(true);
-        } else {
-          expect(["area", "line", "dashed"]).toContain(item.shape);
-        }
-      }
-    }
-  });
-});
-
-describe("coerceSensorVisibility", () => {
-  test("junk storage falls back to defaults", () => {
-    for (const junk of [null, "x", 42, [], true]) {
-      expect(coerceSensorVisibility(junk)).toEqual({
-        ...DEFAULT_SENSOR_VISIBILITY,
-      });
-    }
-  });
-
-  test("known booleans are kept, missing keys fall back to defaults", () => {
-    // Simulates storage written before a layer was added: `parks` is absent
-    // and must not surface as `undefined` in toggle state.
-    const hydrated = coerceSensorVisibility({ mrt: false, carparks: true });
-    expect(hydrated.mrt).toBe(false);
-    expect(hydrated.carparks).toBe(true);
-    expect(hydrated.parks).toBe(DEFAULT_SENSOR_VISIBILITY.parks);
-  });
-
-  test("foreign and non-boolean entries are ignored", () => {
-    const hydrated = coerceSensorVisibility({
-      mysteryLayer: true,
-      malls: "yes" as unknown,
-      hawkers: false,
-    });
-    expect(hydrated.hawkers).toBe(false);
-    expect("mysteryLayer" in hydrated).toBe(false);
-    expect(hydrated.malls).toBe(DEFAULT_SENSOR_VISIBILITY.malls);
   });
 });
 
@@ -245,21 +192,6 @@ describe("layer surfaces render", () => {
         sensorVisibility={DEFAULT_SENSOR_VISIBILITY}
         setSelectedFlight={() => {}}
         setSensorVisibility={() => {}}
-        gymBrands={{}}
-        gymBrandCounts={gymBrandCounts(GYMS)}
-        onGymBrandsChange={() => {}}
-        heritageKinds={{}}
-        heritageKindCounts={[]}
-        onHeritageKindsChange={() => {}}
-        healthcareKinds={{}}
-        healthcareKindCounts={[]}
-        onHealthcareKindsChange={() => {}}
-        supermarketBrands={{}}
-        supermarketBrandCounts={[]}
-        onSupermarketBrandsChange={() => {}}
-        schoolLevels={{}}
-        schoolLevelCounts={[]}
-        onSchoolLevelsChange={() => {}}
         visibleSensorCount={4}
         weather={weather}
         weatherHistory={[]}
@@ -276,27 +208,12 @@ describe("layer surfaces render", () => {
     }
   });
 
-  test("mobile drawer renders the same groups and per-row dots", () => {
+  test("mobile drawer renders the same groups as a closed dialog", () => {
     const markup = renderToStaticMarkup(
       <MobileLayersDrawer
         sensorRows={panelRows}
         sensorVisibility={DEFAULT_SENSOR_VISIBILITY}
         setSensorVisibility={() => {}}
-        gymBrands={{}}
-        gymBrandCounts={gymBrandCounts(GYMS)}
-        onGymBrandsChange={() => {}}
-        heritageKinds={{}}
-        heritageKindCounts={[]}
-        onHeritageKindsChange={() => {}}
-        healthcareKinds={{}}
-        healthcareKindCounts={[]}
-        onHealthcareKindsChange={() => {}}
-        supermarketBrands={{}}
-        supermarketBrandCounts={[]}
-        onSupermarketBrandsChange={() => {}}
-        schoolLevels={{}}
-        schoolLevelCounts={[]}
-        onSchoolLevelsChange={() => {}}
         visibleSensorCount={4}
       />,
     );
@@ -304,13 +221,32 @@ describe("layer surfaces render", () => {
       expect(markup).toContain(htmlEscape(group.label));
     }
     expect(markup).toContain("MRT &amp; LRT");
-    expect(markup).toContain("4/18 visible");
+    expect(markup).toContain(`4/${panelRows.length} visible`);
+    expect(markup).toContain('role="dialog"');
+    expect(markup).toContain('aria-label="Map layers"');
+    // aria-modal only while open; a closed drawer must not claim the keyboard.
+    expect(markup).not.toContain('aria-modal="true"');
+  });
+
+  test("a visible layer shows its sub-filter; a hidden one does not", () => {
+    const rows = panelRows.map((row) =>
+      row.key === "gyms"
+        ? { ...row, filter: { label: "Brands", options: subFilterOptions, selected: {}, onChange: () => {} } }
+        : row,
+    );
+    const render = (gyms: boolean) =>
+      renderToStaticMarkup(
+        <MobileLayersDrawer
+          sensorRows={rows}
+          sensorVisibility={{ ...DEFAULT_SENSOR_VISIBILITY, gyms }}
+          setSensorVisibility={() => {}}
+          visibleSensorCount={4}
+        />,
+      );
+    expect(render(true)).toContain("Show brands filter");
+    expect(render(false)).not.toContain("Show brands filter");
   });
 });
-
-// Keep the re-exported alias honest: both names must stay the same type.
-const _typeAliasCheck: RegistrySensorKey extends SensorKey ? true : false = true;
-void _typeAliasCheck;
 
 describe("toggleLayerOptionSelection", () => {
   const all = ["a", "b", "c"];

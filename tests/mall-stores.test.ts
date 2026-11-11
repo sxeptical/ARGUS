@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
-import { MALLS } from "@/lib/amenities-data";
-import { MALL_STORE_INDEX, mallStoresUrl, validateMallStoreIndex } from "@/lib/mall-stores-data";
+import { MALLS } from "@/lib/data/amenities";
+import { MALL_STORE_INDEX, mallStoresUrl, validateMallStoreIndex } from "@/lib/data/mall-stores";
 import {
   cleanStoreRow,
   compareLevels,

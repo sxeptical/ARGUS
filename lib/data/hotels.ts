@@ -1,18 +1,12 @@
 import hotelsData from "@/public/hotels.json";
-import { isPhotoList } from "@/lib/amenities-data";
+import { isAddressedPlace, isPhotoList } from "@/lib/bundle-validation";
 import type { Hotel } from "@/types";
 
 const isHotel = (value: unknown): value is Hotel => {
-  const hotel = value as Partial<Hotel> | null;
+  const hotel = value as Partial<Hotel>;
   return (
-    typeof hotel?.id === "string" &&
-    hotel.id.length > 0 &&
-    typeof hotel.name === "string" &&
-    hotel.name.length > 0 &&
-    (hotel.address === null || typeof hotel.address === "string") &&
+    isAddressedPlace(value) &&
     (hotel.rooms === null || (typeof hotel.rooms === "number" && Number.isInteger(hotel.rooms) && hotel.rooms > 0)) &&
-    Number.isFinite(hotel.lat) &&
-    Number.isFinite(hotel.lng) &&
     isPhotoList(hotel.photos)
   );
 };
@@ -26,5 +20,4 @@ export function validateHotelsBundle(value: unknown): value is Hotel[] {
 // (an email/contact string, not a website URL).
 if (!validateHotelsBundle(hotelsData))
   throw new Error("Invalid hotels bundle");
-const HOTELS = hotelsData as Hotel[];
-export { HOTELS };
+export const HOTELS: Hotel[] = hotelsData;

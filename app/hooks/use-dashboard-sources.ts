@@ -89,6 +89,11 @@ const TRAIN_ALERTS: SourceDefinition = {
   refreshMs: 60 * 1000,
 };
 
+// Stable fallbacks: a fresh [] every render would re-run consumers' effects
+// (the map source sync) even when no data arrived.
+const EMPTY_CARPARKS: CarparkAvailability[] = [];
+const EMPTY_EV_CHARGERS: EvChargingLocation[] = [];
+
 const EMPTY_REGIONAL_AIR = {
   north: null,
   south: null,
@@ -226,8 +231,8 @@ export function useDashboardSources(
     news: news.data ?? [],
     flights: flights.data ?? [],
     trainAlerts: trainAlerts.data ?? [],
-    carparks: carparks.data ?? [],
-    evChargers: evChargers.data ?? [],
+    carparks: carparks.data ?? EMPTY_CARPARKS,
+    evChargers: evChargers.data ?? EMPTY_EV_CHARGERS,
     signalsLoaded: {
       rail: trainAlerts.data !== undefined,
       road: incidents.data !== undefined,

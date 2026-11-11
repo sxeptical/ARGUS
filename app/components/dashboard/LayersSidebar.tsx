@@ -16,14 +16,6 @@ import type {
   SensorStatsRow,
 } from "@/app/hooks/use-dashboard-state";
 import type { SensorKey } from "@/lib/layers";
-import type { GymBrandCount } from "@/lib/gyms";
-import type { HeritageKindCount } from "@/lib/heritage";
-import { HERITAGE_KIND_LABEL } from "@/lib/heritage";
-import type { HealthcareKindCount } from "@/lib/healthcare";
-import { HEALTHCARE_KIND_LABEL } from "@/lib/healthcare";
-import type { SupermarketBrandCount } from "@/lib/supermarkets";
-import type { SchoolLevelCount } from "@/lib/schools";
-import { SCHOOL_LEVEL_LABEL } from "@/lib/schools";
 import { FLIGHTS_ENABLED } from "@/lib/features";
 import type {
   FlightState,
@@ -40,21 +32,6 @@ export function LayersSidebar({
   sensorVisibility,
   setSelectedFlight,
   setSensorVisibility,
-  gymBrands,
-  gymBrandCounts,
-  onGymBrandsChange,
-  heritageKinds,
-  heritageKindCounts,
-  onHeritageKindsChange,
-  healthcareKinds,
-  healthcareKindCounts,
-  onHealthcareKindsChange,
-  supermarketBrands,
-  supermarketBrandCounts,
-  onSupermarketBrandsChange,
-  schoolLevels,
-  schoolLevelCounts,
-  onSchoolLevelsChange,
   visibleSensorCount,
   weather,
   weatherHistory,
@@ -67,21 +44,6 @@ export function LayersSidebar({
   sensorVisibility: Record<SensorKey, boolean>;
   setSelectedFlight: (flight: FlightState) => void;
   setSensorVisibility: Dispatch<SetStateAction<Record<SensorKey, boolean>>>;
-  gymBrands: Record<string, boolean>;
-  gymBrandCounts: GymBrandCount[];
-  onGymBrandsChange: (next: Record<string, boolean>) => void;
-  heritageKinds: Record<string, boolean>;
-  heritageKindCounts: HeritageKindCount[];
-  onHeritageKindsChange: (next: Record<string, boolean>) => void;
-  healthcareKinds: Record<string, boolean>;
-  healthcareKindCounts: HealthcareKindCount[];
-  onHealthcareKindsChange: (next: Record<string, boolean>) => void;
-  supermarketBrands: Record<string, boolean>;
-  supermarketBrandCounts: SupermarketBrandCount[];
-  onSupermarketBrandsChange: (next: Record<string, boolean>) => void;
-  schoolLevels: Record<string, boolean>;
-  schoolLevelCounts: SchoolLevelCount[];
-  onSchoolLevelsChange: (next: Record<string, boolean>) => void;
   visibleSensorCount: number;
   weather: WeatherData;
   weatherHistory: WeatherHistoryPoint[];
@@ -133,7 +95,7 @@ export function LayersSidebar({
                 {isGroupCollapsed(group.id) ? null : (
                   <div className="space-y-1 pt-1">
                     {group.rows.map((row) => (
-                      <Fragment key={row.label}>
+                      <Fragment key={row.key}>
                       <div
                         className="data-row flex items-center justify-between gap-3 px-2.5 py-2"
                       >
@@ -170,49 +132,13 @@ export function LayersSidebar({
                           </div>
                         </div>
                       </div>
-                      {row.key === "gyms" && sensorVisibility.gyms ? (
+                      {row.filter && sensorVisibility[row.key] ? (
                         <LayerOptionFilter
-                          summaryLabel="Brands"
-                          options={gymBrandCounts.map(({ brand, count }) => ({ value: brand, label: brand, count }))}
-                          selected={gymBrands}
-                          onChange={onGymBrandsChange}
-                          accentClass="bg-signal-gym"
-                        />
-                      ) : null}
-                      {row.key === "heritage" && sensorVisibility.heritage ? (
-                        <LayerOptionFilter
-                          summaryLabel="Types"
-                          options={heritageKindCounts.map(({ kind, count }) => ({ value: kind, label: HERITAGE_KIND_LABEL[kind], count }))}
-                          selected={heritageKinds}
-                          onChange={onHeritageKindsChange}
-                          accentClass="bg-signal-heritage"
-                        />
-                      ) : null}
-                      {row.key === "healthcare" && sensorVisibility.healthcare ? (
-                        <LayerOptionFilter
-                          summaryLabel="Types"
-                          options={healthcareKindCounts.map(({ kind, count }) => ({ value: kind, label: HEALTHCARE_KIND_LABEL[kind], count }))}
-                          selected={healthcareKinds}
-                          onChange={onHealthcareKindsChange}
-                          accentClass="bg-signal-healthcare"
-                        />
-                      ) : null}
-                      {row.key === "supermarkets" && sensorVisibility.supermarkets ? (
-                        <LayerOptionFilter
-                          summaryLabel="Brands"
-                          options={supermarketBrandCounts.map(({ brand, count }) => ({ value: brand, label: brand, count }))}
-                          selected={supermarketBrands}
-                          onChange={onSupermarketBrandsChange}
-                          accentClass="bg-signal-supermarket"
-                        />
-                      ) : null}
-                      {row.key === "schools" && sensorVisibility.schools ? (
-                        <LayerOptionFilter
-                          summaryLabel="Levels"
-                          options={schoolLevelCounts.map(({ level, count }) => ({ value: level, label: SCHOOL_LEVEL_LABEL[level], count }))}
-                          selected={schoolLevels}
-                          onChange={onSchoolLevelsChange}
-                          accentClass="bg-signal-school"
+                          summaryLabel={row.filter.label}
+                          options={row.filter.options}
+                          selected={row.filter.selected}
+                          onChange={row.filter.onChange}
+                          accentClass={row.dot}
                         />
                       ) : null}
                       </Fragment>

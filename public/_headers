@@ -1,0 +1,4 @@
+# Next.js immutable build output. Static Assets otherwise defaults to max-age=0
+# with must-revalidate, which makes every client revalidate these files.
+/_next/static/*
+  Cache-Control: public,max-age=31536000,immutable

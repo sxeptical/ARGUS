@@ -12,7 +12,7 @@ export async function GET(request: Request) {
     request,
     "bus-routes",
     { maxRequests: 60, serviceLabel: "Bus route data" },
-    () => {
+    (signal) => {
       const serviceNo = requiredQueryParam(
         request,
         "serviceNo",
@@ -25,7 +25,7 @@ export async function GET(request: Request) {
         BUS_STOP_ID_RE,
         "must be a 5-digit bus stop code",
       );
-      return getBusRoute(serviceNo, stopId);
+      return getBusRoute(serviceNo, stopId, signal);
     },
   );
 }

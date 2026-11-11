@@ -14,6 +14,7 @@
  */
 import { mkdir, writeFile } from "node:fs/promises";
 import { fetchCommonsPhotos, fetchJson, fetchWikidataItems, USER_AGENT } from "./lib/commons-photos.mjs";
+import { inSingapore, round, text } from "./lib/place-fields.mjs";
 
 const HAWKER_DATASET = "d_4a086da0a5553be1d89383cd90d07ecd";
 const OVERPASS_URL = "https://overpass-api.de/api/interpreter";
@@ -24,13 +25,6 @@ const WIKIDATA_MALL_CLASS = "Q11315";
 const WIKIDATA_HAWKER_CLASS = "Q863425";
 // NEA's photo links are http:// on its own site; the same paths serve over https.
 const NEA_PHOTO_URL_RE = /^https?:\/\/www\.nea\.gov\.sg\/.+\.(?:jpe?g|png)$/i;
-const SG_BOUNDS = { minLat: 1.1, maxLat: 1.5, minLng: 103.5, maxLng: 104.1 };
-
-const inSingapore = (lat, lng) =>
-  Number.isFinite(lat) && Number.isFinite(lng) &&
-  lat >= SG_BOUNDS.minLat && lat <= SG_BOUNDS.maxLat && lng >= SG_BOUNDS.minLng && lng <= SG_BOUNDS.maxLng;
-const round = (value) => Math.round(value * 1e6) / 1e6;
-const text = (value) => (typeof value === "string" && value.trim() ? value.trim() : null);
 
 async function fetchHawkers() {
   const poll = await fetchJson(`https://api-open.data.gov.sg/v1/public/api/datasets/${HAWKER_DATASET}/poll-download`);

@@ -209,6 +209,21 @@ export function buildBusRouteStopsGeoJson(
   const remaining = resolveRemainingRouteStops(overlay);
   if (remaining.length === 0) return EMPTY_BUS_ROUTE_STOPS_GEOJSON;
 
+  // `resolveRemainingRouteStops` starts at the selected stop, except when the
+  // selected stop is the terminus or nothing is selected, where it returns the
+  // whole list. Track the offset so only the real selected stop gets the role
+  // (the route origin used to be marked "selected" in those cases).
+  const selectedStopIndex =
+    overlay.selectedStopIndex !== null &&
+    overlay.selectedStopIndex >= 0 &&
+    overlay.selectedStopIndex < overlay.stops.length
+      ? overlay.selectedStopIndex
+      : null;
+  const atTerminus =
+    selectedStopIndex !== null &&
+    selectedStopIndex === overlay.stops.length - 1;
+  const startIndex =
+    selectedStopIndex !== null && !atTerminus ? selectedStopIndex : 0;
   const lastIdx = remaining.length - 1;
   return {
     type: "FeatureCollection",
@@ -219,12 +234,13 @@ export function buildBusRouteStopsGeoJson(
       ) {
         return [];
       }
-      const role: "selected" | "terminus" | "stop" =
-        index === 0
-          ? "selected"
-          : index === lastIdx
-            ? "terminus"
-            : "stop";
+      const isSelected =
+        selectedStopIndex !== null && startIndex + index === selectedStopIndex;
+      const role: "selected" | "terminus" | "stop" = isSelected
+        ? "selected"
+        : index === lastIdx
+          ? "terminus"
+          : "stop";
       return [
         {
           type: "Feature" as const,

@@ -26,16 +26,11 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { fetchJson, USER_AGENT } from "./lib/commons-photos.mjs";
 import { fetchPlacePhotos } from "./lib/place-photos.mjs";
-import { parseKmlDescription, text } from "./lib/kml-description.mjs";
+import { parseKmlDescription } from "./lib/kml-description.mjs";
+import { inSingapore, round, text } from "./lib/place-fields.mjs";
 
 const NLB_DATASET = "d_27b8dae65d9ca1539e14d09578b17cbf";
 const OVERPASS_URL = "https://overpass-api.de/api/interpreter";
-const SG_BOUNDS = { minLat: 1.1, maxLat: 1.5, minLng: 103.5, maxLng: 104.1 };
-
-const inSingapore = (lat, lng) =>
-  Number.isFinite(lat) && Number.isFinite(lng) &&
-  lat >= SG_BOUNDS.minLat && lat <= SG_BOUNDS.maxLat && lng >= SG_BOUNDS.minLng && lng <= SG_BOUNDS.maxLng;
-const round = (value) => Math.round(value * 1e6) / 1e6;
 
 // Equirectangular metres, for the NLB/OSM duplicate check.
 const distMetres = (a, b) => {

@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { getPm25Band, getPsiStatus } from "@/lib/air-quality";
+import { cache } from "@/lib/cache";
 import { ExternalApiError } from "@/lib/errors";
 import {
   extractLatestUv,
@@ -10,7 +11,7 @@ import { rejection, withFetch, type FetchStub } from "../helpers/upstream";
 
 const runWithFetch = (fetchImpl: FetchStub) => withFetch(fetchImpl, getWeather);
 
-describe("getWeather", () => {
+describe("air quality bands", () => {
   test("classifies NEA PSI descriptors", () => {
     expect(getPsiStatus(null)).toBe("Unknown");
     expect(getPsiStatus(50)).toBe("Good");
@@ -28,7 +29,9 @@ describe("getWeather", () => {
     expect(getPm25Band(250)).toBe("High");
     expect(getPm25Band(251)).toBe("Very High");
   });
+});
 
+describe("getWeather", () => {
   test("reports NEA 24-hr PSI and 1-hr PM2.5 by region, headlining the worst", async () => {
     const weather = await runWithFetch(async (input) => {
       const url = String(input);
@@ -190,6 +193,48 @@ describe("getWeather", () => {
       tempLow: 25,
       tempHigh: 32,
     });
+  });
+
+  test("caches a partial result for the short TTL, not five minutes", async () => {
+    const realNow = Date.now;
+    const originalFetch = globalThis.fetch;
+    let now = realNow();
+    let calls = 0;
+    Date.now = () => now;
+    cache.clear();
+
+    globalThis.fetch = (async (input) => {
+      calls += 1;
+      if (String(input).includes("2-hour-weather-forecast")) {
+        return Response.json({
+          items: [
+            {
+              timestamp: "2026-01-01T00:00:00.000Z",
+              forecasts: [{ area: "Singapore", forecast: "Cloudy" }],
+            },
+          ],
+        });
+      }
+      return new Response("unavailable", { status: 503 });
+    }) as typeof fetch;
+
+    try {
+      await getWeather();
+      const firstCalls = calls;
+      expect(firstCalls).toBeGreaterThan(0);
+
+      now += 20_000;
+      await getWeather();
+      expect(calls).toBe(firstCalls);
+
+      now += 11_000;
+      await getWeather();
+      expect(calls).toBeGreaterThan(firstCalls);
+    } finally {
+      Date.now = realNow;
+      globalThis.fetch = originalFetch;
+      cache.clear();
+    }
   });
 
   test("fails when every weather endpoint fails", async () => {

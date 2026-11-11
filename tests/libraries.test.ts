@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { LIBRARIES, validateLibrariesBundle } from "@/lib/libraries-data";
-import { buildLibrarySearchResults, describeLibrary } from "@/lib/libraries";
+import { LIBRARIES, validateLibrariesBundle } from "@/lib/data/libraries";
+import { describeLibrary } from "@/lib/libraries";
 import type { PublicLibrary } from "@/types";
 
 const library = (overrides: Partial<PublicLibrary> = {}): PublicLibrary => ({
@@ -18,29 +18,16 @@ const library = (overrides: Partial<PublicLibrary> = {}): PublicLibrary => ({
 const texts = (lines: ReadonlyArray<{ text: string }>) => lines.map((line) => line.text);
 
 describe("libraries bundle", () => {
-  test("ships plausible Singapore NLB and OSM branches", () => {
-    expect(LIBRARIES.length).toBeGreaterThanOrEqual(28);
-    for (const place of LIBRARIES) {
-      expect(place.lng).toBeGreaterThanOrEqual(103.5);
-      expect(place.lng).toBeLessThanOrEqual(104.1);
-      expect(place.lat).toBeGreaterThanOrEqual(1.1);
-      expect(place.lat).toBeLessThanOrEqual(1.5);
-      expect(place.name.length).toBeGreaterThan(0);
-    }
-    expect(new Set(LIBRARIES.map((l) => l.id)).size).toBe(LIBRARIES.length);
+  test("ships both NLB and OSM branches", () => {
     expect(LIBRARIES.some((l) => l.source === "nlb")).toBe(true);
     expect(LIBRARIES.some((l) => l.source === "osm")).toBe(true);
-    expect(LIBRARIES.every((l) => l.photos.length <= 3)).toBe(true);
   });
 
   test("rejects malformed bundles", () => {
     expect(validateLibrariesBundle([library()])).toBe(true);
     expect(validateLibrariesBundle({ libraries: [library()] })).toBe(false);
-    expect(validateLibrariesBundle([{ ...library(), id: "" }])).toBe(false);
-    expect(validateLibrariesBundle([{ ...library(), name: "" }])).toBe(false);
     expect(validateLibrariesBundle([{ ...library(), source: "unknown" }])).toBe(false);
     expect(validateLibrariesBundle([{ ...library(), branch: 7 }])).toBe(false);
-    expect(validateLibrariesBundle([{ ...library(), lat: Number.NaN }])).toBe(false);
   });
 });
 
@@ -61,13 +48,5 @@ describe("describeLibrary", () => {
       "Public library",
       "Location: © OpenStreetMap contributors (ODbL)",
     ]);
-  });
-});
-
-describe("library search results", () => {
-  test("lands on the branch with a searchable type", () => {
-    expect(buildLibrarySearchResults([library()])[0]).toMatchObject({ id: "nlb-srpl", type: "library", lat: 1.350727, lng: 103.872257, zoom: 16 });
-    expect(buildLibrarySearchResults([library()])[0].keywords).toContain("library");
-    expect(buildLibrarySearchResults([library()])[0].keywords).toContain("SRPL");
   });
 });

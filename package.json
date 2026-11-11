@@ -7,18 +7,17 @@
     "predev": "node ./scripts/copy-maplibre-worker.mjs",
     "dev": "next dev",
     "build": "node ./scripts/copy-maplibre-worker.mjs && next build",
-    "build:worker": "node ./scripts/copy-maplibre-worker.mjs && opennextjs-cloudflare build",
     "start": "next start",
-    "preview": "node ./scripts/copy-maplibre-worker.mjs && opennextjs-cloudflare build && opennextjs-cloudflare preview",
-    "deploy": "bun run data:bus-routes && node ./scripts/copy-maplibre-worker.mjs && opennextjs-cloudflare build && opennextjs-cloudflare deploy",
-    "data:bus-routes": "bun run scripts/fetch-bus-routes.ts",
     "lint": "eslint",
     "test": "bun test",
     "typecheck": "tsc --noEmit",
+    "preview": "opennextjs-cloudflare build && opennextjs-cloudflare preview",
+    "deploy": "opennextjs-cloudflare build && opennextjs-cloudflare deploy",
+    "upload": "opennextjs-cloudflare build && opennextjs-cloudflare upload",
+    "cf-typegen": "wrangler types --env-interface CloudflareEnv --include-runtime=false --include-main-module=false .wrangler/cloudflare-env.generated.d.ts",
     "verify": "bun run typecheck && bun run lint && bun test && bun run build"
   },
   "dependencies": {
-    "@opennextjs/cloudflare": "1.20.16",
     "maplibre-gl": "^6.16.0",
     "next": "16.4.6",
     "react": "19.2.8",
@@ -27,6 +26,7 @@
     "zod": "^4.6.7"
   },
   "devDependencies": {
+    "@opennextjs/cloudflare": "^1.20.16",
     "@tailwindcss/postcss": "^4.3.4",
     "@types/node": "^26.6.6",
     "@types/react": "^19.3.0",
@@ -36,6 +36,6 @@
     "eslint-config-next": "16.4.6",
     "tailwindcss": "^4.3.4",
     "typescript": "6.0.3",
-    "wrangler": "4.159.0"
+    "wrangler": "^4.160.0"
   }
 }

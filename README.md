@@ -8,7 +8,7 @@ https://www.argusint.live
 [![React](https://img.shields.io/badge/React-19-61dafb?logo=react&logoColor=111)](https://react.dev/)
 [![MapLibre](https://img.shields.io/badge/MapLibre-6.16-21b8a6)](https://maplibre.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-ready-3178c6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
-[![Cloudflare Workers](https://img.shields.io/badge/Deploy-Cloudflare_Workers-f38020?logo=cloudflare&logoColor=white)](https://workers.cloudflare.com/)
+[![Vercel](https://img.shields.io/badge/Deploy-Vercel-black?logo=vercel)](https://vercel.com/)
 [![Bun](https://img.shields.io/badge/Bun-1.4-f9f1e1?logo=bun&logoColor=f472b6)](https://bun.sh/)
 
 ARGUS is a Singapore-focused intelligence dashboard built for fast situational awareness. It pulls live public and commercial feeds into a dense terminal-style interface: bus stops, bus arrival timings, MRT overlays, traffic cameras, weather/PSI, news, and live aircraft around Singapore airspace.
@@ -163,42 +163,46 @@ types/
 bun run dev      # Start local development
 bun run build    # Production build
 bun run start    # Start production server
+bun run preview  # Build and run in the Workers runtime locally
+bun run deploy   # Build and deploy to Cloudflare Workers
+bun run upload   # Build and upload a new Worker version
+bun run cf-typegen # Regenerate binding types from wrangler.jsonc
 bun run lint     # ESLint
 bun run test     # Unit and regression tests
 bun run typecheck # Native TypeScript 7 check
 bun run verify   # Typecheck, lint, test, and production build
-bun run preview  # Build for Workers and run locally in workerd
-bun run deploy   # Refresh bus routes, build for Workers, and deploy to Cloudflare
-bun run data:bus-routes # Refresh public/bus-routes.json from LTA DataMall
 ```
 
 ---
 
-## Deployment
+## Deploying to Cloudflare Workers
 
-ARGUS runs on Cloudflare Workers via [OpenNext](https://opennext.js.org/cloudflare). Worker config lives in `wrangler.jsonc`.
+The app builds with OpenNext (`open-next.config.ts`, `wrangler.jsonc`). All
+pages are dynamic, so no R2/D1/KV cache resources are required.
 
 ```bash
-bunx wrangler login
+cp .dev.vars.example .dev.vars   # local preview only; fill in keys
+bun run preview
 bunx wrangler secret put LTA_API_KEY
-bunx wrangler secret put AVIATIONSTACK_API_KEY
+bunx wrangler secret put AVIATIONSTACK_API_KEY   # optional
 bun run deploy
 ```
 
-For `bun run preview`, Wrangler reads keys from `.env.local`.
-
-Pushes to `master` also build and deploy through Workers Builds; each commit gets a `Workers Builds: argus` check. `bun run deploy` remains the manual path.
-
-`bun run deploy` refreshes `public/bus-routes.json` from LTA DataMall first, so it needs `LTA_API_KEY` in `.env.local`. The snapshot is committed: `next build` and `bun run verify` never call LTA.
+`wrangler.jsonc` sets `ARGUS_TRUST_PROXY_HEADERS=true` because Cloudflare
+overwrites `cf-connecting-ip` with the real peer address. Rate limits use the
+native Workers Rate Limiting binding (shared per Cloudflare location); the
+`namespace_id` values must be unique within the account. On Workers, marked
+upstream caches also use the Cache API as a colo-local L2 behind the in-memory
+L1 cache. `bun run cf-typegen` writes a reference file under `.wrangler/`; the
+committed `cloudflare-env.d.ts` is a trimmed, typecheck-safe version.
 
 ---
 
 ## Notes
 
 - Flight direction is best-effort. Aviationstack airport metadata is used when available; otherwise heading relative to Changi is used.
-- Worker isolate memory is not guaranteed across requests, so cached fallbacks help during warm periods but should not be treated as durable storage.
-- The bundled cache and rate limiter are in-memory, per-isolate protections. **In production on Cloudflare, each Worker isolate has its own rate limit state** — limits are not shared across isolates, locations, or cold starts. For hard cross-isolate limits, use Cloudflare WAF rate limiting rules or the Workers Rate Limiting binding. On Cloudflare (`ARGUS_ON_CLOUDFLARE=1`, set in `wrangler.jsonc`) the IP extractor trusts `cf-connecting-ip`, which the edge overwrites. Self-hosted deployments ignore that header unless `ARGUS_TRUST_PROXY_HEADERS=true` is set behind a trusted proxy.
+- Serverless memory is not guaranteed across Vercel invocations, so cached fallbacks help during warm periods but should not be treated as durable storage.
+- The bundled cache and rate limiter have an in-memory L1. **On Vercel, each serverless instance still has its own state** — limits are not shared across instances or cold starts; use Vercel Firewall, an edge KV store, or Redis for hard cross-instance limits. On Cloudflare Workers the native Rate Limiting binding shares limits across isolates in a location, and the Cache API provides a colo-local L2 for public upstream data. On Vercel (`VERCEL=1`) the IP extractor trusts `x-vercel-forwarded-for`, which the edge overwrites. Self-hosted deployments ignore that header unless `ARGUS_TRUST_PROXY_HEADERS=true` is set behind a trusted proxy.
 - API rate limits matter. Flight polling is the most likely source of quota pressure.
-- The full BusRoutes table (~27k rows) exceeds Workers Free's per-invocation subrequest limit, so it is bundled as `public/bus-routes.json` at build time instead of fetched per request. Bus stops and other LTA feeds are still live.
 
 ---

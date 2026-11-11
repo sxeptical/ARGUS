@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { HAWKER_CENTRES } from "@/lib/amenities-data";
-import { HAWKER_CLOSURES, validateHawkerClosuresBundle } from "@/lib/hawker-closures-data";
+import { HAWKER_CENTRES } from "@/lib/data/amenities";
+import { HAWKER_CLOSURES, validateHawkerClosuresBundle } from "@/lib/data/hawker-closures";
 import type { HawkerClosure } from "@/types";
 
 const closure = (overrides: Partial<HawkerClosure> = {}): HawkerClosure => ({

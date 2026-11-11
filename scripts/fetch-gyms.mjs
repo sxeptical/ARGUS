@@ -40,18 +40,13 @@
  */
 import { mkdir, writeFile } from "node:fs/promises";
 import { fetchJson, USER_AGENT } from "./lib/commons-photos.mjs";
+import { hasTokenSeq, inSingapore, round, text, tokens, websiteOf } from "./lib/place-fields.mjs";
 
 const ATP_RUNS_URL = "https://data.alltheplaces.xyz/runs/latest.json";
 const ATP_OUTPUT_BASE = "https://alltheplaces-data.openaddresses.io/runs";
 const OVERPASS_URL = "https://overpass-api.de/api/interpreter";
 const SPORTSG_DATASET = "d_9b87bab59d036a60fad2a91530e10773";
-const SG_BOUNDS = { minLat: 1.1, maxLat: 1.5, minLng: 103.5, maxLng: 104.1 };
 
-const inSingapore = (lat, lng) =>
-  Number.isFinite(lat) && Number.isFinite(lng) &&
-  lat >= SG_BOUNDS.minLat && lat <= SG_BOUNDS.maxLat && lng >= SG_BOUNDS.minLng && lng <= SG_BOUNDS.maxLng;
-const round = (value) => Math.round(value * 1e6) / 1e6;
-const text = (value) => (typeof value === "string" && value.trim() ? value.trim() : null);
 const normalizeName = (name) =>
   name.toLowerCase().replace(/&/g, "and").replace(/\bsingapore\b/g, "").replace(/[^a-z0-9]/g, "");
 
@@ -81,14 +76,6 @@ const coveredKey = (value) => {
 // Known operators, matched on whole word tokens (case/spacing-insensitive)
 // so substring lookalikes don't leak in ("Jenufit" → UFIT, "Gofio" → GoFit).
 // "Gold's Gym" appears as "Gold's" or "Golds"; EnergyOne as one word or two.
-const tokens = (value) => String(value ?? "").toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
-const hasTokenSeq = (haystack, needle) => {
-  if (!needle.length || haystack.length < needle.length) return false;
-  for (let i = 0; i <= haystack.length - needle.length; i++) {
-    if (needle.every((token, offset) => haystack[i + offset] === token)) return true;
-  }
-  return false;
-};
 const BRAND_RULES = [
   { label: "ActiveSG", names: [["activesg"]] },
   { label: "Anytime Fitness", names: [["anytime", "fitness"]] },
@@ -157,12 +144,6 @@ const categoryForSport = (sport) => {
   if (sports.some((s) => ["taekwondo", "muay_thai", "thai_boxing", "thai_kickboxing", "kickboxing", "boxing", "martial_arts"].includes(s))) return "martial-arts";
   if (sports.includes("climbing")) return "climbing";
   return "gym";
-};
-
-const websiteOf = (raw) => {
-  const website = text(raw);
-  if (!website) return null;
-  return /^https?:\/\//i.test(website) ? website : `https://${website}`;
 };
 
 async function fetchAtp() {

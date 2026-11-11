@@ -35,7 +35,3 @@ export const parseKmlDescription = (description) => {
   }
   return record;
 };
-
-/** Trimmed string or null, for raw properties and parsed records alike. */
-export const text = (value) =>
-  typeof value === "string" && value.trim() ? value.trim() : null;

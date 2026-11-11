@@ -20,6 +20,9 @@ import { DEFAULT_TIMEOUT_MS, httpGetJson } from "./http";
 
 const DATA_GOV_BASE_URL = "https://api.data.gov.sg/v1/environment";
 const DATA_GOV_V2_BASE_URL = "https://api-open.data.gov.sg/v2/real-time/api";
+const WEATHER_CACHE_TTL_MS = 5 * 60 * 1000;
+/** Partial results recover quickly, so do not hold gaps for five minutes. */
+const WEATHER_PARTIAL_TTL_MS = 30 * 1000;
 
 /** One feed, or null when it fails: feeds are independent. */
 const dataGovGet = <A>(
@@ -126,129 +129,152 @@ const latestIsoTimestamp = (values: Array<string | undefined>): string => {
   return new Date(Math.max(...timestamps)).toISOString();
 };
 
-export const getWeather = (): Promise<WeatherData> =>
-  cache.get("weather", 5 * 60 * 1000, async () => {
-    const [
-      forecast,
-      psi,
-      temperature,
-      humidity,
-      uvResponse,
-      pm25Response,
-      fourDayResponse,
-    ] = await Promise.all([
-      dataGovGet("/2-hour-weather-forecast", DataGovForecastResponseSchema),
-      dataGovGet("/psi", DataGovPsiResponseSchema),
-      dataGovGet("/air-temperature", DataGovStationReadingsResponseSchema),
-      dataGovGet("/relative-humidity", DataGovStationReadingsResponseSchema),
-      dataGovGet("/uv", DataGovUvResponseSchema, DATA_GOV_V2_BASE_URL),
-      dataGovGet("/pm25", DataGovPm25ResponseSchema, DATA_GOV_V2_BASE_URL),
-      dataGovGet(
-        "/four-day-outlook",
-        DataGovFourDayResponseSchema,
-        DATA_GOV_V2_BASE_URL,
-      ),
-    ]);
+type CachedWeather = {
+  readonly data: WeatherData;
+  readonly partial: boolean;
+};
 
-    if (
-      !forecast &&
-      !psi &&
-      !temperature &&
-      !humidity &&
-      !uvResponse &&
-      !pm25Response &&
-      !fourDayResponse
-    ) {
-      throw new ExternalApiError({
-        service: "data.gov.sg",
-        status: 502,
-        message: "All weather endpoints failed",
-      });
-    }
+export const getWeather = (signal?: AbortSignal): Promise<WeatherData> =>
+  cache
+    .get<CachedWeather>(
+      "weather",
+      WEATHER_CACHE_TTL_MS,
+      async () => {
+        const [
+          forecast,
+          psi,
+          temperature,
+          humidity,
+          uvResponse,
+          pm25Response,
+          fourDayResponse,
+        ] = await Promise.all([
+          dataGovGet("/2-hour-weather-forecast", DataGovForecastResponseSchema),
+          dataGovGet("/psi", DataGovPsiResponseSchema),
+          dataGovGet("/air-temperature", DataGovStationReadingsResponseSchema),
+          dataGovGet("/relative-humidity", DataGovStationReadingsResponseSchema),
+          dataGovGet("/uv", DataGovUvResponseSchema, DATA_GOV_V2_BASE_URL),
+          dataGovGet("/pm25", DataGovPm25ResponseSchema, DATA_GOV_V2_BASE_URL),
+          dataGovGet(
+            "/four-day-outlook",
+            DataGovFourDayResponseSchema,
+            DATA_GOV_V2_BASE_URL,
+          ),
+        ]);
 
-    // The forecast has no national field, so use the most common area value.
-    const forecasts = forecast?.items?.[0]?.forecasts ?? [];
-    let forecastText: string;
-    if (forecasts.length === 0) {
-      forecastText = "No forecast available";
-    } else {
-      const counts = new Map<string, number>();
-      for (const entry of forecasts) {
-        counts.set(entry.forecast, (counts.get(entry.forecast) ?? 0) + 1);
-      }
-      let majority = forecasts[0].forecast;
-      let maxCount = 0;
-      for (const [text, count] of counts) {
-        if (count > maxCount) {
-          maxCount = count;
-          majority = text;
+        const feeds = [
+          forecast,
+          psi,
+          temperature,
+          humidity,
+          uvResponse,
+          pm25Response,
+          fourDayResponse,
+        ];
+        if (feeds.every((feed) => feed === null)) {
+          throw new ExternalApiError({
+            service: "data.gov.sg",
+            status: 502,
+            message: "All weather endpoints failed",
+          });
         }
-      }
-      forecastText = `Island-wide: ${majority}`;
-    }
 
-    const psiTwentyFourHourly =
-      psi?.items?.[0]?.readings?.psi_twenty_four_hourly;
-    const pm25OneHourly =
-      pm25Response?.data.items[0]?.readings.pm25_one_hourly;
+        // Any missing feed makes this a partial snapshot: cache it briefly so
+        // the next request retries the gap instead of waiting five minutes.
+        const partial = feeds.some((feed) => feed === null);
 
-    const psiRegions = buildRegional(psiTwentyFourHourly);
-    const pm25OneHourRegions = buildRegional(pm25OneHourly);
-    const psiValue = worstRegionalOrNational(
-      psiRegions,
-      psiTwentyFourHourly,
-    );
-    const pm25OneHourValue = worstRegionalOrNational(
-      pm25OneHourRegions,
-      pm25OneHourly,
-    );
-    const uvValue = uvResponse ? extractLatestUv(uvResponse) : null;
-    const fourDayRecord = fourDayResponse
-      ? latestRecord(fourDayResponse.data.records)
-      : null;
-    const fourDay = (fourDayRecord?.forecasts ?? [])
-      .filter((entry) => Number.isFinite(Date.parse(entry.timestamp)))
-      .sort((a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp))
-      .slice(0, 4)
-      .map((entry) => ({
-        day: entry.day,
-        text: entry.forecast.text,
-        tempLow: entry.temperature.low,
-        tempHigh: entry.temperature.high,
-      }));
+        // The forecast has no national field, so use the most common area value.
+        const forecasts = forecast?.items?.[0]?.forecasts ?? [];
+        let forecastText: string;
+        if (forecasts.length === 0) {
+          forecastText = "No forecast available";
+        } else {
+          const counts = new Map<string, number>();
+          for (const entry of forecasts) {
+            counts.set(entry.forecast, (counts.get(entry.forecast) ?? 0) + 1);
+          }
+          let majority = forecasts[0].forecast;
+          let maxCount = 0;
+          for (const [text, count] of counts) {
+            if (count > maxCount) {
+              maxCount = count;
+              majority = text;
+            }
+          }
+          forecastText = `Island-wide: ${majority}`;
+        }
 
-    const temperatureReadings =
-      temperature?.items?.[0]?.readings?.map((entry) => entry.value) ?? [];
-    const humidityReadings =
-      humidity?.items?.[0]?.readings?.map((entry) => entry.value) ?? [];
+        const psiTwentyFourHourly =
+          psi?.items?.[0]?.readings?.psi_twenty_four_hourly;
+        const pm25OneHourly =
+          pm25Response?.data.items[0]?.readings.pm25_one_hourly;
 
-    return {
-      temperature: average(temperatureReadings),
-      humidity: average(humidityReadings),
-      psi: psiValue,
-      psiStatus: getPsiStatus(psiValue),
-      psiRegions,
-      pm25OneHour: pm25OneHourValue,
-      pm25OneHourBand: getPm25Band(pm25OneHourValue),
-      pm25OneHourRegions,
-      uv: uvValue,
-      uvStatus: getUvStatus(uvValue),
-      fourDay,
-      forecast: forecastText,
-      lastUpdated: latestIsoTimestamp([
-        forecast?.items?.[0]?.update_timestamp,
-        forecast?.items?.[0]?.timestamp,
-        psi?.items?.[0]?.update_timestamp,
-        psi?.items?.[0]?.timestamp,
-        temperature?.items?.[0]?.update_timestamp,
-        temperature?.items?.[0]?.timestamp,
-        humidity?.items?.[0]?.update_timestamp,
-        humidity?.items?.[0]?.timestamp,
-        uvResponse?.data.records[0]?.updatedTimestamp,
-        uvResponse?.data.records[0]?.timestamp,
-        pm25Response?.data.items[0]?.updatedTimestamp,
-        pm25Response?.data.items[0]?.timestamp,
-        fourDayResponse?.data.records[0]?.timestamp,
-      ]),
-    } satisfies WeatherData;
-  });
+        const psiRegions = buildRegional(psiTwentyFourHourly);
+        const pm25OneHourRegions = buildRegional(pm25OneHourly);
+        const psiValue = worstRegionalOrNational(
+          psiRegions,
+          psiTwentyFourHourly,
+        );
+        const pm25OneHourValue = worstRegionalOrNational(
+          pm25OneHourRegions,
+          pm25OneHourly,
+        );
+        const uvValue = uvResponse ? extractLatestUv(uvResponse) : null;
+        const fourDayRecord = fourDayResponse
+          ? latestRecord(fourDayResponse.data.records)
+          : null;
+        const fourDay = (fourDayRecord?.forecasts ?? [])
+          .filter((entry) => Number.isFinite(Date.parse(entry.timestamp)))
+          .sort((a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp))
+          .slice(0, 4)
+          .map((entry) => ({
+            day: entry.day,
+            text: entry.forecast.text,
+            tempLow: entry.temperature.low,
+            tempHigh: entry.temperature.high,
+          }));
+
+        const temperatureReadings =
+          temperature?.items?.[0]?.readings?.map((entry) => entry.value) ?? [];
+        const humidityReadings =
+          humidity?.items?.[0]?.readings?.map((entry) => entry.value) ?? [];
+
+        const data = {
+          temperature: average(temperatureReadings),
+          humidity: average(humidityReadings),
+          psi: psiValue,
+          psiStatus: getPsiStatus(psiValue),
+          psiRegions,
+          pm25OneHour: pm25OneHourValue,
+          pm25OneHourBand: getPm25Band(pm25OneHourValue),
+          pm25OneHourRegions,
+          uv: uvValue,
+          uvStatus: getUvStatus(uvValue),
+          fourDay,
+          forecast: forecastText,
+          lastUpdated: latestIsoTimestamp([
+            forecast?.items?.[0]?.update_timestamp,
+            forecast?.items?.[0]?.timestamp,
+            psi?.items?.[0]?.update_timestamp,
+            psi?.items?.[0]?.timestamp,
+            temperature?.items?.[0]?.update_timestamp,
+            temperature?.items?.[0]?.timestamp,
+            humidity?.items?.[0]?.update_timestamp,
+            humidity?.items?.[0]?.timestamp,
+            uvResponse?.data.records[0]?.updatedTimestamp,
+            uvResponse?.data.records[0]?.timestamp,
+            pm25Response?.data.items[0]?.updatedTimestamp,
+            pm25Response?.data.items[0]?.timestamp,
+            fourDayResponse?.data.records[0]?.timestamp,
+          ]),
+        } satisfies WeatherData;
+
+        return { data, partial };
+      },
+      {
+        signal,
+        ttlForValue: (snapshot) =>
+          snapshot.partial ? WEATHER_PARTIAL_TTL_MS : WEATHER_CACHE_TTL_MS,
+      },
+    )
+    .then((snapshot) => snapshot.data);

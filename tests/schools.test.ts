@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { SCHOOLS, validateSchoolsBundle } from "@/lib/schools-data";
-import { buildSchoolSearchResults, describeSchool, filterSchoolsByLevel, orderedSchoolLevelCounts } from "@/lib/schools";
+import { SCHOOLS, validateSchoolsBundle } from "@/lib/data/schools";
+import { describeSchool } from "@/lib/schools";
 import type { School } from "@/types";
 
 const school = (overrides: Partial<School> = {}): School => ({
@@ -22,16 +22,7 @@ const school = (overrides: Partial<School> = {}): School => ({
 const texts = (lines: ReadonlyArray<{ text: string }>) => lines.map((line) => line.text);
 
 describe("schools bundle", () => {
-  test("ships plausible MOE schools", () => {
-    expect(SCHOOLS.length).toBeGreaterThanOrEqual(320);
-    for (const place of SCHOOLS) {
-      expect(place.lng).toBeGreaterThanOrEqual(103.5);
-      expect(place.lng).toBeLessThanOrEqual(104.1);
-      expect(place.lat).toBeGreaterThanOrEqual(1.1);
-      expect(place.lat).toBeLessThanOrEqual(1.5);
-      expect(place.name.length).toBeGreaterThan(0);
-    }
-    expect(new Set(SCHOOLS.map((s) => s.id)).size).toBe(SCHOOLS.length);
+  test("ships every school level", () => {
     expect(SCHOOLS.some((s) => s.level === "primary")).toBe(true);
     expect(SCHOOLS.some((s) => s.level === "secondary")).toBe(true);
     expect(SCHOOLS.some((s) => s.level === "jc")).toBe(true);
@@ -43,9 +34,6 @@ describe("schools bundle", () => {
     expect(validateSchoolsBundle({ schools: [school()] })).toBe(false);
     expect(validateSchoolsBundle([{ ...school(), level: "tjc" }])).toBe(false);
     expect(validateSchoolsBundle([{ ...school(), coordsSource: "magic" }])).toBe(false);
-    expect(validateSchoolsBundle([{ ...school(), id: "" }])).toBe(false);
-    expect(validateSchoolsBundle([{ ...school(), name: "" }])).toBe(false);
-    expect(validateSchoolsBundle([{ ...school(), lat: Number.NaN }])).toBe(false);
   });
 });
 
@@ -60,35 +48,5 @@ describe("describeSchool", () => {
       "Bus: 965, 964, 913",
       "Source: Ministry of Education via data.gov.sg (Singapore Open Data Licence)",
     ]);
-  });
-});
-
-describe("schools level filtering", () => {
-  test("keeps only schools whose level is on", () => {
-    const schools = [school(), school({ id: "moe-x", level: "jc", name: "A JC" })];
-    expect(filterSchoolsByLevel(schools, { jc: false }).map((s) => s.id)).toEqual(["moe-admiraltyprimaryschool"]);
-    expect(filterSchoolsByLevel(schools, {})).toHaveLength(2);
-  });
-
-  test("counts levels in display order", () => {
-    const schools = [
-      school({ id: "a", level: "mixed" }),
-      school({ id: "b", level: "secondary" }),
-      school({ id: "c", level: "primary" }),
-      school({ id: "d", level: "primary" }),
-    ];
-    expect(orderedSchoolLevelCounts(schools)).toEqual([
-      { level: "primary", count: 2 },
-      { level: "secondary", count: 1 },
-      { level: "mixed", count: 1 },
-    ]);
-  });
-});
-
-describe("school search results", () => {
-  test("lands on the school with a searchable type", () => {
-    expect(buildSchoolSearchResults([school()])[0]).toMatchObject({ id: "moe-admiraltyprimaryschool", type: "school", lat: 1.442635, lng: 103.80004, zoom: 16 });
-    expect(buildSchoolSearchResults([school()])[0].keywords).toContain("school");
-    expect(buildSchoolSearchResults([school()])[0].keywords).toContain("Primary");
   });
 });

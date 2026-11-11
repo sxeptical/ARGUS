@@ -24,16 +24,11 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { fetchJson, USER_AGENT } from "./lib/commons-photos.mjs";
 import { fetchPlacePhotos } from "./lib/place-photos.mjs";
-import { parseKmlDescription, text } from "./lib/kml-description.mjs";
+import { parseKmlDescription } from "./lib/kml-description.mjs";
+import { inSingapore, phoneOf, round, text } from "./lib/place-fields.mjs";
 
 const CHAS_DATASET = "d_548c33ea2d99e29ec63a7cc9edcccedc";
 const OVERPASS_URL = "https://overpass-api.de/api/interpreter";
-const SG_BOUNDS = { minLat: 1.1, maxLat: 1.5, minLng: 103.5, maxLng: 104.1 };
-
-const inSingapore = (lat, lng) =>
-  Number.isFinite(lat) && Number.isFinite(lng) &&
-  lat >= SG_BOUNDS.minLat && lat <= SG_BOUNDS.maxLat && lng >= SG_BOUNDS.minLng && lng <= SG_BOUNDS.maxLng;
-const round = (value) => Math.round(value * 1e6) / 1e6;
 
 // "1 Joo Koon Circle, Fairprice Hub, Singapore 629117"
 const composeAddress = (p) => {
@@ -41,16 +36,6 @@ const composeAddress = (p) => {
   const base = [street, text(p.BUILDING_NAME)].filter(Boolean).join(", ");
   const postcode = text(p.POSTAL_CD);
   return base ? `${base}${postcode ? `, Singapore ${postcode}` : ""}` : postcode ? `Singapore ${postcode}` : null;
-};
-
-// "68615755" -> "+65 6861 5755"; anything else is kept as tagged.
-const phoneOf = (raw) => {
-  const digits = text(raw)?.replace(/[^\d]/g, "");
-  if (!digits) return null;
-  if (digits.length === 8) return `+65 ${digits.slice(0, 4)} ${digits.slice(4)}`;
-  return digits.startsWith("65") && digits.length === 10
-    ? `+65 ${digits.slice(2, 6)} ${digits.slice(6)}`
-    : text(raw);
 };
 
 const poll = await fetchJson(`https://api-open.data.gov.sg/v1/public/api/datasets/${CHAS_DATASET}/poll-download`);

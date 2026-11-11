@@ -22,15 +22,9 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { fetchJson, USER_AGENT } from "./lib/commons-photos.mjs";
 import { fetchPlacePhotos } from "./lib/place-photos.mjs";
+import { inSingapore, round, text } from "./lib/place-fields.mjs";
 
 const HOTEL_DATASET = "d_654e22f14e5bb817423f0e0c9ac4f632";
-const SG_BOUNDS = { minLat: 1.1, maxLat: 1.5, minLng: 103.5, maxLng: 104.1 };
-
-const inSingapore = (lat, lng) =>
-  Number.isFinite(lat) && Number.isFinite(lng) &&
-  lat >= SG_BOUNDS.minLat && lat <= SG_BOUNDS.maxLat && lng >= SG_BOUNDS.minLng && lng <= SG_BOUNDS.maxLng;
-const round = (value) => Math.round(value * 1e6) / 1e6;
-const text = (value) => (typeof value === "string" && value.trim() ? value.trim() : null);
 
 // TOTALROOMS is a string, sometimes comma-grouped ("1,838").
 const roomCount = (value) => {

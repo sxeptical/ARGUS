@@ -64,26 +64,37 @@ export function createRateLimiter() {
 export const rateLimiter = createRateLimiter();
 
 /**
- * Trust Cloudflare's `cf-connecting-ip` on Cloudflare Workers, or standard
- * proxy headers only when `ARGUS_TRUST_PROXY_HEADERS=true`. Otherwise share an
- * `"unknown"` bucket to prevent clients spoofing separate rate limits. Trusted
- * requests without headers fall back to localhost. `cf-connecting-ip` is
- * ignored off Cloudflare, where clients can set it themselves.
+ * Trust Vercel's forwarding header on Vercel, or proxy headers only when
+ * `ARGUS_TRUST_PROXY_HEADERS=true`. Otherwise share an `"unknown"` bucket to
+ * prevent clients spoofing separate rate limits. Trusted requests without
+ * headers fall back to localhost. `x-vercel-forwarded-for` is ignored off
+ * Vercel, where clients can set it themselves.
+ *
+ * Behind a trusted proxy, `cf-connecting-ip` wins because Cloudflare sets it
+ * from the real peer. For `x-forwarded-for`, use the RIGHTMOST entry: that is
+ * the hop appended by the trusted proxy, while earlier entries are
+ * client-controlled. `x-real-ip` is deliberately not trusted because clients
+ * can set it on requests that reach the origin without a proxy rewrite.
  */
 export function extractClientIp(request: Request): string {
-  const onCloudflare = process.env.ARGUS_ON_CLOUDFLARE === "1";
+  const onVercel = process.env.VERCEL === "1";
   const trustProxy = process.env.ARGUS_TRUST_PROXY_HEADERS === "true";
 
-  if (onCloudflare) {
-    const connectingIp = request.headers.get("cf-connecting-ip");
-    if (connectingIp) return connectingIp.trim();
+  if (onVercel) {
+    const vercelForwarded = request.headers.get("x-vercel-forwarded-for");
+    if (vercelForwarded) return vercelForwarded.split(",")[0].trim();
   }
 
   if (trustProxy) {
-    const realIp = request.headers.get("x-real-ip");
-    if (realIp) return realIp.trim();
+    const cloudflareIp = request.headers.get("cf-connecting-ip");
+    if (cloudflareIp) return cloudflareIp.trim();
+
     const forwarded = request.headers.get("x-forwarded-for");
-    if (forwarded) return forwarded.split(",")[0].trim();
+    if (forwarded) {
+      const entries = forwarded.split(",");
+      const rightmost = entries[entries.length - 1]?.trim();
+      if (rightmost) return rightmost;
+    }
   }
 
   // Untrusted clients share one bucket to prevent spoofed per-IP limits.
