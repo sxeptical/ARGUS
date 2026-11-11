@@ -70,6 +70,22 @@ describe("apiFetch", () => {
     await expect(promise).rejects.toMatchObject({ name: "AbortError" });
   });
 
+  test("aborts immediately when the caller's signal is already aborted", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    let fetchSignal: AbortSignal | null | undefined;
+
+    stubFetch((_input, init) => {
+      fetchSignal = init?.signal;
+      return Promise.reject(new DOMException("aborted", "AbortError"));
+    });
+
+    await expect(
+      apiFetch("/api/x", { signal: controller.signal }),
+    ).rejects.toMatchObject({ name: "AbortError" });
+    expect(fetchSignal?.aborted).toBe(true);
+  });
+
   test("a request that never settles surfaces as a timeout, not a hang", async () => {
     let fireTimeout: () => void = () => {};
     globalThis.setTimeout = ((fn: () => void) => {

@@ -156,62 +156,91 @@ export const collectLtaEndpoint = <A>(
     { ...options, service: "lta" },
   );
 
-export const getBusStops = (): Promise<BusStop[]> =>
-  cache.get("bus-stops", BUS_STOPS_CACHE_TTL_MS, () =>
-    // Aggregate timeout across the whole multi-page walk.
-    withTimeout("lta-bus-stops", BUS_STOPS_TIMEOUT_MS, (signal) =>
-      collectLtaEndpoint("/BusStops", LtaBusStopsResponseSchema, {
-        pageSize: 500,
-        maxPages: 20,
-        concurrency: 4,
-        signal,
-      }),
-    ),
+export const getBusStops = (signal?: AbortSignal): Promise<BusStop[]> =>
+  cache.get(
+    "bus-stops",
+    BUS_STOPS_CACHE_TTL_MS,
+    () =>
+      // Aggregate timeout across the whole multi-page walk.
+      withTimeout("lta-bus-stops", BUS_STOPS_TIMEOUT_MS, (pageSignal) =>
+        collectLtaEndpoint("/BusStops", LtaBusStopsResponseSchema, {
+          pageSize: 500,
+          maxPages: 20,
+          concurrency: 4,
+          signal: pageSignal,
+        }),
+      ),
+    { signal, shared: true },
   );
 
 // `stopId` is validated by the route handler (see `BUS_STOP_ID_RE` in
 // `@/lib/route-utils`). The v3 endpoint returns `Services: []` for stops with
 // no live arrivals: a valid, successful response, not an error.
-export const getBusArrivals = (stopId: string): Promise<BusArrival[]> =>
-  cache.get(`bus-arrivals-${stopId}`, 15_000, async () => {
-    const response = await ltaGet(
-      `/v3/BusArrival?BusStopCode=${encodeURIComponent(stopId)}`,
-      LtaBusArrivalsResponseSchema,
-    );
-    return response.Services;
-  });
+export const getBusArrivals = (
+  stopId: string,
+  signal?: AbortSignal,
+): Promise<BusArrival[]> =>
+  cache.get(
+    `bus-arrivals-${stopId}`,
+    15_000,
+    async () => {
+      const response = await ltaGet(
+        `/v3/BusArrival?BusStopCode=${encodeURIComponent(stopId)}`,
+        LtaBusArrivalsResponseSchema,
+      );
+      return response.Services;
+    },
+    { signal },
+  );
 
-export const getTrafficCameras = (): Promise<TrafficCamera[]> =>
-  cache.get("traffic-cameras", 60 * 1000, async () => {
-    const payload = await ltaGet(
-      "/Traffic-Imagesv2",
-      LtaTrafficImagesResponseSchema,
-    ).catch(nullOn404);
+export const getTrafficCameras = (
+  signal?: AbortSignal,
+): Promise<TrafficCamera[]> =>
+  cache.get(
+    "traffic-cameras",
+    60 * 1000,
+    async () => {
+      const payload = await ltaGet(
+        "/Traffic-Imagesv2",
+        LtaTrafficImagesResponseSchema,
+      ).catch(nullOn404);
 
-    // The endpoint returns one of two shapes depending on the upstream
-    // wrapper version; both are schema-validated, normalize here.
-    const flat: RawTrafficImage[] = (payload?.value ?? []).flatMap((entry) =>
-      "Cameras" in entry ? entry.Cameras : [entry],
-    );
+      // The endpoint returns one of two shapes depending on the upstream
+      // wrapper version; both are schema-validated, normalize here.
+      const flat: RawTrafficImage[] = (payload?.value ?? []).flatMap((entry) =>
+        "Cameras" in entry ? entry.Cameras : [entry],
+      );
 
-    return flat
-      .filter(
-        (camera) =>
-          Number.isFinite(camera.Latitude) &&
-          Number.isFinite(camera.Longitude) &&
-          SAFE_CAMERA_IMAGE_URL_RE.test(camera.ImageLink),
-      )
-      .map((camera) => ({ ...camera, location: `Camera ${camera.CameraID}` }));
-  });
+      return flat
+        .filter(
+          (camera) =>
+            Number.isFinite(camera.Latitude) &&
+            Number.isFinite(camera.Longitude) &&
+            SAFE_CAMERA_IMAGE_URL_RE.test(camera.ImageLink),
+        )
+        .map((camera) => ({
+          ...camera,
+          location: `Camera ${camera.CameraID}`,
+        }));
+    },
+    { signal, shared: true },
+  );
 
-export const getTrafficIncidents = (): Promise<TrafficIncident[]> =>
-  cache.get("incidents", 60_000, async () => {
-    const payload = await ltaGet(
-      "/TrafficIncidents",
-      LtaTrafficIncidentsResponseSchema,
-    );
-    return normalizeTrafficIncidents(payload.value);
-  });
+export const getTrafficIncidents = (
+  signal?: AbortSignal,
+): Promise<TrafficIncident[]> =>
+  cache.get(
+    "incidents",
+    60_000,
+    async () => {
+      const payload = await ltaGet(
+        "/TrafficIncidents",
+        LtaTrafficIncidentsResponseSchema,
+      );
+      return normalizeTrafficIncidents(payload.value);
+    },
+    { signal, shared: true },
+  );
 
 export const normalizeTrafficIncidents = (rows: ReadonlyArray<RawTrafficIncident>): TrafficIncident[] =>
   rows.flatMap((incident) => {
@@ -281,11 +310,17 @@ export const normalizeTrainServiceAlerts = (
   });
 };
 
-export const getTrainServiceAlerts = (): Promise<TrainServiceAlert[]> =>
-  cache.get("train-service-alerts", TRAIN_ALERTS_CACHE_TTL_MS, async () =>
-    normalizeTrainServiceAlerts(
-      await ltaGet("/TrainServiceAlerts", LtaTrainServiceAlertsResponseSchema),
-    ),
+export const getTrainServiceAlerts = (
+  signal?: AbortSignal,
+): Promise<TrainServiceAlert[]> =>
+  cache.get(
+    "train-service-alerts",
+    TRAIN_ALERTS_CACHE_TTL_MS,
+    async () =>
+      normalizeTrainServiceAlerts(
+        await ltaGet("/TrainServiceAlerts", LtaTrainServiceAlertsResponseSchema),
+      ),
+    { signal, shared: true },
   );
 
 // LTA refreshes carpark availability every minute.
@@ -327,28 +362,34 @@ export const normalizeCarparkAvailability = (
   return [...byId.values()];
 };
 
-export const getCarparkAvailability = (): Promise<CarparkAvailability[]> =>
-  cache.get("carpark-availability", CARPARKS_CACHE_TTL_MS, () =>
-    withTimeout("lta-carparks", CARPARKS_TIMEOUT_MS, async (signal) =>
-      normalizeCarparkAvailability(
-        await collectLtaPages(
-          (skip, pageSignal) =>
-            ltaGet(
-              `/CarParkAvailabilityv2?$skip=${skip}`,
-              LtaCarparkAvailabilityResponseSchema,
-              undefined,
-              pageSignal,
-            ),
-          {
-            pageSize: 500,
-            maxPages: 12,
-            service: "lta",
-            concurrency: 3,
-            signal,
-          },
+export const getCarparkAvailability = (
+  signal?: AbortSignal,
+): Promise<CarparkAvailability[]> =>
+  cache.get(
+    "carpark-availability",
+    CARPARKS_CACHE_TTL_MS,
+    () =>
+      withTimeout("lta-carparks", CARPARKS_TIMEOUT_MS, async (pageSignal) =>
+        normalizeCarparkAvailability(
+          await collectLtaPages(
+            (skip, batchSignal) =>
+              ltaGet(
+                `/CarParkAvailabilityv2?$skip=${skip}`,
+                LtaCarparkAvailabilityResponseSchema,
+                undefined,
+                batchSignal,
+              ),
+            {
+              pageSize: 500,
+              maxPages: 12,
+              service: "lta",
+              concurrency: 3,
+              signal: pageSignal,
+            },
+          ),
         ),
       ),
-    ),
+    { signal, shared: true },
   );
 
 // LTA regenerates the EV batch snapshot every five minutes.
@@ -408,24 +449,31 @@ export const normalizeEvChargingLocations = (
     }];
   });
 
-export const getEvChargingLocations = (): Promise<EvChargingLocation[]> =>
-  cache.get("ev-charging-locations", EV_CHARGERS_CACHE_TTL_MS, async () => {
-    const batch = await ltaGet("/EVCBatch", LtaEvcBatchResponseSchema);
-    const link = batch.value[0]?.Link;
-    if (!link || !SAFE_EV_BATCH_URL_RE.test(link)) {
-      throw new ExternalApiError({
-        service: "lta",
-        status: 502,
-        message: "EVCBatch did not return a trusted snapshot link",
-      });
-    }
-    // The presigned link carries its own auth; never forward AccountKey.
-    const file = await httpGetJson(
-      "lta-ev-batch",
-      link,
-      { Accept: "application/json" },
-      LtaEvBatchFileSchema,
-      EV_BATCH_FILE_TIMEOUT_MS,
-    );
-    return normalizeEvChargingLocations(file.evLocationsData);
-  });
+export const getEvChargingLocations = (
+  signal?: AbortSignal,
+): Promise<EvChargingLocation[]> =>
+  cache.get(
+    "ev-charging-locations",
+    EV_CHARGERS_CACHE_TTL_MS,
+    async () => {
+      const batch = await ltaGet("/EVCBatch", LtaEvcBatchResponseSchema);
+      const link = batch.value[0]?.Link;
+      if (!link || !SAFE_EV_BATCH_URL_RE.test(link)) {
+        throw new ExternalApiError({
+          service: "lta",
+          status: 502,
+          message: "EVCBatch did not return a trusted snapshot link",
+        });
+      }
+      // The presigned link carries its own auth; never forward AccountKey.
+      const file = await httpGetJson(
+        "lta-ev-batch",
+        link,
+        { Accept: "application/json" },
+        LtaEvBatchFileSchema,
+        EV_BATCH_FILE_TIMEOUT_MS,
+      );
+      return normalizeEvChargingLocations(file.evLocationsData);
+    },
+    { signal, shared: true },
+  );

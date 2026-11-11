@@ -1,5 +1,5 @@
 import parkPhotosData from "@/public/park-photos.json";
-import { isPhotoList } from "@/lib/amenities-data";
+import { isPhotoList } from "@/lib/bundle-validation";
 import type { PlacePhoto } from "@/types";
 
 export function validateParkPhotos(value: unknown): value is Record<string, PlacePhoto[]> {

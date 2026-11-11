@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { LIBRARIES, validateLibrariesBundle } from "@/lib/libraries-data";
-import { buildLibrarySearchResults, describeLibrary } from "@/lib/libraries";
+import { LIBRARIES, validateLibrariesBundle } from "@/lib/data/libraries";
+import { describeLibrary } from "@/lib/libraries";
 import type { PublicLibrary } from "@/types";
 
 const library = (overrides: Partial<PublicLibrary> = {}): PublicLibrary => ({
@@ -61,13 +61,5 @@ describe("describeLibrary", () => {
       "Public library",
       "Location: © OpenStreetMap contributors (ODbL)",
     ]);
-  });
-});
-
-describe("library search results", () => {
-  test("lands on the branch with a searchable type", () => {
-    expect(buildLibrarySearchResults([library()])[0]).toMatchObject({ id: "nlb-srpl", type: "library", lat: 1.350727, lng: 103.872257, zoom: 16 });
-    expect(buildLibrarySearchResults([library()])[0].keywords).toContain("library");
-    expect(buildLibrarySearchResults([library()])[0].keywords).toContain("SRPL");
   });
 });

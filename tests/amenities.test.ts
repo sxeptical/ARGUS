@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { HAWKER_CENTRES, MALLS, validateAmenitiesBundle } from "@/lib/amenities-data";
+import { HAWKER_CENTRES, MALLS, validateAmenitiesBundle } from "@/lib/data/amenities";
 import type { HawkerCentre, HawkerClosure, Mall, PlacePhoto } from "@/types";
-import { buildHawkerSearchResults, buildMallSearchResults, describeHawkerCentre, describeHawkerClosure, describeMall, formatClosureRange, formatOpeningHours } from "@/lib/amenities";
+import { describeHawkerCentre, describeHawkerClosure, describeMall, formatClosureRange, formatOpeningHours } from "@/lib/amenities";
 
 const commonsPhoto = (overrides: Partial<PlacePhoto> = {}): PlacePhoto => ({
   thumb: "https://thumb.wikimedia.org/a.jpg",
@@ -88,11 +88,18 @@ describe("amenities bundle", () => {
   test("rejects malformed bundles", () => {
     expect(validateAmenitiesBundle({ hawkers: [], malls: [mall({ photos: [commonsPhoto({ thumb: "https://evil.example/a.jpg" })] })] })).toBe(false);
     expect(validateAmenitiesBundle({ hawkers: [], malls: [mall({ photos: [commonsPhoto({ license: null })] })] })).toBe(false);
+    expect(validateAmenitiesBundle({ hawkers: [], malls: [mall({ photos: [commonsPhoto({ page: "javascript:alert(1)" })] })] })).toBe(false);
+    expect(validateAmenitiesBundle({ hawkers: [], malls: [mall({ photos: [commonsPhoto({ page: "https://evil.example/a" })] })] })).toBe(false);
     expect(validateAmenitiesBundle({ hawkers: [hawker({ photos: [{ ...neaPhoto, thumb: "https://www.nea.gov.sg.evil.example/a.jpg" }] })], malls: [] })).toBe(false);
     expect(validateAmenitiesBundle({ hawkers: [hawker({ photos: [neaPhoto] })], malls: [mall({ photos: [commonsPhoto()] })] })).toBe(true);
     expect(validateAmenitiesBundle({ hawkers: [hawker({ status: "closed" as "open" })], malls: [] })).toBe(false);
     expect(validateAmenitiesBundle({ hawkers: [], malls: [{ id: "x", name: "", lat: 1, lng: 103 }] })).toBe(false);
     expect(validateAmenitiesBundle({ hawkers: [hawker()], malls: [mall()] })).toBe(true);
+    expect(validateAmenitiesBundle({ hawkers: [], malls: [{ ...mall(), stores: undefined }] })).toBe(false);
+    expect(validateAmenitiesBundle({ hawkers: [], malls: [mall({ stores: null, fnb: null, nearestMrt: null, openingHours: null })] })).toBe(true);
+    expect(validateAmenitiesBundle({ hawkers: [hawker({ stalls: -1 })], malls: [] })).toBe(false);
+    expect(validateAmenitiesBundle({ hawkers: [hawker({ expectedYear: 2027.5 })], malls: [] })).toBe(false);
+    expect(validateAmenitiesBundle({ hawkers: [hawker({ address: 42 as unknown as string })], malls: [] })).toBe(false);
   });
 });
 
@@ -216,12 +223,5 @@ describe("describeMall", () => {
       "ION Orchard",
       "Location: © OpenStreetMap contributors",
     ]);
-  });
-});
-
-describe("amenity search results", () => {
-  test("lands on the place with a searchable type", () => {
-    expect(buildMallSearchResults([mall()])[0]).toMatchObject({ id: "osm-way-1", type: "mall", lat: 1.304, lng: 103.832, zoom: 16 });
-    expect(buildHawkerSearchResults([hawker()])[0].keywords).toContain("hawker");
   });
 });

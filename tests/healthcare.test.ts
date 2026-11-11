@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { HEALTHCARE_SITES, validateHealthcareBundle } from "@/lib/healthcare-data";
-import { buildHealthcareSearchResults, describeHealthcare, filterHealthcareByKind, orderedHealthcareKindCounts } from "@/lib/healthcare";
+import { HEALTHCARE_SITES, validateHealthcareBundle } from "@/lib/data/healthcare";
+import { describeHealthcare } from "@/lib/healthcare";
 import type { HealthcareSite } from "@/types";
 
 const site = (overrides: Partial<HealthcareSite> = {}): HealthcareSite => ({
@@ -74,35 +74,5 @@ describe("describeHealthcare", () => {
       "Hospital",
       "Location: © OpenStreetMap contributors (ODbL)",
     ]);
-  });
-});
-
-describe("healthcare kind filtering", () => {
-  test("keeps only sites whose kind is on", () => {
-    const sites = [site(), site({ id: "osm-node-1", kind: "hospital", name: "A Hospital" })];
-    expect(filterHealthcareByKind(sites, { hospital: false }).map((s) => s.id)).toEqual(["chas-15M0211"]);
-    expect(filterHealthcareByKind(sites, {})).toHaveLength(2);
-  });
-
-  test("counts kinds in display order", () => {
-    const sites = [
-      site({ id: "a", kind: "dental" }),
-      site({ id: "b", kind: "hospital" }),
-      site({ id: "c", kind: "gp" }),
-      site({ id: "d", kind: "gp" }),
-    ];
-    expect(orderedHealthcareKindCounts(sites)).toEqual([
-      { kind: "gp", count: 2 },
-      { kind: "hospital", count: 1 },
-      { kind: "dental", count: 1 },
-    ]);
-  });
-});
-
-describe("healthcare search results", () => {
-  test("lands on the site with a searchable type", () => {
-    expect(buildHealthcareSearchResults([site()])[0]).toMatchObject({ id: "chas-15M0211", type: "healthcare", lat: 1.325618, lng: 103.67841, zoom: 16 });
-    expect(buildHealthcareSearchResults([site()])[0].keywords).toContain("healthcare");
-    expect(buildHealthcareSearchResults([site()])[0].keywords).toContain("GP clinic");
   });
 });

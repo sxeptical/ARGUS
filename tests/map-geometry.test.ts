@@ -147,6 +147,45 @@ describe("buildBusRouteGeoJson", () => {
   });
 });
 
+describe("buildBusRouteStopsGeoJson roles", () => {
+  const stops = [1, 2, 3, 4].map((n) => ({
+    busStopCode: String(n),
+    description: String(n),
+    latitude: 1 + n / 10,
+    longitude: 103 + n / 10,
+    stopSequence: n,
+  }));
+  const overlay = (selectedStopIndex: number | null) => ({
+    serviceNo: "12",
+    direction: 1,
+    stops,
+    selectedStopIndex,
+    path: stops.map(
+      (stop) => [stop.longitude, stop.latitude] as [number, number],
+    ),
+    selectedPathIndex: selectedStopIndex,
+  });
+  const roles = (selectedStopIndex: number | null) =>
+    buildBusRouteStopsGeoJson(overlay(selectedStopIndex)).features.map(
+      (feature) => feature.properties.role,
+    );
+
+  test("marks only the selected stop, not the route origin", () => {
+    expect(roles(1)).toEqual(["selected", "stop", "terminus"]);
+    expect(roles(0)).toEqual(["selected", "stop", "stop", "terminus"]);
+  });
+
+  test("marks the terminus as selected when that is the selection", () => {
+    // resolveRemainingRouteStops returns the whole route in this case; the
+    // first stop must not be labelled "selected".
+    expect(roles(3)).toEqual(["stop", "stop", "stop", "selected"]);
+  });
+
+  test("emits no selected role without a selected stop", () => {
+    expect(roles(null)).toEqual(["stop", "stop", "stop", "terminus"]);
+  });
+});
+
 describe("interpolateStations", () => {
   test("uses vertices directly when counts match", () => {
     const features = interpolateStations(

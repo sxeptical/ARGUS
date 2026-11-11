@@ -1,10 +1,10 @@
 /**
- * Popup copy, search entries and kind filtering for the static healthcare
- * layer. Pure so the map, state and tests share one definition.
+ * Labels and popup copy for the static healthcare layer. Search and the
+ * kind sub-filter are declared in lib/amenity-layers.ts.
  */
 import { photoCredit } from "@/lib/amenities";
 import type { PopupLine } from "@/lib/mobility";
-import type { HealthcareKind, HealthcareSite, MapSearchResult } from "@/types";
+import type { HealthcareKind, HealthcareSite } from "@/types";
 
 export const HEALTHCARE_KIND_LABEL: Record<HealthcareKind, string> = {
   gp: "GP clinic",
@@ -29,38 +29,3 @@ export const describeHealthcare = (site: HealthcareSite): PopupLine[] => {
     { text: HEALTHCARE_SOURCE_HINT[site.source], kind: "hint" },
   ];
 };
-
-export const buildHealthcareSearchResults = (sites: ReadonlyArray<HealthcareSite>): MapSearchResult[] =>
-  sites.map((site) => ({
-    id: site.id,
-    type: "healthcare",
-    name: site.name,
-    lat: site.lat,
-    lng: site.lng,
-    zoom: 16,
-    keywords: [
-      "healthcare",
-      "clinic",
-      HEALTHCARE_KIND_LABEL[site.kind],
-      ...(site.address ? [site.address] : []),
-    ],
-  }));
-
-/** Healthcare sites whose kind is on (absent from the record means on). */
-export const filterHealthcareByKind = (
-  sites: ReadonlyArray<HealthcareSite>,
-  kindVisible: Readonly<Partial<Record<HealthcareKind, boolean>>>,
-): HealthcareSite[] => sites.filter((site) => kindVisible[site.kind] !== false);
-
-export type HealthcareKindCount = { kind: HealthcareKind; count: number };
-
-/** Per-kind counts in display order, for the kind chips. */
-export const orderedHealthcareKindCounts = (sites: ReadonlyArray<HealthcareSite>): HealthcareKindCount[] => {
-  const counts = new Map<HealthcareKind, number>();
-  for (const site of sites) counts.set(site.kind, (counts.get(site.kind) ?? 0) + 1);
-  return HEALTHCARE_KIND_ORDER
-    .map((kind) => ({ kind: kind as HealthcareKind, count: counts.get(kind as HealthcareKind) ?? 0 }))
-    .filter((entry) => entry.count > 0);
-};
-
-const HEALTHCARE_KIND_ORDER = ["gp", "hospital", "dental"] as const;

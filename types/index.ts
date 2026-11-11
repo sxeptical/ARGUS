@@ -235,11 +235,6 @@ export interface PlacePhoto {
 }
 
 /**
- * Shopping mall from the static amenities bundle (OpenStreetMap location).
- * `stores`, `fnb`, and `nearestMrt` come from the curated mall dataset and
- * are `null` for malls it doesn't cover.
- */
-/**
  * Licensed hotel from the static hotel bundle (Hotels Licensing Board via
  * data.gov.sg). The dataset carries no street address, so `address` is the
  * bare postcode; `rooms` is the licensed room count when known.
@@ -255,6 +250,11 @@ export interface Hotel {
   photos: PlacePhoto[];
 }
 
+/**
+ * Shopping mall from the static amenities bundle (OpenStreetMap location).
+ * `stores`, `fnb`, and `nearestMrt` come from the curated mall dataset and
+ * are `null` for malls it doesn't cover.
+ */
 export interface Mall {
   id: string;
   name: string;
@@ -269,10 +269,6 @@ export interface Mall {
 }
 
 /**
- * One shop in a mall's directory (public/mall-stores/<mallId>.json). `level`
- * is a normalized key ("B2", "L1", "B2M") or a named area ("Tower 3").
- */
-/**
  * Fitness facility from the static gym bundle (All The Places, OpenStreetMap,
  * SportSG via data.gov.sg, or a small curated ActiveSG list). `category` is
  * a display hint derived from the source activity tags; `public` gyms are
@@ -280,36 +276,43 @@ export interface Mall {
  * `brand` is normalised at build time to the operator, or "Independent"
  * for chains without a known operator.
  */
-export type GymCategory =
-  | "gym"
-  | "yoga"
-  | "pilates"
-  | "martial-arts"
-  | "crossfit"
-  | "climbing"
-  | "public";
+export const GYM_CATEGORIES = [
+  "gym",
+  "yoga",
+  "pilates",
+  "martial-arts",
+  "crossfit",
+  "climbing",
+  "public",
+] as const;
+export type GymCategory = (typeof GYM_CATEGORIES)[number];
 
-export type GymBrand =
-  | "ActiveSG"
-  | "Anytime Fitness"
-  | "Snap Fitness"
-  | "F45 Training"
-  | "Virgin Active"
-  | "CrossFit"
-  | "Fitness First"
-  | "True Fitness"
-  | "Pure Fitness"
-  | "UFIT"
-  | "GymmBoxx"
-  | "24/7 Fitness"
-  | "Gold's Gym"
-  | "EnergyOne"
-  | "GoFit"
-  | "Homeground"
-  | "Spartans"
-  | "Independent";
+/** Every operator brand the gym bundle can carry. */
+export const GYM_BRANDS = [
+  "ActiveSG",
+  "Anytime Fitness",
+  "Snap Fitness",
+  "F45 Training",
+  "Virgin Active",
+  "CrossFit",
+  "Fitness First",
+  "True Fitness",
+  "Pure Fitness",
+  "UFIT",
+  "GymmBoxx",
+  "24/7 Fitness",
+  "Gold's Gym",
+  "EnergyOne",
+  "GoFit",
+  "Homeground",
+  "Spartans",
+  "Independent",
+] as const;
+export type GymBrand = (typeof GYM_BRANDS)[number];
 
-export type GymSource = "alltheplaces" | "osm" | "sportsg" | "curated";
+/** Where the gym record came from. */
+export const GYM_SOURCES = ["alltheplaces", "osm", "sportsg", "curated"] as const;
+export type GymSource = (typeof GYM_SOURCES)[number];
 
 export interface Gym {
   id: string;
@@ -349,7 +352,8 @@ export interface CommunityClub {
  * is the Roots.sg article for NHB records (only when it resolves) or the
  * OSM `website` tag for museums; `description` is the NHB blurb.
  */
-export type HeritageKind = "historic-site" | "monument" | "museum";
+export const HERITAGE_KINDS = ["historic-site", "monument", "museum"] as const;
+export type HeritageKind = (typeof HERITAGE_KINDS)[number];
 
 export type HeritageSource = "nhb" | "osm";
 
@@ -373,7 +377,8 @@ export interface HeritageSite {
  * hospitals and dental clinics. `programmes` is the CHAS/CDMP/ISP
  * participation recorded for CHAS clinics (empty for OSM records).
  */
-export type HealthcareKind = "gp" | "hospital" | "dental";
+export const HEALTHCARE_KINDS = ["gp", "hospital", "dental"] as const;
+export type HealthcareKind = (typeof HEALTHCARE_KINDS)[number];
 
 export type HealthcareSource = "chas" | "osm";
 
@@ -414,18 +419,20 @@ export interface PublicLibrary {
  * `shop=supermarket`), with `brand` normalised to the operator at build
  * time ("Other" for chains without a known operator).
  */
-export type SupermarketBrand =
-  | "NTUC FairPrice"
-  | "Cold Storage"
-  | "Sheng Siong"
-  | "Giant"
-  | "Prime"
-  | "Don Don Donki"
-  | "Ang Mo"
-  | "U Stars"
-  | "Hao Mart"
-  | "Scarlett"
-  | "Other";
+export const SUPERMARKET_BRANDS = [
+  "NTUC FairPrice",
+  "Cold Storage",
+  "Sheng Siong",
+  "Giant",
+  "Prime",
+  "Don Don Donki",
+  "Ang Mo",
+  "U Stars",
+  "Hao Mart",
+  "Scarlett",
+  "Other",
+] as const;
+export type SupermarketBrand = (typeof SUPERMARKET_BRANDS)[number];
 
 export interface Supermarket {
   id: string;
@@ -444,7 +451,8 @@ export interface Supermarket {
  * `coordsSource` records how coordinates were found (OneMap name search,
  * OpenStreetMap name join). Staff names are never stored.
  */
-export type SchoolLevel = "primary" | "secondary" | "jc" | "mixed";
+export const SCHOOL_LEVELS = ["primary", "secondary", "jc", "mixed"] as const;
+export type SchoolLevel = (typeof SCHOOL_LEVELS)[number];
 
 export interface School {
   id: string;
@@ -474,6 +482,10 @@ export interface Pharmacy {
   lng: number;
 }
 
+/**
+ * One shop in a mall's directory (public/mall-stores/<mallId>.json). `level`
+ * is a normalized key ("B2", "L1", "B2M") or a named area ("Tower 3").
+ */
 export interface MallStore {
   name: string;
   unit: string | null;
@@ -495,7 +507,26 @@ export interface AmenitiesBundle {
   malls: Mall[];
 }
 
-export type SearchResultType = "bus-stop" | "mrt" | "park" | "mall" | "hawker" | "gym" | "community-club" | "pharmacy" | "hotel" | "heritage" | "healthcare" | "library" | "supermarket" | "school";
+/**
+ * Every static point amenity and its record shape. The key is the amenity's
+ * search-result and selection type; lib/amenity-layers.ts must describe each.
+ */
+export type AmenityPlaces = {
+  mall: Mall;
+  hawker: HawkerCentre;
+  gym: Gym;
+  "community-club": CommunityClub;
+  pharmacy: Pharmacy;
+  hotel: Hotel;
+  heritage: HeritageSite;
+  healthcare: HealthcareSite;
+  library: PublicLibrary;
+  supermarket: Supermarket;
+  school: School;
+};
+export type AmenityType = keyof AmenityPlaces;
+
+export type SearchResultType = "bus-stop" | "mrt" | "park" | AmenityType;
 
 export interface MapSearchResult {
   id: string;

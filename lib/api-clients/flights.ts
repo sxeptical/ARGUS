@@ -322,29 +322,34 @@ const fetchFlightsFromOpenSky = async (): Promise<FlightState[]> => {
 
 // ---------- Public client ----------
 
-export const getFlights = (): Promise<FlightState[]> =>
-  cache.get("flights-sg", FLIGHTS_CACHE_TTL_MS, async () => {
-    let flights = await fetchFlightsFromAviationStack().catch(
-      emptyOnExternalApiError,
-    );
-    if (flights.length === 0) {
-      flights = await fetchFlightsFromOpenSky().catch(emptyOnExternalApiError);
-    }
+export const getFlights = (signal?: AbortSignal): Promise<FlightState[]> =>
+  cache.get(
+    "flights-sg",
+    FLIGHTS_CACHE_TTL_MS,
+    async () => {
+      let flights = await fetchFlightsFromAviationStack().catch(
+        emptyOnExternalApiError,
+      );
+      if (flights.length === 0) {
+        flights = await fetchFlightsFromOpenSky().catch(emptyOnExternalApiError);
+      }
 
-    const sorted = flights
-      .sort((a, b) => (b.velocity ?? 0) - (a.velocity ?? 0))
-      .slice(0, 120);
+      const sorted = flights
+        .sort((a, b) => (b.velocity ?? 0) - (a.velocity ?? 0))
+        .slice(0, 120);
 
-    if (sorted.length > 0) {
-      cache.set(FLIGHTS_FALLBACK_KEY, sorted);
-      return sorted;
-    }
+      if (sorted.length > 0) {
+        cache.set(FLIGHTS_FALLBACK_KEY, sorted);
+        return sorted;
+      }
 
-    // Read the last-good snapshot without replacing it on failure.
-    return (
-      cache.peek<FlightState[]>(
-        FLIGHTS_FALLBACK_KEY,
-        FLIGHTS_FALLBACK_MAX_AGE_MS,
-      ) ?? []
-    );
-  });
+      // Read the last-good snapshot without replacing it on failure.
+      return (
+        cache.peek<FlightState[]>(
+          FLIGHTS_FALLBACK_KEY,
+          FLIGHTS_FALLBACK_MAX_AGE_MS,
+        ) ?? []
+      );
+    },
+    { signal },
+  );

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import useSWR from "swr";
 import TerminalPanel from "@/app/components/TerminalPanel";
 import { MiniTrend, summarizeValues } from "@/app/components/trend";
@@ -73,6 +73,19 @@ function minutesUntil(iso?: string, now = Date.now()): number | null {
   return Math.max(0, Math.round((timestamp - now) / 60_000));
 }
 
+function sampleDue(
+  history: BusArrivalHistoryStore,
+  stopCode: string,
+  serviceNo: string,
+  now = Date.now(),
+): boolean {
+  const latest = history[getArrivalHistoryKey(stopCode, serviceNo)]?.at(-1);
+  return (
+    !latest ||
+    now - Date.parse(latest.timestamp) >= BUS_ARRIVAL_HISTORY_SAMPLE_MS
+  );
+}
+
 function appendBusArrivalHistory(
   history: BusArrivalHistoryStore,
   stopCode: string,
@@ -84,15 +97,9 @@ function appendBusArrivalHistory(
 
   for (const service of arrivals) {
     const key = getArrivalHistoryKey(stopCode, service.ServiceNo);
-    const existing = next[key] ?? [];
-    const latest = existing[existing.length - 1];
-    if (
-      latest &&
-      now - Date.parse(latest.timestamp) < BUS_ARRIVAL_HISTORY_SAMPLE_MS
-    ) {
-      continue;
-    }
+    if (!sampleDue(next, stopCode, service.ServiceNo, now)) continue;
 
+    const existing = next[key] ?? [];
     next[key] = [
       ...existing,
       {
@@ -126,6 +133,13 @@ export default function BusPanel({
   const [arrivalHistory, setArrivalHistory] = useState<BusArrivalHistoryStore>(
     {},
   );
+  // Latest history, so storage writes happen outside the state updater
+  // (updaters must stay pure, and StrictMode double-invokes them).
+  const arrivalHistoryRef = useRef(arrivalHistory);
+
+  useEffect(() => {
+    arrivalHistoryRef.current = arrivalHistory;
+  });
 
   const activeStop = selectedStop;
   const activeStopCode = activeStop?.BusStopCode;
@@ -148,26 +162,36 @@ export default function BusPanel({
       );
       if (!stopCode || nextArrivals.length === 0) return;
 
-      setArrivalHistory((previous) => {
-        // Preserve history recorded before storage hydration completes.
-        const persisted = readPointStore(
-          BUS_ARRIVAL_HISTORY_STORAGE_KEY,
-          isBusArrivalHistoryPoint,
-        );
-        const next = appendBusArrivalHistory(
-          mergePointStores(persisted, previous),
-          stopCode,
-          nextArrivals,
-        );
-        if (next === previous) return previous;
-        writePointStore(
-          BUS_ARRIVAL_HISTORY_STORAGE_KEY,
-          next,
-          BUS_ARRIVAL_HISTORY_MAX_POINTS_PER_SERVICE,
-          BUS_ARRIVAL_HISTORY_MAX_SERVICES,
-        );
-        return next;
-      });
+      const previous = arrivalHistoryRef.current;
+      // A 15 s poll rarely has a sample to add; skip storage entirely then.
+      const now = Date.now();
+      if (
+        !nextArrivals.some((service) =>
+          sampleDue(previous, stopCode, service.ServiceNo, now),
+        )
+      ) {
+        return;
+      }
+
+      // Preserve history recorded before storage hydration completes.
+      const persisted = readPointStore(
+        BUS_ARRIVAL_HISTORY_STORAGE_KEY,
+        isBusArrivalHistoryPoint,
+      );
+      const next = appendBusArrivalHistory(
+        mergePointStores(persisted, previous),
+        stopCode,
+        nextArrivals,
+      );
+      if (next === previous) return;
+      arrivalHistoryRef.current = next;
+      writePointStore(
+        BUS_ARRIVAL_HISTORY_STORAGE_KEY,
+        next,
+        BUS_ARRIVAL_HISTORY_MAX_POINTS_PER_SERVICE,
+        BUS_ARRIVAL_HISTORY_MAX_SERVICES,
+      );
+      setArrivalHistory(next);
     },
   });
   const error = arrivalsError?.message ?? null;
@@ -190,20 +214,20 @@ export default function BusPanel({
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
-      setArrivalHistory((current) => {
-        const persisted = readPointStore(
-          BUS_ARRIVAL_HISTORY_STORAGE_KEY,
-          isBusArrivalHistoryPoint,
-        );
-        const merged = mergePointStores(persisted, current);
-        writePointStore(
-          BUS_ARRIVAL_HISTORY_STORAGE_KEY,
-          merged,
-          BUS_ARRIVAL_HISTORY_MAX_POINTS_PER_SERVICE,
-          BUS_ARRIVAL_HISTORY_MAX_SERVICES,
-        );
-        return merged;
-      });
+      const persisted = readPointStore(
+        BUS_ARRIVAL_HISTORY_STORAGE_KEY,
+        isBusArrivalHistoryPoint,
+      );
+      const merged = mergePointStores(persisted, arrivalHistoryRef.current);
+      if (merged === arrivalHistoryRef.current) return;
+      arrivalHistoryRef.current = merged;
+      writePointStore(
+        BUS_ARRIVAL_HISTORY_STORAGE_KEY,
+        merged,
+        BUS_ARRIVAL_HISTORY_MAX_POINTS_PER_SERVICE,
+        BUS_ARRIVAL_HISTORY_MAX_SERVICES,
+      );
+      setArrivalHistory(merged);
     }, 0);
     return () => window.clearTimeout(timer);
   }, []);

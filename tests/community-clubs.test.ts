@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { COMMUNITY_CLUBS, validateCommunityClubsBundle } from "@/lib/community-clubs-data";
-import { buildCommunityClubSearchResults, describeCommunityClub } from "@/lib/community-clubs";
+import { COMMUNITY_CLUBS, validateCommunityClubsBundle } from "@/lib/data/community-clubs";
+import { describeCommunityClub } from "@/lib/community-clubs";
 import type { CommunityClub } from "@/types";
 
 const club = (overrides: Partial<CommunityClub> = {}): CommunityClub => ({
@@ -77,13 +77,5 @@ describe("describeCommunityClub", () => {
 
   test("credits Commons photos", () => {
     expect(texts(describeCommunityClub(club({ photos: [commonsPhoto] })))).toContain("Photo: Terence Ong (CC BY 2.5) · Wikimedia Commons");
-  });
-});
-
-describe("community club search results", () => {
-  test("lands on the place with a searchable type", () => {
-    expect(buildCommunityClubSearchResults([club()])[0]).toMatchObject({ id: "cc-5045", type: "community-club", lat: 1.3936, lng: 103.9135, zoom: 16 });
-    expect(buildCommunityClubSearchResults([club()])[0].keywords).toContain("community club");
-    expect(buildCommunityClubSearchResults([club()])[0].keywords).toContain("PA");
   });
 });

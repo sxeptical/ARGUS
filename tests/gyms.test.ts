@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { GYM_BRANDS, GYMS, validateGymsBundle } from "@/lib/gyms-data";
-import { buildGymSearchResults, describeGym, filterGymsByBrand, gymBrandCounts, orderedGymBrandCounts } from "@/lib/gyms";
-import type { Gym, GymBrand } from "@/types";
+import { AMENITY_SEARCH_RESULTS } from "@/lib/amenity-layers";
+import { GYMS, validateGymsBundle } from "@/lib/data/gyms";
+import { describeGym } from "@/lib/gyms";
+import { GYM_BRANDS, type Gym } from "@/types";
 
 const gym = (overrides: Partial<Gym> = {}): Gym => ({
   id: "atp-anytime_fitness-SG-0012",
@@ -106,7 +107,7 @@ describe("gyms bundle", () => {
       aliases: ["Heartbeat@Bedok ActiveSG Sport Centre"],
     });
     // Search keywords carry aliases so "OTH" / "Our Tampines Hub" find the gym.
-    const tampines = buildGymSearchResults([byName.get("Tampines ActiveSG Gym")!])[0];
+    const tampines = AMENITY_SEARCH_RESULTS.find((result) => result.name === "Tampines ActiveSG Gym")!;
     for (const keyword of ["OTH", "Our Tampines Hub", "Tampines Sport Centre"]) {
       expect(tampines.keywords).toContain(keyword);
     }
@@ -119,6 +120,9 @@ describe("gyms bundle", () => {
     expect(validateGymsBundle([{ ...gym(), source: "unknown" }])).toBe(false);
     expect(validateGymsBundle([{ ...gym(), brand: "SportSG" }])).toBe(false);
     expect(validateGymsBundle([{ ...gym(), brand: null }])).toBe(false);
+    expect(validateGymsBundle([{ ...gym(), website: "javascript:alert(1)" }])).toBe(false);
+    expect(validateGymsBundle([{ ...gym(), website: "http://example.com" }])).toBe(true);
+    expect(validateGymsBundle([{ ...gym(), website: null }])).toBe(true);
     expect(validateGymsBundle([{ ...gym(), aliases: "OTH" }])).toBe(false);
     expect(validateGymsBundle([{ ...gym(), aliases: [42] }])).toBe(false);
     expect(validateGymsBundle([{ ...gym(), aliases: ["OTH"] }])).toBe(true);
@@ -154,43 +158,5 @@ describe("describeGym", () => {
 
   test("attributes public SportSG gyms", () => {
     expect(texts(describeGym(gym({ name: "Bukit Canberra Sport Centre", brand: "ActiveSG", category: "public", openingHours: null, source: "sportsg" })))).toContain("Source: SportSG via data.gov.sg (Singapore Open Data Licence)");
-  });
-});
-
-describe("gym brand filtering", () => {
-  const brands = (overrides: Partial<Record<GymBrand, boolean>>): Record<GymBrand, boolean> =>
-    Object.fromEntries(GYM_BRANDS.map((brand) => [brand, overrides[brand] ?? true])) as Record<GymBrand, boolean>;
-
-  test("keeps only gyms whose brand is on", () => {
-    const gyms = [gym(), gym({ id: "osm-1", brand: "Independent", name: "Some Club" })];
-    expect(filterGymsByBrand(gyms, brands({ "Anytime Fitness": false })).map((g) => g.id)).toEqual(["osm-1"]);
-    expect(filterGymsByBrand(gyms, {})).toHaveLength(2);
-  });
-
-  test("counts brands biggest first", () => {
-    const gyms = [
-      gym({ id: "a", brand: "Anytime Fitness" }),
-      gym({ id: "b", brand: "Anytime Fitness" }),
-      gym({ id: "c", brand: "Independent" }),
-      gym({ id: "d", brand: "ActiveSG" }),
-    ];
-    expect(gymBrandCounts(gyms)).toEqual([
-      { brand: "Anytime Fitness", count: 2 },
-      { brand: "ActiveSG", count: 1 },
-      { brand: "Independent", count: 1 },
-    ]);
-    expect(orderedGymBrandCounts(gyms).map((entry) => entry.brand)).toEqual([
-      "ActiveSG",
-      "Anytime Fitness",
-      "Independent",
-    ]);
-  });
-});
-
-describe("gym search results", () => {
-  test("lands on the place with a searchable type", () => {
-    expect(buildGymSearchResults([gym()])[0]).toMatchObject({ id: "atp-anytime_fitness-SG-0012", type: "gym", lat: 1.36134, lng: 103.84155, zoom: 16 });
-    expect(buildGymSearchResults([gym()])[0].keywords).toContain("gym");
-    expect(buildGymSearchResults([gym()])[0].keywords).toContain("Anytime Fitness");
   });
 });

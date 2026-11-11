@@ -163,6 +163,10 @@ types/
 bun run dev      # Start local development
 bun run build    # Production build
 bun run start    # Start production server
+bun run preview  # Build and run in the Workers runtime locally
+bun run deploy   # Build and deploy to Cloudflare Workers
+bun run upload   # Build and upload a new Worker version
+bun run cf-typegen # Regenerate binding types from wrangler.jsonc
 bun run lint     # ESLint
 bun run test     # Unit and regression tests
 bun run typecheck # Native TypeScript 7 check
@@ -171,11 +175,34 @@ bun run verify   # Typecheck, lint, test, and production build
 
 ---
 
+## Deploying to Cloudflare Workers
+
+The app builds with OpenNext (`open-next.config.ts`, `wrangler.jsonc`). All
+pages are dynamic, so no R2/D1/KV cache resources are required.
+
+```bash
+cp .dev.vars.example .dev.vars   # local preview only; fill in keys
+bun run preview
+bunx wrangler secret put LTA_API_KEY
+bunx wrangler secret put AVIATIONSTACK_API_KEY   # optional
+bun run deploy
+```
+
+`wrangler.jsonc` sets `ARGUS_TRUST_PROXY_HEADERS=true` because Cloudflare
+overwrites `cf-connecting-ip` with the real peer address. Rate limits use the
+native Workers Rate Limiting binding (shared per Cloudflare location); the
+`namespace_id` values must be unique within the account. On Workers, marked
+upstream caches also use the Cache API as a colo-local L2 behind the in-memory
+L1 cache. `bun run cf-typegen` writes a reference file under `.wrangler/`; the
+committed `cloudflare-env.d.ts` is a trimmed, typecheck-safe version.
+
+---
+
 ## Notes
 
 - Flight direction is best-effort. Aviationstack airport metadata is used when available; otherwise heading relative to Changi is used.
 - Serverless memory is not guaranteed across Vercel invocations, so cached fallbacks help during warm periods but should not be treated as durable storage.
-- The bundled cache and rate limiter are in-memory, per-runtime-instance protections. **In production on Vercel, each serverless instance has its own rate limit state** — limits are not shared across instances or cold starts. For hard cross-instance limits, use Vercel Firewall, an edge middleware KV store, or Redis. On Vercel (`VERCEL=1`) the IP extractor trusts `x-vercel-forwarded-for`, which the edge overwrites. Self-hosted deployments ignore that header unless `ARGUS_TRUST_PROXY_HEADERS=true` is set behind a trusted proxy.
+- The bundled cache and rate limiter have an in-memory L1. **On Vercel, each serverless instance still has its own state** — limits are not shared across instances or cold starts; use Vercel Firewall, an edge KV store, or Redis for hard cross-instance limits. On Cloudflare Workers the native Rate Limiting binding shares limits across isolates in a location, and the Cache API provides a colo-local L2 for public upstream data. On Vercel (`VERCEL=1`) the IP extractor trusts `x-vercel-forwarded-for`, which the edge overwrites. Self-hosted deployments ignore that header unless `ARGUS_TRUST_PROXY_HEADERS=true` is set behind a trusted proxy.
 - API rate limits matter. Flight polling is the most likely source of quota pressure.
 
 ---

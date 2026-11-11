@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { HOTELS, validateHotelsBundle } from "@/lib/hotels-data";
-import { buildHotelSearchResults, describeHotel } from "@/lib/hotels";
+import { HOTELS, validateHotelsBundle } from "@/lib/data/hotels";
+import { describeHotel } from "@/lib/hotels";
 import type { Hotel } from "@/types";
 
 const hotel = (overrides: Partial<Hotel> = {}): Hotel => ({
@@ -66,13 +66,5 @@ describe("describeHotel", () => {
       "Photo: Terence Ong (CC BY 2.5) · Wikimedia Commons",
       "Source: Hotels Licensing Board via data.gov.sg (Singapore Open Data Licence)",
     ]);
-  });
-});
-
-describe("hotel search results", () => {
-  test("lands on the place with a searchable type", () => {
-    expect(buildHotelSearchResults([hotel()])[0]).toMatchObject({ id: "hotel-19844", type: "hotel", lat: 1.2992, lng: 103.8501, zoom: 16 });
-    expect(buildHotelSearchResults([hotel()])[0].keywords).toContain("hotel");
-    expect(buildHotelSearchResults([hotel()])[0].keywords).toContain("84");
   });
 });

@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { getPm25Band, getPsiStatus } from "@/lib/air-quality";
+import { cache } from "@/lib/cache";
 import { ExternalApiError } from "@/lib/errors";
 import {
   extractLatestUv,
@@ -190,6 +191,47 @@ describe("getWeather", () => {
       tempLow: 25,
       tempHigh: 32,
     });
+  });
+
+  test("caches a partial result for the short TTL, not five minutes", async () => {
+    const realNow = Date.now;
+    const originalFetch = globalThis.fetch;
+    let now = realNow();
+    let calls = 0;
+    Date.now = () => now;
+    cache.clear();
+
+    globalThis.fetch = (async (input) => {
+      calls += 1;
+      if (String(input).includes("2-hour-weather-forecast")) {
+        return Response.json({
+          items: [
+            {
+              timestamp: "2026-01-01T00:00:00.000Z",
+              forecasts: [{ area: "Singapore", forecast: "Cloudy" }],
+            },
+          ],
+        });
+      }
+      return new Response("unavailable", { status: 503 });
+    }) as typeof fetch;
+
+    try {
+      await getWeather();
+      expect(calls).toBe(7);
+
+      now += 20_000;
+      await getWeather();
+      expect(calls).toBe(7);
+
+      now += 11_000;
+      await getWeather();
+      expect(calls).toBe(14);
+    } finally {
+      Date.now = realNow;
+      globalThis.fetch = originalFetch;
+      cache.clear();
+    }
   });
 
   test("fails when every weather endpoint fails", async () => {

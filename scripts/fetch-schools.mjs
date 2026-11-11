@@ -20,17 +20,12 @@
  */
 import { mkdir, writeFile } from "node:fs/promises";
 import { fetchJson, USER_AGENT } from "./lib/commons-photos.mjs";
+import { inSingapore, phoneOf, round, text, websiteOf } from "./lib/place-fields.mjs";
 
 const MOE_DATASET = "d_688b934f82c1059ed0a6993d2a829089";
 const OVERPASS_URL = "https://overpass-api.de/api/interpreter";
 const ONEMAP_BASE = "https://www.onemap.gov.sg/api/common/elastic/search";
-const SG_BOUNDS = { minLat: 1.1, maxLat: 1.5, minLng: 103.5, maxLng: 104.1 };
 
-const inSingapore = (lat, lng) =>
-  Number.isFinite(lat) && Number.isFinite(lng) &&
-  lat >= SG_BOUNDS.minLat && lat <= SG_BOUNDS.maxLat && lng >= SG_BOUNDS.minLng && lng <= SG_BOUNDS.maxLng;
-const round = (value) => Math.round(value * 1e6) / 1e6;
-const text = (value) => (typeof value === "string" && value.trim() ? value.trim() : null);
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const normalize = (name) =>
   String(name ?? "").toLowerCase().replace(/&/g, "and").replace(/[^a-z0-9]/g, "");
@@ -52,12 +47,17 @@ const slug = (name) => normalize(name) || "school";
 
 // Only these columns are read. principal/VP name columns are deliberately
 // never read or stored.
+const LEVEL_BY_CODE = {
+  PRIMARY: "primary",
+  SECONDARY: "secondary",
+  "MIXED LEVEL(S)": "mixed",
+  "JUNIOR COLLEGE": "jc",
+  "CENTRALISED INSTITUTE": "jc",
+};
 const levelOf = (code) => {
-  const c = (code ?? "").toUpperCase();
-  if (c.startsWith("PRIMARY")) return "primary";
-  if (c.startsWith("SECONDARY")) return "secondary";
-  if (c.startsWith("MIXED")) return "mixed";
-  return "jc"; // JUNIOR COLLEGE, CENTRALISED INSTITUTE
+  const level = LEVEL_BY_CODE[(code ?? "").toUpperCase()];
+  if (!level) throw new Error(`Unknown school mainlevel_code: ${JSON.stringify(code)}`);
+  return level;
 };
 
 // Minimal RFC4180 CSV parser (quoted fields, doubled quotes, embedded commas).
@@ -85,19 +85,13 @@ const parseCsv = (csv) => {
 const poll = await fetchJson(`https://api-open.data.gov.sg/v1/public/api/datasets/${MOE_DATASET}/poll-download`);
 const url = poll?.data?.url;
 if (!url) throw new Error(`No presigned URL returned for ${MOE_DATASET}`);
-const csv = await fetch(url, { headers: { "User-Agent": USER_AGENT } }).then((r) => r.text());
+const csvResponse = await fetch(url, { headers: { "User-Agent": USER_AGENT } });
+if (!csvResponse.ok) throw new Error(`School CSV download failed (HTTP ${csvResponse.status})`);
+const csv = await csvResponse.text();
 const rows = parseCsv(csv);
 const header = rows[0];
 const col = Object.fromEntries(header.map((name, i) => [name, i]));
 const pick = (row, key) => text(row[col[key]]);
-const phoneOf = (raw) => {
-  const digits = text(raw)?.replace(/[^\d]/g, "");
-  if (!digits) return null;
-  if (digits.length === 8) return `+65 ${digits.slice(0, 4)} ${digits.slice(4)}`;
-  return digits.startsWith("65") && digits.length === 10
-    ? `+65 ${digits.slice(2, 6)} ${digits.slice(6)}`
-    : text(raw);
-};
 
 const schools = [];
 for (const row of rows.slice(1)) {
@@ -106,7 +100,6 @@ for (const row of rows.slice(1)) {
   const level = levelOf(pick(row, "mainlevel_code"));
   const address = pick(row, "address");
   const postal = pick(row, "postal_code") || null;
-  const website = pick(row, "url_address");
   const fullAddress = address
     ? `${address}${postal ? `, Singapore ${postal}` : ""}`
     : postal ? `Singapore ${postal}` : null;
@@ -117,7 +110,7 @@ for (const row of rows.slice(1)) {
     address: fullAddress,
     postalCode: postal,
     phone: phoneOf(pick(row, "telephone_no") === "na" ? null : pick(row, "telephone_no")),
-    website: website ? (/^https?:\/\//i.test(website) ? website : `https://${website}`) : null,
+    website: websiteOf(pick(row, "url_address")),
     mrt: pick(row, "mrt_desc"),
     bus: text(pick(row, "bus_desc")) === "na" ? null : pick(row, "bus_desc"),
     lat: null,

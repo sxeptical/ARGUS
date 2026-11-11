@@ -1,12 +1,13 @@
 "use client";
 
 import { useEffect, useRef, type ReactNode } from "react";
-import type { SelectedAmenity } from "@/app/hooks/use-dashboard-state";
+import { useFocusTrap } from "@/app/hooks/use-focus-trap";
 import { KeyValue } from "@/app/components/dashboard/IntelPanel";
 import { MapLocationLink } from "@/app/components/dashboard/MapLocationLink";
 import { hasStoreDirectory, MallStoreDirectory } from "@/app/components/dashboard/MallDirectory";
 import { PlacePhotoGallery } from "@/app/components/dashboard/PlacePhotoGallery";
 import { describeHawkerClosure, formatOpeningHours } from "@/lib/amenities";
+import type { SelectedAmenity } from "@/lib/amenity-layers";
 import { GYM_CATEGORY_LABEL, GYM_SOURCE_HINT } from "@/lib/gyms";
 import { COMMUNITY_CLUB_KIND_LABEL, COMMUNITY_CLUB_SOURCE_HINT } from "@/lib/community-clubs";
 import { PHARMACY_SOURCE_HINT } from "@/lib/pharmacies";
@@ -70,254 +71,195 @@ export function FocusDialog({
     );
   }
 
-  if (amenity?.type === "hawker") {
-    const { hawker } = amenity;
-    const closure = describeHawkerClosure(hawker.closures);
-    return (
-      <FocusShell kind="Hawker Centre" title={hawker.name} onClose={onClose}>
-        <div className="space-y-2 p-4 text-xs">
-          <PlacePhotoGallery key={hawker.id} name={hawker.name} photos={hawker.photos} />
-          <div>
+  return amenity ? <AmenityFocus amenity={amenity} onClose={onClose} /> : null;
+}
+
+type AmenityDetails = {
+  /** Dialog header, e.g. "Hawker Centre". */
+  kind: string;
+  /** Facts shown above the address row. */
+  rows?: ReactNode;
+  website?: { href: string; label?: string; text?: string };
+  /** Data source credit shown under the details. */
+  source?: string;
+};
+
+const hours = (raw: string | null) =>
+  raw ? <KeyValue label="Hours" value={formatOpeningHours(raw) ?? raw} /> : null;
+
+/** What is specific to each amenity; AmenityFocus lays every one out the same way. */
+function amenityDetails(amenity: SelectedAmenity): AmenityDetails {
+  switch (amenity.type) {
+    case "mall": {
+      const mall = amenity.place;
+      return {
+        kind: "Shopping Mall",
+        rows: (
+          <>
+            {mall.stores !== null ? <KeyValue label="Shops" value={mall.stores.toLocaleString("en-SG")} /> : null}
+            {mall.fnb !== null ? <KeyValue label="Food & Drink" value={mall.fnb.toLocaleString("en-SG")} /> : null}
+            {mall.nearestMrt ? <KeyValue label="Nearest MRT" value={mall.nearestMrt} /> : null}
+            {hours(mall.openingHours)}
+          </>
+        ),
+      };
+    }
+    case "hawker": {
+      const hawker = amenity.place;
+      const closure = describeHawkerClosure(hawker.closures);
+      return {
+        kind: "Hawker Centre",
+        rows: (
+          <>
             <KeyValue
               label="Status"
               value={hawker.status === "planned" ? (hawker.expectedYear ? `Under construction · expected ${hawker.expectedYear}` : "Under construction") : "In operation"}
             />
             {closure ? <KeyValue label="Closure" value={closure.text} /> : null}
             {hawker.stalls !== null ? <KeyValue label="Stalls" value={`${hawker.stalls.toLocaleString("en-SG")} cooked food`} /> : null}
-            <MapLocationLink name={hawker.name} address={hawker.address} lat={hawker.lat} lng={hawker.lng} />
-          </div>
-        </div>
-      </FocusShell>
-    );
-  }
-
-  if (amenity?.type === "gym") {
-    const { gym } = amenity;
-    return (
-      <FocusShell kind="Gym" title={gym.name} onClose={onClose}>
-        <div className="space-y-2 p-4 text-xs">
-          <div>
+          </>
+        ),
+      };
+    }
+    case "gym": {
+      const gym = amenity.place;
+      return {
+        kind: "Gym",
+        rows: (
+          <>
             <KeyValue label="Type" value={GYM_CATEGORY_LABEL[gym.category]} />
             {gym.brand !== "Independent" ? <KeyValue label="Brand" value={gym.brand} /> : null}
-            {gym.openingHours ? <KeyValue label="Hours" value={formatOpeningHours(gym.openingHours) ?? gym.openingHours} /> : null}
-            <MapLocationLink name={gym.name} address={gym.address} lat={gym.lat} lng={gym.lng} />
-            {gym.website ? (
-              <div className="flex gap-2 py-1">
-                <span className="data-label w-20 shrink-0">Website</span>
-                <a
-                  href={gym.website}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="min-w-0 break-all text-info underline decoration-info/40 hover:decoration-info"
-                >
-                  {gym.website}
-                </a>
-              </div>
-            ) : null}
-          </div>
-          <p className="text-[11px] leading-relaxed text-muted">{GYM_SOURCE_HINT[gym.source]}</p>
-        </div>
-      </FocusShell>
-    );
-  }
-
-  if (amenity?.type === "community-club") {
-    const { club } = amenity;
-    return (
-      <FocusShell kind={COMMUNITY_CLUB_KIND_LABEL[club.kind]} title={club.name} onClose={onClose}>
-        <div className="space-y-2 p-4 text-xs">
-          <PlacePhotoGallery key={club.id} name={club.name} photos={club.photos} />
-          <div>
-            <KeyValue label="Type" value={COMMUNITY_CLUB_KIND_LABEL[club.kind]} />
-            <MapLocationLink name={club.name} address={club.address} lat={club.lat} lng={club.lng} />
-          </div>
-          <p className="text-[11px] leading-relaxed text-muted">{COMMUNITY_CLUB_SOURCE_HINT}</p>
-        </div>
-      </FocusShell>
-    );
-  }
-
-  if (amenity?.type === "pharmacy") {
-    const { pharmacy } = amenity;
-    return (
-      <FocusShell kind="Pharmacy" title={pharmacy.name} onClose={onClose}>
-        <div className="space-y-2 p-4 text-xs">
-          <div>
-            <MapLocationLink name={pharmacy.name} address={pharmacy.address} lat={pharmacy.lat} lng={pharmacy.lng} />
-          </div>
-          <p className="text-[11px] leading-relaxed text-muted">{PHARMACY_SOURCE_HINT}</p>
-        </div>
-      </FocusShell>
-    );
-  }
-
-  if (amenity?.type === "heritage") {
-    const { site } = amenity;
-    return (
-      <FocusShell kind={HERITAGE_KIND_LABEL[site.kind]} title={site.name} onClose={onClose}>
-        <div className="space-y-2 p-4 text-xs">
-          <PlacePhotoGallery key={site.id} name={site.name} photos={site.photos} />
-          <div>
-            {site.description ? <KeyValue label="About" value={site.description} /> : null}
-            <MapLocationLink name={site.name} address={site.address} lat={site.lat} lng={site.lng} />
-            {site.website ? (
-              <div className="flex gap-2 py-1">
-                <span className="data-label w-20 shrink-0">{site.source === "nhb" ? "Roots.sg" : "Website"}</span>
-                <a
-                  href={site.website}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="min-w-0 break-all text-info underline decoration-info/40 hover:decoration-info"
-                >
-                  {site.source === "nhb" ? "More on Roots.sg" : site.website}
-                </a>
-              </div>
-            ) : null}
-          </div>
-          <p className="text-[11px] leading-relaxed text-muted">{HERITAGE_SOURCE_HINT[site.source]}</p>
-        </div>
-      </FocusShell>
-    );
-  }
-
-  if (amenity?.type === "healthcare") {
-    const { site } = amenity;
-    return (
-      <FocusShell kind={HEALTHCARE_KIND_LABEL[site.kind]} title={site.name} onClose={onClose}>
-        <div className="space-y-2 p-4 text-xs">
-          <PlacePhotoGallery key={site.id} name={site.name} photos={site.photos} />
-          <div>
+            {hours(gym.openingHours)}
+          </>
+        ),
+        website: gym.website ? { href: gym.website } : undefined,
+        source: GYM_SOURCE_HINT[gym.source],
+      };
+    }
+    case "community-club": {
+      const kind = COMMUNITY_CLUB_KIND_LABEL[amenity.place.kind];
+      return { kind, rows: <KeyValue label="Type" value={kind} />, source: COMMUNITY_CLUB_SOURCE_HINT };
+    }
+    case "pharmacy":
+      return { kind: "Pharmacy", source: PHARMACY_SOURCE_HINT };
+    case "hotel": {
+      const { rooms } = amenity.place;
+      return {
+        kind: "Hotel",
+        rows: rooms !== null ? <KeyValue label="Licensed rooms" value={rooms.toLocaleString("en-SG")} /> : null,
+        source: HOTEL_SOURCE_HINT,
+      };
+    }
+    case "heritage": {
+      const site = amenity.place;
+      return {
+        kind: HERITAGE_KIND_LABEL[site.kind],
+        rows: site.description ? <KeyValue label="About" value={site.description} /> : null,
+        website: site.website
+          ? site.source === "nhb"
+            ? { href: site.website, label: "Roots.sg", text: "More on Roots.sg" }
+            : { href: site.website }
+          : undefined,
+        source: HERITAGE_SOURCE_HINT[site.source],
+      };
+    }
+    case "healthcare": {
+      const site = amenity.place;
+      return {
+        kind: HEALTHCARE_KIND_LABEL[site.kind],
+        rows: (
+          <>
             {site.programmes.length ? <KeyValue label="Schemes" value={site.programmes.join(" · ")} /> : null}
             {site.phone ? <KeyValue label="Telephone" value={site.phone} /> : null}
-            <MapLocationLink name={site.name} address={site.address} lat={site.lat} lng={site.lng} />
-          </div>
-          <p className="text-[11px] leading-relaxed text-muted">{HEALTHCARE_SOURCE_HINT[site.source]}</p>
-        </div>
-      </FocusShell>
-    );
-  }
-
-  if (amenity?.type === "library") {
-    const { library } = amenity;
-    return (
-      <FocusShell kind="Public Library" title={library.name} onClose={onClose}>
-        <div className="space-y-2 p-4 text-xs">
-          <PlacePhotoGallery key={library.id} name={library.name} photos={library.photos} />
-          <div>
-            {library.branch ? <KeyValue label="Branch" value={library.branch} /> : null}
-            <MapLocationLink name={library.name} address={library.address} lat={library.lat} lng={library.lng} />
-          </div>
-          <p className="text-[11px] leading-relaxed text-muted">{LIBRARY_SOURCE_HINT[library.source]}</p>
-        </div>
-      </FocusShell>
-    );
-  }
-
-  if (amenity?.type === "supermarket") {
-    const { market } = amenity;
-    return (
-      <FocusShell kind="Supermarket" title={market.name} onClose={onClose}>
-        <div className="space-y-2 p-4 text-xs">
-          <div>
+          </>
+        ),
+        source: HEALTHCARE_SOURCE_HINT[site.source],
+      };
+    }
+    case "library": {
+      const library = amenity.place;
+      return {
+        kind: "Public Library",
+        rows: library.branch ? <KeyValue label="Branch" value={library.branch} /> : null,
+        source: LIBRARY_SOURCE_HINT[library.source],
+      };
+    }
+    case "supermarket": {
+      const market = amenity.place;
+      return {
+        kind: "Supermarket",
+        rows: (
+          <>
             {market.brand !== "Other" ? <KeyValue label="Brand" value={market.brand} /> : null}
-            {market.openingHours ? <KeyValue label="Hours" value={formatOpeningHours(market.openingHours) ?? market.openingHours} /> : null}
-            <MapLocationLink name={market.name} address={market.address} lat={market.lat} lng={market.lng} />
-            {market.website ? (
-              <div className="flex gap-2 py-1">
-                <span className="data-label w-20 shrink-0">Website</span>
-                <a
-                  href={market.website}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="min-w-0 break-all text-info underline decoration-info/40 hover:decoration-info"
-                >
-                  {market.website}
-                </a>
-              </div>
-            ) : null}
-          </div>
-          <p className="text-[11px] leading-relaxed text-muted">{SUPERMARKET_SOURCE_HINT}</p>
-        </div>
-      </FocusShell>
-    );
-  }
-
-  if (amenity?.type === "school") {
-    const { school } = amenity;
-    return (
-      <FocusShell kind={`${SCHOOL_LEVEL_LABEL[school.level]} School`} title={school.name} onClose={onClose}>
-        <div className="space-y-2 p-4 text-xs">
-          <div>
-            <MapLocationLink name={school.name} address={school.address} lat={school.lat} lng={school.lng} />
+            {hours(market.openingHours)}
+          </>
+        ),
+        website: market.website ? { href: market.website } : undefined,
+        source: SUPERMARKET_SOURCE_HINT,
+      };
+    }
+    case "school": {
+      const school = amenity.place;
+      return {
+        kind: `${SCHOOL_LEVEL_LABEL[school.level]} School`,
+        rows: (
+          <>
             {school.phone ? <KeyValue label="Telephone" value={school.phone} /> : null}
             {school.mrt ? <KeyValue label="MRT" value={school.mrt} /> : null}
             {school.bus ? <KeyValue label="Bus" value={school.bus} /> : null}
-            {school.website ? (
-              <div className="flex gap-2 py-1">
-                <span className="data-label w-20 shrink-0">Website</span>
-                <a
-                  href={school.website}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="min-w-0 break-all text-info underline decoration-info/40 hover:decoration-info"
-                >
-                  {school.website}
-                </a>
-              </div>
-            ) : null}
-          </div>
-          <p className="text-[11px] leading-relaxed text-muted">{SCHOOL_SOURCE_HINT}</p>
-        </div>
-      </FocusShell>
-    );
+          </>
+        ),
+        website: school.website ? { href: school.website } : undefined,
+        source: SCHOOL_SOURCE_HINT,
+      };
+    }
   }
+}
 
-  if (amenity?.type === "hotel") {
-    const { hotel } = amenity;
-    return (
-      <FocusShell kind="Hotel" title={hotel.name} onClose={onClose}>
-        <div className="space-y-2 p-4 text-xs">
-          <PlacePhotoGallery key={hotel.id} name={hotel.name} photos={hotel.photos} />
-          <div>
-            {hotel.rooms !== null ? <KeyValue label="Licensed rooms" value={hotel.rooms.toLocaleString("en-SG")} /> : null}
-            <MapLocationLink name={hotel.name} address={hotel.address} lat={hotel.lat} lng={hotel.lng} />
+/**
+ * Every amenity reads the same way: photos, its facts, the address (linked
+ * to Google Maps), its website, then the data source. Malls with a store
+ * directory put that beside the details in a wide two-column layout.
+ */
+function AmenityFocus({ amenity, onClose }: { amenity: SelectedAmenity; onClose: () => void }) {
+  const { place } = amenity;
+  const { kind, rows, website, source } = amenityDetails(amenity);
+  const withDirectory = amenity.type === "mall" && hasStoreDirectory(place.id);
+  const details = (
+    <div className="space-y-2 p-4 text-xs">
+      {"photos" in place ? <PlacePhotoGallery key={place.id} name={place.name} photos={place.photos} /> : null}
+      <div>
+        {rows}
+        <MapLocationLink name={place.name} address={place.address} lat={place.lat} lng={place.lng} />
+        {website ? (
+          <div className="flex gap-2 py-1">
+            <span className="data-label w-20 shrink-0">{website.label ?? "Website"}</span>
+            <a
+              href={website.href}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="min-w-0 break-all text-info underline decoration-info/40 hover:decoration-info"
+            >
+              {website.text ?? website.href}
+            </a>
           </div>
-          <p className="text-[11px] leading-relaxed text-muted">{HOTEL_SOURCE_HINT}</p>
-        </div>
-      </FocusShell>
-    );
-  }
-
-  if (amenity?.type === "mall") {
-    const { mall } = amenity;
-    const withDirectory = hasStoreDirectory(mall.id);
-    const details = (
-      <div className="space-y-2 p-4 text-xs">
-        <PlacePhotoGallery key={mall.id} name={mall.name} photos={mall.photos} />
-        <div>
-          {mall.stores !== null ? <KeyValue label="Shops" value={mall.stores.toLocaleString("en-SG")} /> : null}
-          {mall.fnb !== null ? <KeyValue label="Food & Drink" value={mall.fnb.toLocaleString("en-SG")} /> : null}
-          {mall.nearestMrt ? <KeyValue label="Nearest MRT" value={mall.nearestMrt} /> : null}
-          {mall.openingHours ? <KeyValue label="Hours" value={formatOpeningHours(mall.openingHours) ?? mall.openingHours} /> : null}
-          <MapLocationLink name={mall.name} address={mall.address} lat={mall.lat} lng={mall.lng} />
-        </div>
+        ) : null}
       </div>
-    );
-    return (
-      <FocusShell kind="Shopping Mall" title={mall.name} wide={withDirectory} onClose={onClose}>
-        {withDirectory ? (
-          <div className="md:grid md:h-full md:min-h-0 md:grid-cols-[minmax(0,20rem)_minmax(0,1fr)]">
-            <div className="border-b border-line md:min-h-0 md:overflow-y-auto md:border-b-0 md:border-r">{details}</div>
-            <MallStoreDirectory key={mall.id} mallId={mall.id} mallName={mall.name} />
-          </div>
-        ) : (
-          details
-        )}
-      </FocusShell>
-    );
-  }
-
-  return null;
+      {source ? <p className="text-[11px] leading-relaxed text-muted">{source}</p> : null}
+    </div>
+  );
+  return (
+    <FocusShell kind={kind} title={place.name} wide={withDirectory} onClose={onClose}>
+      {withDirectory ? (
+        <div className="md:grid md:h-full md:min-h-0 md:grid-cols-[minmax(0,20rem)_minmax(0,1fr)]">
+          <div className="border-b border-line md:min-h-0 md:overflow-y-auto md:border-b-0 md:border-r">{details}</div>
+          <MallStoreDirectory key={place.id} mallId={place.id} mallName={place.name} />
+        </div>
+      ) : (
+        details
+      )}
+    </FocusShell>
+  );
 }
 
 function FocusShell({
@@ -342,10 +284,16 @@ function FocusShell({
   useEffect(() => {
     onCloseRef.current = onClose;
   }, [onClose]);
+
+  // Focuses the panel on open, traps Tab inside it and restores the trigger on close.
+  useFocusTrap(panelRef, true);
+
   useEffect(() => {
-    panelRef.current?.focus();
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onCloseRef.current();
+      if (event.key !== "Escape") return;
+      // Claim Escape so other document listeners (e.g. radius picking) back off.
+      event.preventDefault();
+      onCloseRef.current();
     };
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { PARK_LABELS_GEOJSON, PARKS_GEOJSON } from "@/lib/parks-data";
+import { PARK_LABELS_GEOJSON, PARKS_GEOJSON } from "@/lib/data/parks";
 import { areaHectares, buildParkSearchResults, describeParkFeature, formatParkName, parkLabelPoint } from "@/lib/parks";
 import { PARK_PHOTOS, photosForPark, validateParkPhotos } from "@/lib/park-photos";
 

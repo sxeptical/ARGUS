@@ -1,0 +1,60 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "osint",
+  "main": ".open-next/worker.js",
+  // Keep this current; OpenNext requires >= 2024-09-23 for nodejs_compat.
+  "compatibility_date": "2026-11-11",
+  "compatibility_flags": [
+    // LTA data parsing uses node:crypto.
+    "nodejs_compat",
+    // Force `fetch` through the public internet instead of Worker-to-Worker.
+    "global_fetch_strictly_public"
+  ],
+  "assets": {
+    "directory": ".open-next/assets",
+    "binding": "ASSETS"
+  },
+  "observability": {
+    "enabled": true,
+    "traces": {
+      "enabled": true
+    }
+  },
+  "vars": {
+    // Cloudflare always overwrites cf-connecting-ip with the real peer address,
+    // so trusting it is safe and gives the rate limiter a real client key.
+    "ARGUS_TRUST_PROXY_HEADERS": "true"
+  },
+  // Shared rate limiting across isolates in the same Cloudflare location.
+  // One binding per distinct per-route limit: the native binding fixes the
+  // limit per binding, while route scopes are separated by the key we pass.
+  // namespace_id values must be unique within the account; change them if
+  // another Worker already uses the same numbers.
+  // https://developers.cloudflare.com/workers/runtime-apis/bindings/rate-limit/
+  "ratelimits": [
+    {
+      "name": "RATE_LIMITER_60",
+      "namespace_id": "763001",
+      "simple": { "limit": 60, "period": 60 }
+    },
+    {
+      "name": "RATE_LIMITER_90",
+      "namespace_id": "763002",
+      "simple": { "limit": 90, "period": 60 }
+    },
+    {
+      "name": "RATE_LIMITER_120",
+      "namespace_id": "763003",
+      "simple": { "limit": 120, "period": 60 }
+    },
+    {
+      "name": "RATE_LIMITER_300",
+      "namespace_id": "763004",
+      "simple": { "limit": 300, "period": 60 }
+    }
+  ]
+  // Secrets (set with `wrangler secret put <NAME>`, never committed):
+  //   LTA_API_KEY              - LTA DataMall AccountKey (required for bus data)
+  //   AVIATIONSTACK_API_KEY    - AviationStack key (optional; flights are disabled)
+  // Local preview values go in .dev.vars (see .dev.vars.example).
+}

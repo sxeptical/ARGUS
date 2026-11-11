@@ -3,7 +3,7 @@
 import { useDeferredValue, useMemo, useState } from "react";
 import useSWRImmutable from "swr/immutable";
 import { LayerFilterInput } from "@/app/components/dashboard/LayerControls";
-import { MALL_STORE_INDEX, mallStoresUrl } from "@/lib/mall-stores-data";
+import { MALL_STORE_INDEX, mallStoresUrl } from "@/lib/data/mall-stores";
 import { countCategories, filterStores, groupStoresByLevel, isMallStoreList } from "@/lib/mall-stores";
 import type { MallStore } from "@/types";
 

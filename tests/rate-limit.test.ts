@@ -54,12 +54,50 @@ describe("extractClientIp", () => {
     delete process.env.VERCEL;
     process.env.ARGUS_TRUST_PROXY_HEADERS = "true";
 
-    expect(extractClientIp(requestWith({ "x-real-ip": "192.0.2.10" }))).toBe(
-      "192.0.2.10",
-    );
+    // The rightmost hop is the one added by the trusted proxy; the leftmost
+    // entry is client-controlled and spoofable.
     expect(
-      extractClientIp(requestWith({ "x-forwarded-for": "192.0.2.11, 10.1.1.1" })),
+      extractClientIp(
+        requestWith({ "x-forwarded-for": "203.0.113.1, 192.0.2.11" }),
+      ),
     ).toBe("192.0.2.11");
+  });
+
+  test("prefers cf-connecting-ip behind a trusted proxy", () => {
+    delete process.env.VERCEL;
+    process.env.ARGUS_TRUST_PROXY_HEADERS = "true";
+
+    expect(
+      extractClientIp(
+        requestWith({
+          "cf-connecting-ip": "192.0.2.10",
+          "x-forwarded-for": "203.0.113.1, 192.0.2.11",
+        }),
+      ),
+    ).toBe("192.0.2.10");
+  });
+
+  test("does not trust x-real-ip even when proxy trust is enabled", () => {
+    delete process.env.VERCEL;
+    process.env.ARGUS_TRUST_PROXY_HEADERS = "true";
+
+    expect(extractClientIp(requestWith({ "x-real-ip": "192.0.2.10" }))).toBe(
+      "127.0.0.1",
+    );
+  });
+
+  test("ignores cf-connecting-ip unless proxy trust is enabled", () => {
+    delete process.env.VERCEL;
+    delete process.env.ARGUS_TRUST_PROXY_HEADERS;
+
+    expect(
+      extractClientIp(
+        requestWith({
+          "cf-connecting-ip": "192.0.2.10",
+          "x-forwarded-for": "203.0.113.1, 192.0.2.11",
+        }),
+      ),
+    ).toBe("unknown");
   });
 
   test("falls back to 127.0.0.1 when proxy trust is enabled but no header is present", () => {

@@ -8,9 +8,10 @@
  * Brand is normalised to the operator (NTUC FairPrice incl. Finest/Xtra/
  * Xpress, Cold Storage incl. CS Fresh, Sheng Siong, Giant, Prime, Don Don
  * Donki, Ang Mo, U Stars, Hao Mart, Scarlett) via `brand:wikidata` first,
- * then whole-token matching on name/brand/operator; everything else
- * counts as "Other". Unnamed ways/nodes are dropped. One electronics store
- * mistagged as a supermarket (Bizgram) is dropped.
+ * then ordered whole-token-sequence matching per field on brand/name/
+ * operator; everything else counts as "Other". Unnamed ways/nodes are
+ * dropped. One electronics store mistagged as a supermarket (Bizgram) is
+ * dropped.
  *
  * This is a separate script and output from scripts/fetch-amenities.mjs,
  * following the gyms pattern: rerunning it never refetches hawker centres,
@@ -18,15 +19,9 @@
  */
 import { mkdir, writeFile } from "node:fs/promises";
 import { fetchJson, USER_AGENT } from "./lib/commons-photos.mjs";
+import { hasTokenSeq, inSingapore, round, text, tokens, websiteOf } from "./lib/place-fields.mjs";
 
 const OVERPASS_URL = "https://overpass-api.de/api/interpreter";
-const SG_BOUNDS = { minLat: 1.1, maxLat: 1.5, minLng: 103.5, maxLng: 104.1 };
-
-const inSingapore = (lat, lng) =>
-  Number.isFinite(lat) && Number.isFinite(lng) &&
-  lat >= SG_BOUNDS.minLat && lat <= SG_BOUNDS.maxLat && lng >= SG_BOUNDS.minLng && lng <= SG_BOUNDS.maxLng;
-const round = (value) => Math.round(value * 1e6) / 1e6;
-const text = (value) => (typeof value === "string" && value.trim() ? value.trim() : null);
 
 // brand:wikidata values seen on Singapore supermarkets (verified 2026-11-10).
 const BRAND_BY_WIKIDATA = new Map([
@@ -39,31 +34,40 @@ const BRAND_BY_WIKIDATA = new Map([
   ["Q1185381", "Don Don Donki"],
 ]);
 
-// Whole-token rules, in check order. Tokens come from the name, brand and
-// operator lower-cased and split on non-alphanumerics, so "FairPrice
-// Finest" matches fairprice and "CS Fresh" matches cs+fresh, while
-// "Prime" inside a longer word never matches.
+// Ordered whole-token sequences, in check order, matched against one field at
+// a time (brand, then name, then operator) so tokens from unrelated fields
+// never pool: a store named "Ang Mo Kio ..." cannot borrow "ang"/"mo" from a
+// brand tag or operator. "Fair Price" and "CS Fresh" stay two-token
+// sequences, and "stars" alone is not a brand — U Stars needs its "u". Giant,
+// Prime and Scarlett are distinctive enough as single tokens.
 const BRAND_TOKEN_RULES = [
-  ["NTUC FairPrice", (t) => t.has("fairprice") || (t.has("fair") && t.has("price")) || t.has("ntuc")],
-  ["Cold Storage", (t) => (t.has("cold") && t.has("storage")) || (t.has("cs") && t.has("fresh"))],
-  ["Sheng Siong", (t) => t.has("sheng") && (t.has("siong") || t.has("shiong"))],
-  ["Giant", (t) => t.has("giant")],
-  ["Prime", (t) => t.has("prime")],
-  ["Don Don Donki", (t) => t.has("donki") || (t.has("don") && t.has("donki"))],
-  ["Ang Mo", (t) => t.has("ang") && t.has("mo")],
-  ["U Stars", (t) => t.has("stars")],
-  ["Hao Mart", (t) => t.has("hao") && t.has("mart")],
-  ["Scarlett", (t) => t.has("scarlett")],
+  { label: "NTUC FairPrice", names: [["fairprice"], ["fair", "price"], ["ntuc"]] },
+  { label: "Cold Storage", names: [["cold", "storage"], ["cs", "fresh"]] },
+  { label: "Sheng Siong", names: [["sheng", "siong"], ["sheng", "shiong"]] },
+  { label: "Giant", names: [["giant"]] },
+  { label: "Prime", names: [["prime"]] },
+  { label: "Don Don Donki", names: [["donki"]] },
+  // "Ang Mo" is the chain; "Ang Mo Kio" is the town, so veto the sequence
+  // when it runs into "kio" (e.g. an unbranded "Ang Mo Kio Mini Mart").
+  { label: "Ang Mo", names: [["ang", "mo"]], reject: ["ang", "mo", "kio"] },
+  { label: "U Stars", names: [["u", "stars"]] },
+  { label: "Hao Mart", names: [["hao", "mart"]] },
+  { label: "Scarlett", names: [["scarlett"]] },
 ];
-const tokensOf = (values) =>
-  new Set(values.flatMap((v) => String(v ?? "").toLowerCase().split(/[^a-z0-9]+/).filter(Boolean)));
+const matchBrand = (value) => {
+  const haystack = tokens(value);
+  const rule = BRAND_TOKEN_RULES.find(
+    ({ names, reject }) =>
+      names.some((needle) => hasTokenSeq(haystack, needle)) &&
+      !(reject && hasTokenSeq(haystack, reject)),
+  );
+  return rule?.label ?? null;
+};
 
 function brandOf(tags) {
   const wikidata = BRAND_BY_WIKIDATA.get(text(tags["brand:wikidata"]) ?? "");
   if (wikidata) return wikidata;
-  const tokens = tokensOf([tags.name, tags.brand, tags.operator]);
-  for (const [brand, matches] of BRAND_TOKEN_RULES) if (matches(tokens)) return brand;
-  return "Other";
+  return matchBrand(tags.brand) ?? matchBrand(tags.name) ?? matchBrand(tags.operator) ?? "Other";
 }
 
 // Mistagged `shop=supermarket` names that are not supermarkets. Documented,
@@ -94,7 +98,7 @@ for (const element of overpass.elements ?? []) {
   const street = [text(tags["addr:housenumber"]), text(tags["addr:street"])].filter(Boolean).join(" ");
   const postcode = text(tags["addr:postcode"]);
   const address = street ? `${street}${postcode ? `, Singapore ${postcode}` : ""}` : postcode ? `Singapore ${postcode}` : null;
-  const website = text(tags.website);
+  const website = websiteOf(tags.website);
   supermarkets.push({
     id: `osm-${element.type}-${element.id}`,
     name,
@@ -103,7 +107,7 @@ for (const element of overpass.elements ?? []) {
     lat: round(lat),
     lng: round(lng),
     openingHours: text(tags.opening_hours),
-    website: website ? (/^https?:\/\//i.test(website) ? website : `https://${website}`) : null,
+    website,
   });
 }
 supermarkets.sort((a, b) => a.name.localeCompare(b.name, "en-SG"));

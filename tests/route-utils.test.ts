@@ -15,7 +15,7 @@ import {
 
 const options = { maxRequests: 120, serviceLabel: "Test feed" };
 
-const viaHandle = (produce: () => unknown) =>
+const viaHandle = (produce: (signal: AbortSignal) => unknown) =>
   handle(
     new Request("https://example.test/feed"),
     crypto.randomUUID(),
@@ -115,7 +115,59 @@ describe("handle", () => {
   test("returns the produced value as JSON on success", async () => {
     const response = await viaHandle(async () => ({ ok: true, items: [1, 2] }));
     expect(response.status).toBe(200);
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
     expect(await response.json()).toEqual({ ok: true, items: [1, 2] });
+  });
+
+  test("aborts produce and returns 504 when the overall deadline fires", async () => {
+    const originalSetTimeout = globalThis.setTimeout;
+    const originalClearTimeout = globalThis.clearTimeout;
+    let fire: () => void = () => {};
+    globalThis.setTimeout = ((fn: () => void) => {
+      fire = fn;
+      return 0;
+    }) as unknown as typeof setTimeout;
+    globalThis.clearTimeout = (() => {}) as unknown as typeof clearTimeout;
+
+    try {
+      let received: AbortSignal | undefined;
+      const responsePromise = viaHandle((signal) => {
+        received = signal;
+        return new Promise<never>(() => {});
+      });
+      fire();
+
+      const response = await responsePromise;
+      expect(response.status).toBe(504);
+      expect(response.headers.get("Cache-Control")).toBe("no-store");
+      expect(await response.json()).toEqual({ error: "Test feed timed out" });
+      expect(received?.aborted).toBe(true);
+    } finally {
+      globalThis.setTimeout = originalSetTimeout;
+      globalThis.clearTimeout = originalClearTimeout;
+    }
+  });
+
+  test("propagates a client abort into produce", async () => {
+    const controller = new AbortController();
+    const request = new Request("https://example.test/feed", {
+      signal: controller.signal,
+    });
+    let received: AbortSignal | undefined;
+    const responsePromise = handle(
+      request,
+      crypto.randomUUID(),
+      options,
+      (signal) => {
+        received = signal;
+        return new Promise<never>(() => {});
+      },
+    );
+    controller.abort();
+
+    const response = await responsePromise;
+    expect(response.status).toBe(499);
+    expect(received?.aborted).toBe(true);
   });
 });
 
@@ -202,6 +254,7 @@ describe("handle error mapping", () => {
     for (const { name, error, status, body, retryAfter } of cases) {
       const response = await viaHandle(() => Promise.reject(error));
       expect(response.status, name).toBe(status);
+      expect(response.headers.get("Cache-Control"), name).toBe("no-store");
       if (retryAfter !== undefined) {
         expect(response.headers.get("Retry-After"), name).toBe(retryAfter);
       }
@@ -264,6 +317,7 @@ describe("handle rate limiting", () => {
       },
     );
     expect(second.status).toBe(429);
+    expect(second.headers.get("Cache-Control")).toBe("no-store");
     expect(await second.json()).toEqual({ error: "Too many requests" });
     expect(second.headers.get("Retry-After")).toBe("60");
     expect(second.headers.get("X-RateLimit-Remaining")).toBe("0");

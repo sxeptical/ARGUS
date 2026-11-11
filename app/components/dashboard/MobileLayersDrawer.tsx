@@ -10,61 +10,25 @@ import {
   LayerOptionFilter,
 } from "@/app/components/dashboard/LayerControls";
 import { useLayerList } from "@/app/hooks/use-layer-list";
+import { useFocusTrap } from "@/app/hooks/use-focus-trap";
 import type { SensorRow } from "@/app/hooks/use-dashboard-state";
 import type { SensorKey } from "@/lib/layers";
-import type { GymBrandCount } from "@/lib/gyms";
-import type { HeritageKindCount } from "@/lib/heritage";
-import { HERITAGE_KIND_LABEL } from "@/lib/heritage";
-import type { HealthcareKindCount } from "@/lib/healthcare";
-import { HEALTHCARE_KIND_LABEL } from "@/lib/healthcare";
-import type { SupermarketBrandCount } from "@/lib/supermarkets";
-import type { SchoolLevelCount } from "@/lib/schools";
-import { SCHOOL_LEVEL_LABEL } from "@/lib/schools";
 
 export function MobileLayersDrawer({
   sensorRows,
   sensorVisibility,
   setSensorVisibility,
-  gymBrands,
-  gymBrandCounts,
-  onGymBrandsChange,
-  heritageKinds,
-  heritageKindCounts,
-  onHeritageKindsChange,
-  healthcareKinds,
-  healthcareKindCounts,
-  onHealthcareKindsChange,
-  supermarketBrands,
-  supermarketBrandCounts,
-  onSupermarketBrandsChange,
-  schoolLevels,
-  schoolLevelCounts,
-  onSchoolLevelsChange,
   visibleSensorCount,
 }: {
   sensorRows: ReadonlyArray<SensorRow>;
   sensorVisibility: Record<SensorKey, boolean>;
   setSensorVisibility: Dispatch<SetStateAction<Record<SensorKey, boolean>>>;
-  gymBrands: Record<string, boolean>;
-  gymBrandCounts: GymBrandCount[];
-  onGymBrandsChange: (next: Record<string, boolean>) => void;
-  heritageKinds: Record<string, boolean>;
-  heritageKindCounts: HeritageKindCount[];
-  onHeritageKindsChange: (next: Record<string, boolean>) => void;
-  healthcareKinds: Record<string, boolean>;
-  healthcareKindCounts: HealthcareKindCount[];
-  onHealthcareKindsChange: (next: Record<string, boolean>) => void;
-  supermarketBrands: Record<string, boolean>;
-  supermarketBrandCounts: SupermarketBrandCount[];
-  onSupermarketBrandsChange: (next: Record<string, boolean>) => void;
-  schoolLevels: Record<string, boolean>;
-  schoolLevelCounts: SchoolLevelCount[];
-  onSchoolLevelsChange: (next: Record<string, boolean>) => void;
   visibleSensorCount: number;
 }) {
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const drawerRef = useRef<HTMLElement>(null);
 
   const {
     groups,
@@ -85,11 +49,19 @@ export function MobileLayersDrawer({
     triggerRef.current?.focus();
   }, []);
 
+  // Tab stays inside the drawer; the close button keeps the initial focus and
+  // the trigger receives it back when the drawer closes.
+  useFocusTrap(drawerRef, open, { restoreFocusRef: triggerRef });
+
   useEffect(() => {
     if (!open) return;
     closeButtonRef.current?.focus();
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") close();
+      if (event.key === "Escape") {
+        // Claim Escape so other document listeners back off.
+        event.preventDefault();
+        close();
+      }
     };
     document.addEventListener("keydown", onKeyDown);
     const previousOverflow = document.body.style.overflow;
@@ -132,8 +104,11 @@ export function MobileLayersDrawer({
       />
 
       <aside
+        ref={drawerRef}
         id="mobile-layers-drawer"
         inert={!open}
+        role="dialog"
+        aria-modal={open ? true : undefined}
         aria-label="Map layers"
         className={`fixed inset-y-0 left-0 z-50 flex w-64 max-w-[82vw] flex-col border-r border-line bg-surface transition-transform duration-200 ease-out xl:hidden ${
           open ? "translate-x-0" : "-translate-x-full"
@@ -245,49 +220,13 @@ export function MobileLayersDrawer({
                             />
                           </span>
                         </button>
-                        {row.key === "gyms" && visible ? (
+                        {row.filter && visible ? (
                           <LayerOptionFilter
-                            summaryLabel="Brands"
-                            options={gymBrandCounts.map(({ brand, count }) => ({ value: brand, label: brand, count }))}
-                            selected={gymBrands}
-                            onChange={onGymBrandsChange}
-                            accentClass="bg-signal-gym"
-                          />
-                        ) : null}
-                        {row.key === "heritage" && visible ? (
-                          <LayerOptionFilter
-                            summaryLabel="Types"
-                            options={heritageKindCounts.map(({ kind, count }) => ({ value: kind, label: HERITAGE_KIND_LABEL[kind], count }))}
-                            selected={heritageKinds}
-                            onChange={onHeritageKindsChange}
-                            accentClass="bg-signal-heritage"
-                          />
-                        ) : null}
-                        {row.key === "healthcare" && visible ? (
-                          <LayerOptionFilter
-                            summaryLabel="Types"
-                            options={healthcareKindCounts.map(({ kind, count }) => ({ value: kind, label: HEALTHCARE_KIND_LABEL[kind], count }))}
-                            selected={healthcareKinds}
-                            onChange={onHealthcareKindsChange}
-                            accentClass="bg-signal-healthcare"
-                          />
-                        ) : null}
-                        {row.key === "supermarkets" && visible ? (
-                          <LayerOptionFilter
-                            summaryLabel="Brands"
-                            options={supermarketBrandCounts.map(({ brand, count }) => ({ value: brand, label: brand, count }))}
-                            selected={supermarketBrands}
-                            onChange={onSupermarketBrandsChange}
-                            accentClass="bg-signal-supermarket"
-                          />
-                        ) : null}
-                        {row.key === "schools" && visible ? (
-                          <LayerOptionFilter
-                            summaryLabel="Levels"
-                            options={schoolLevelCounts.map(({ level, count }) => ({ value: level, label: SCHOOL_LEVEL_LABEL[level], count }))}
-                            selected={schoolLevels}
-                            onChange={onSchoolLevelsChange}
-                            accentClass="bg-signal-school"
+                            summaryLabel={row.filter.label}
+                            options={row.filter.options}
+                            selected={row.filter.selected}
+                            onChange={row.filter.onChange}
+                            accentClass={row.dot}
                           />
                         ) : null}
                         </Fragment>

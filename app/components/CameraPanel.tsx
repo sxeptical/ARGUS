@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import TerminalPanel from "@/app/components/TerminalPanel";
+import { useFocusTrap } from "@/app/hooks/use-focus-trap";
 import { googleMapsUrl } from "@/lib/maps-links";
 import type { TrafficCamera } from "@/types";
 
@@ -16,41 +17,27 @@ export default function CameraPanel({
   const [expanded, setExpanded] = useState<TrafficCamera | null>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
-  const previousFocusRef = useRef<HTMLElement | null>(null);
 
   const closeModal = useCallback(() => {
     setExpanded(null);
-    previousFocusRef.current?.focus();
   }, []);
 
-  const handleKeyDown = useCallback(
-    (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        closeModal();
-      }
-      if (event.key === "Tab" && dialogRef.current) {
-        const focusable = dialogRef.current.querySelectorAll<HTMLElement>(
-          'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
-        );
-        const first = focusable[0];
-        const last = focusable[focusable.length - 1];
-        if (event.shiftKey && document.activeElement === first) {
-          event.preventDefault();
-          last?.focus();
-        } else if (!event.shiftKey && document.activeElement === last) {
-          event.preventDefault();
-          first?.focus();
-        }
-      }
-    },
-    [closeModal],
-  );
+  // Focus the close button on open, trap Tab inside the dialog and restore
+  // focus to the camera thumbnail on close.
+  useFocusTrap(dialogRef, expanded !== null, {
+    initialFocusRef: closeButtonRef,
+  });
 
   useEffect(() => {
     if (!expanded) return;
 
-    previousFocusRef.current = document.activeElement as HTMLElement;
-    closeButtonRef.current?.focus();
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      // Claim Escape so the radius-picking handler does not also cancel.
+      event.preventDefault();
+      closeModal();
+    };
+
     document.addEventListener("keydown", handleKeyDown);
     document.body.style.overflow = "hidden";
 
@@ -58,7 +45,7 @@ export default function CameraPanel({
       document.removeEventListener("keydown", handleKeyDown);
       document.body.style.overflow = "";
     };
-  }, [expanded, handleKeyDown]);
+  }, [expanded, closeModal]);
 
   const displayCameras = useMemo(() => {
     if (selectedCamera) {

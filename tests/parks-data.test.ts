@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { PARKS_GEOJSON, PARK_COUNT, TRAIL_COUNT } from "@/lib/parks-data";
+import { PARKS_GEOJSON, PARK_COUNT, TRAIL_COUNT } from "@/lib/data/parks";
 
 function coordinates(value: unknown): number[][] {
   if (!Array.isArray(value)) return [];

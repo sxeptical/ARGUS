@@ -15,65 +15,45 @@ import {
   type GeoFilter,
 } from "@/lib/geo-filter";
 import {
-  LAYERS,
-  DEFAULT_SENSOR_VISIBILITY,
-  SensorKey,
-  coerceSensorVisibility,
-} from "@/lib/layers";
+  AMENITY_LAYER_BY_TYPE,
+  AMENITY_LAYERS,
+  findAmenity,
+  parseAmenityFilters,
+  visiblePlaces,
+  type AmenityFilters,
+  type AmenityLayerKey,
+  type LayerOption,
+  type OptionSelection,
+} from "@/lib/amenity-layers";
+import { LAYERS, DEFAULT_SENSOR_VISIBILITY, SensorKey } from "@/lib/layers";
 import { MRT_DISPLAY_LINE_COUNT } from "@/lib/mrt-network";
-import { HAWKER_CENTRES, MALLS } from "@/lib/amenities-data";
-import { GYMS, DEFAULT_GYM_BRAND_VISIBILITY } from "@/lib/gyms-data";
-import { filterGymsByBrand, orderedGymBrandCounts } from "@/lib/gyms";
-import { COMMUNITY_CLUBS } from "@/lib/community-clubs-data";
-import { PHARMACIES } from "@/lib/pharmacies-data";
-import { HOTELS } from "@/lib/hotels-data";
-import { HERITAGE_SITES, DEFAULT_HERITAGE_KIND_VISIBILITY } from "@/lib/heritage-data";
-import { filterHeritageByKind, orderedHeritageKindCounts } from "@/lib/heritage";
-import { HEALTHCARE_SITES, DEFAULT_HEALTHCARE_KIND_VISIBILITY } from "@/lib/healthcare-data";
-import { filterHealthcareByKind, orderedHealthcareKindCounts } from "@/lib/healthcare";
-import { LIBRARIES } from "@/lib/libraries-data";
-import { SUPERMARKETS, DEFAULT_SUPERMARKET_BRAND_VISIBILITY } from "@/lib/supermarkets-data";
-import { filterSupermarketsByBrand, orderedSupermarketBrandCounts } from "@/lib/supermarkets";
-import { SCHOOLS, DEFAULT_SCHOOL_LEVEL_VISIBILITY } from "@/lib/schools-data";
-import { filterSchoolsByLevel, orderedSchoolLevelCounts } from "@/lib/schools";
 import { DEFAULT_NOTIFICATION_PREFS } from "@/lib/notifications";
-import { PARKS_GEOJSON } from "@/lib/parks-data";
+import { PARKS_GEOJSON } from "@/lib/data/parks";
 import {
+  AMENITY_FILTERS_KEY,
   GEO_FILTER_CENTER_KEY,
   GEO_FILTER_RADIUS_KEY,
-  GYM_BRANDS_KEY,
-  HERITAGE_KINDS_KEY,
-  HEALTHCARE_KINDS_KEY,
-  SUPERMARKET_BRANDS_KEY,
-  SCHOOL_LEVELS_KEY,
   NOTIFICATION_PREFS_KEY,
   parseGeoFilterCenter,
   parseGeoFilterRadius,
-  parseLayerOptionSelection,
   parseNotificationPrefs,
+  parseSensorVisibility,
   SENSOR_VISIBILITY_KEY,
 } from "@/lib/ui-preferences";
-import type { ParkFeatureKind } from "@/types";
 import type {
-  CommunityClub,
+  AmenityType,
   FlightState,
-  Gym,
-  GymBrand,
-  HawkerCentre,
-  HealthcareKind,
-  HealthcareSite,
-  HeritageKind,
-  HeritageSite,
-  Hotel,
-  Mall,
-  PublicLibrary,
-  School,
-  SchoolLevel,
-  Supermarket,
-  SupermarketBrand,
-  Pharmacy,
+  ParkFeatureKind,
   TrafficCamera,
 } from "@/types";
+
+/** A layer's sub-filter chips (e.g. gym brands), ready to render. */
+export type SensorRowFilter = {
+  readonly label: string;
+  readonly options: ReadonlyArray<LayerOption>;
+  readonly selected: OptionSelection;
+  readonly onChange: (next: Record<string, boolean>) => void;
+};
 
 export type SensorRow = {
   readonly key: SensorKey;
@@ -83,26 +63,22 @@ export type SensorRow = {
   readonly tone: string;
   /** Background tone class for the layer dot in the mobile drawer. */
   readonly dot: string;
+  /** Present on layers that can be narrowed further while visible. */
+  readonly filter?: SensorRowFilter;
 };
 
-export type SensorStatsRow = Omit<SensorRow, "key" | "dot">;
+export type SensorStatsRow = Omit<SensorRow, "key" | "dot" | "filter">;
 
 /** Which static amenity the map (or search) picked, by its bundle id. */
-export type AmenitySelectionTarget = { type: "mall" | "hawker" | "gym" | "community-club" | "pharmacy" | "hotel" | "heritage" | "healthcare" | "library" | "supermarket" | "school"; id: string };
+export type AmenitySelectionTarget = { type: AmenityType; id: string };
 
-/** A selected amenity resolved to its bundle record. */
-export type SelectedAmenity =
-  | { type: "mall"; mall: Mall }
-  | { type: "hawker"; hawker: HawkerCentre }
-  | { type: "gym"; gym: Gym }
-  | { type: "community-club"; club: CommunityClub }
-  | { type: "pharmacy"; pharmacy: Pharmacy }
-  | { type: "hotel"; hotel: Hotel }
-  | { type: "heritage"; site: HeritageSite }
-  | { type: "healthcare"; site: HealthcareSite }
-  | { type: "library"; library: PublicLibrary }
-  | { type: "supermarket"; market: Supermarket }
-  | { type: "school"; school: School };
+const NO_AMENITY_FILTERS: AmenityFilters = {};
+
+// Only park polygons count toward the "Parks" layer; filtering them once
+// keeps a radius-slider drag from re-walking connectors and trails too.
+const PARK_FEATURES = PARKS_GEOJSON.features.filter(
+  (feature) => feature.properties.kind === "park",
+);
 
 export function useDashboardState() {
   // Declared before the sources: carparks and EV chargers only load while
@@ -112,7 +88,7 @@ export function useDashboardState() {
   >(
     SENSOR_VISIBILITY_KEY,
     DEFAULT_SENSOR_VISIBILITY,
-    coerceSensorVisibility,
+    (stored) => parseSensorVisibility(stored, DEFAULT_SENSOR_VISIBILITY),
   );
   // Also declared before the sources: browser alerts need background polling.
   const [notificationPrefs, setNotificationPrefs] = usePersistentState(
@@ -120,35 +96,10 @@ export function useDashboardState() {
     DEFAULT_NOTIFICATION_PREFS,
     parseNotificationPrefs,
   );
-  // Also declared before the sources: the gym layer and its count follow it.
-  const [gymBrands, setGymBrands] = usePersistentState<Record<GymBrand, boolean>>(
-    GYM_BRANDS_KEY,
-    DEFAULT_GYM_BRAND_VISIBILITY,
-    (stored) => parseLayerOptionSelection(stored, DEFAULT_GYM_BRAND_VISIBILITY),
-  );
-  // Also declared before the sources: the heritage layer and its count follow it.
-  const [heritageKinds, setHeritageKinds] = usePersistentState<Record<HeritageKind, boolean>>(
-    HERITAGE_KINDS_KEY,
-    DEFAULT_HERITAGE_KIND_VISIBILITY,
-    (stored) => parseLayerOptionSelection(stored, DEFAULT_HERITAGE_KIND_VISIBILITY),
-  );
-  // Also declared before the sources: the healthcare layer and its count follow it.
-  const [healthcareKinds, setHealthcareKinds] = usePersistentState<Record<HealthcareKind, boolean>>(
-    HEALTHCARE_KINDS_KEY,
-    DEFAULT_HEALTHCARE_KIND_VISIBILITY,
-    (stored) => parseLayerOptionSelection(stored, DEFAULT_HEALTHCARE_KIND_VISIBILITY),
-  );
-  // Also declared before the sources: the supermarket layer and its count follow it.
-  const [supermarketBrands, setSupermarketBrands] = usePersistentState<Record<SupermarketBrand, boolean>>(
-    SUPERMARKET_BRANDS_KEY,
-    DEFAULT_SUPERMARKET_BRAND_VISIBILITY,
-    (stored) => parseLayerOptionSelection(stored, DEFAULT_SUPERMARKET_BRAND_VISIBILITY),
-  );
-  // Also declared before the sources: the schools layer and its count follow it.
-  const [schoolLevels, setSchoolLevels] = usePersistentState<Record<SchoolLevel, boolean>>(
-    SCHOOL_LEVELS_KEY,
-    DEFAULT_SCHOOL_LEVEL_VISIBILITY,
-    (stored) => parseLayerOptionSelection(stored, DEFAULT_SCHOOL_LEVEL_VISIBILITY),
+  const [amenityFilters, setAmenityFilters] = usePersistentState(
+    AMENITY_FILTERS_KEY,
+    NO_AMENITY_FILTERS,
+    parseAmenityFilters,
   );
   const data = useDashboardSources(
     {
@@ -209,10 +160,7 @@ export function useDashboardState() {
     [data.incidents, geoFilter],
   );
   const parkCount = useMemo(
-    () =>
-      featuresTouchingRadius(PARKS_GEOJSON.features, geoFilter).filter(
-        (feature) => feature.properties.kind === "park",
-      ).length,
+    () => featuresTouchingRadius(PARK_FEATURES, geoFilter).length,
     [geoFilter],
   );
   const carparks = useMemo(
@@ -223,85 +171,20 @@ export function useDashboardState() {
     () => withinRadius(data.evChargers, geoFilter, (e) => [e.lng, e.lat]),
     [data.evChargers, geoFilter],
   );
-  const mallCount = useMemo(
-    () => withinRadius(MALLS, geoFilter, (m) => [m.lng, m.lat]).length,
-    [geoFilter],
+  const amenityCounts = useMemo(
+    () =>
+      Object.fromEntries(
+        AMENITY_LAYERS.map((amenity) => [
+          amenity.layer,
+          withinRadius(
+            [...visiblePlaces(amenity, amenityFilters)],
+            geoFilter,
+            (place) => [place.lng, place.lat],
+          ).length,
+        ]),
+      ) as Record<AmenityLayerKey, number>,
+    [geoFilter, amenityFilters],
   );
-  const hawkerCount = useMemo(
-    () => withinRadius(HAWKER_CENTRES, geoFilter, (h) => [h.lng, h.lat]).length,
-    [geoFilter],
-  );
-  const gymCount = useMemo(
-    () => withinRadius(filterGymsByBrand(GYMS, gymBrands), geoFilter, (g) => [g.lng, g.lat]).length,
-    [geoFilter, gymBrands],
-  );
-
-  const toggleGymBrand = useCallback(
-    (brand: GymBrand, on: boolean) =>
-      setGymBrands((previous) => ({ ...previous, [brand]: on })),
-    [setGymBrands],
-  );
-  const gymBrandCountList = useMemo(() => orderedGymBrandCounts(GYMS), []);
-  const communityClubCount = useMemo(
-    () => withinRadius(COMMUNITY_CLUBS, geoFilter, (club) => [club.lng, club.lat]).length,
-    [geoFilter],
-  );
-  const pharmacyCount = useMemo(
-    () => withinRadius(PHARMACIES, geoFilter, (pharmacy) => [pharmacy.lng, pharmacy.lat]).length,
-    [geoFilter],
-  );
-  const hotelCount = useMemo(
-    () => withinRadius(HOTELS, geoFilter, (hotel) => [hotel.lng, hotel.lat]).length,
-    [geoFilter],
-  );
-  const heritageCount = useMemo(
-    () => withinRadius(filterHeritageByKind(HERITAGE_SITES, heritageKinds), geoFilter, (site) => [site.lng, site.lat]).length,
-    [geoFilter, heritageKinds],
-  );
-
-  const toggleHeritageKind = useCallback(
-    (kind: HeritageKind, on: boolean) =>
-      setHeritageKinds((previous) => ({ ...previous, [kind]: on })),
-    [setHeritageKinds],
-  );
-  const heritageKindCountList = useMemo(() => orderedHeritageKindCounts(HERITAGE_SITES), []);
-  const healthcareCount = useMemo(
-    () => withinRadius(filterHealthcareByKind(HEALTHCARE_SITES, healthcareKinds), geoFilter, (site) => [site.lng, site.lat]).length,
-    [geoFilter, healthcareKinds],
-  );
-
-  const toggleHealthcareKind = useCallback(
-    (kind: HealthcareKind, on: boolean) =>
-      setHealthcareKinds((previous) => ({ ...previous, [kind]: on })),
-    [setHealthcareKinds],
-  );
-  const healthcareKindCountList = useMemo(() => orderedHealthcareKindCounts(HEALTHCARE_SITES), []);
-  const libraryCount = useMemo(
-    () => withinRadius(LIBRARIES, geoFilter, (library) => [library.lng, library.lat]).length,
-    [geoFilter],
-  );
-  const supermarketCount = useMemo(
-    () => withinRadius(filterSupermarketsByBrand(SUPERMARKETS, supermarketBrands), geoFilter, (market) => [market.lng, market.lat]).length,
-    [geoFilter, supermarketBrands],
-  );
-
-  const toggleSupermarketBrand = useCallback(
-    (brand: SupermarketBrand, on: boolean) =>
-      setSupermarketBrands((previous) => ({ ...previous, [brand]: on })),
-    [setSupermarketBrands],
-  );
-  const supermarketBrandCountList = useMemo(() => orderedSupermarketBrandCounts(SUPERMARKETS), []);
-  const schoolCount = useMemo(
-    () => withinRadius(filterSchoolsByLevel(SCHOOLS, schoolLevels), geoFilter, (school) => [school.lng, school.lat]).length,
-    [geoFilter, schoolLevels],
-  );
-
-  const toggleSchoolLevel = useCallback(
-    (level: SchoolLevel, on: boolean) =>
-      setSchoolLevels((previous) => ({ ...previous, [level]: on })),
-    [setSchoolLevels],
-  );
-  const schoolLevelCountList = useMemo(() => orderedSchoolLevelCounts(SCHOOLS), []);
 
   const selectedCamera = useMemo(
     () =>
@@ -356,56 +239,34 @@ export function useDashboardState() {
     setSelectedParkId(null);
     setSelectedAmenityId(null);
   }, []);
-  const selectedAmenity = useMemo<SelectedAmenity | null>(() => {
-    if (!selectedAmenityId) return null;
-    if (selectedAmenityId.type === "mall") {
-      const mall =
-        MALLS.find((mall) => mall.id === selectedAmenityId.id) ?? null;
-      return mall ? { type: "mall", mall } : null;
-    }
-    if (selectedAmenityId.type === "gym") {
-      const gym = GYMS.find((gym) => gym.id === selectedAmenityId.id) ?? null;
-      return gym ? { type: "gym", gym } : null;
-    }
-    if (selectedAmenityId.type === "community-club") {
-      const club =
-        COMMUNITY_CLUBS.find((club) => club.id === selectedAmenityId.id) ?? null;
-      return club ? { type: "community-club", club } : null;
-    }
-    if (selectedAmenityId.type === "pharmacy") {
-      const pharmacy =
-        PHARMACIES.find((pharmacy) => pharmacy.id === selectedAmenityId.id) ?? null;
-      return pharmacy ? { type: "pharmacy", pharmacy } : null;
-    }
-    if (selectedAmenityId.type === "hotel") {
-      const hotel = HOTELS.find((hotel) => hotel.id === selectedAmenityId.id) ?? null;
-      return hotel ? { type: "hotel", hotel } : null;
-    }
-    if (selectedAmenityId.type === "heritage") {
-      const site = HERITAGE_SITES.find((site) => site.id === selectedAmenityId.id) ?? null;
-      return site ? { type: "heritage", site } : null;
-    }
-    if (selectedAmenityId.type === "healthcare") {
-      const site = HEALTHCARE_SITES.find((site) => site.id === selectedAmenityId.id) ?? null;
-      return site ? { type: "healthcare", site } : null;
-    }
-    if (selectedAmenityId.type === "library") {
-      const library = LIBRARIES.find((library) => library.id === selectedAmenityId.id) ?? null;
-      return library ? { type: "library", library } : null;
-    }
-    if (selectedAmenityId.type === "supermarket") {
-      const market = SUPERMARKETS.find((market) => market.id === selectedAmenityId.id) ?? null;
-      return market ? { type: "supermarket", market } : null;
-    }
-    if (selectedAmenityId.type === "school") {
-      const school = SCHOOLS.find((school) => school.id === selectedAmenityId.id) ?? null;
-      return school ? { type: "school", school } : null;
-    }
-    const hawker =
-      HAWKER_CENTRES.find((hawker) => hawker.id === selectedAmenityId.id) ??
-      null;
-    return hawker ? { type: "hawker", hawker } : null;
-  }, [selectedAmenityId]);
+  /**
+   * Select an amenity that may not be drawn yet (a search hit): switch its
+   * layer on, and its sub-filter option back on if that was hiding it.
+   */
+  const revealAmenity = useCallback(
+    (target: AmenitySelectionTarget) => {
+      selectAmenity(target);
+      const amenity = AMENITY_LAYER_BY_TYPE.get(target.type);
+      const place = amenity?.byId.get(target.id);
+      if (!amenity || !place) return;
+      setSensorVisibility((previous) => ({ ...previous, [amenity.layer]: true }));
+      const option = amenity.filter?.of(place);
+      if (option === undefined) return;
+      setAmenityFilters((previous) =>
+        previous[target.type]?.[option] === false
+          ? { ...previous, [target.type]: { ...previous[target.type], [option]: true } }
+          : previous,
+      );
+    },
+    [selectAmenity, setAmenityFilters, setSensorVisibility],
+  );
+  const selectedAmenity = useMemo(
+    () =>
+      selectedAmenityId
+        ? findAmenity(selectedAmenityId.type, selectedAmenityId.id)
+        : null,
+    [selectedAmenityId],
+  );
   const flightSummary = useMemo(
     () => summarizeFlights(flights),
     [flights],
@@ -424,68 +285,103 @@ export function useDashboardState() {
 
   // Exhaustive by design: a new registry layer without a count here is a
   // type error, not a silently empty panel.
-  const layerCounts: Record<SensorKey, number> = {
-    flights: flights.length,
-    cameras: cameras.length,
-    busStops: busStops.length,
-    mrt: MRT_DISPLAY_LINE_COUNT,
-    parks: parkCount,
-    incidents: incidents.length,
-    carparks: carparks.length,
-    evChargers: evChargers.length,
-    malls: mallCount,
-    hawkers: hawkerCount,
-    gyms: gymCount,
-    communityClubs: communityClubCount,
-    pharmacies: pharmacyCount,
-    hotels: hotelCount,
-    heritage: heritageCount,
-    healthcare: healthcareCount,
-    libraries: libraryCount,
-    supermarkets: supermarketCount,
-    schools: schoolCount,
-  };
-  const sensorRows: SensorRow[] = LAYERS.map((layer) => ({
-    key: layer.key,
-    label: layer.label,
-    note: layer.note,
-    tone: layer.tone,
-    dot: layer.dot,
-    value: layerCounts[layer.key],
-  }));
-  const sensorStatsRows: SensorStatsRow[] = [
-    {
-      label: "Inbound Flights",
-      note: "approach vector",
-      value: flightSummary.inbound,
-      tone: "text-signal-inbound",
-    },
-    {
-      label: "Outbound Flights",
-      note: "departure vector",
-      value: flightSummary.outbound,
-      tone: "text-signal-outbound",
-    },
-    {
-      label: "Transit Flights",
-      note: "crossing tracks",
-      value: flightSummary.transit,
-      tone: "text-signal-transit",
-    },
-    {
-      label: "OSINT Feed",
-      note: "news stream",
-      value: data.news.length,
-      tone: "text-ink",
-    },
-  ];
+  const layerCounts = useMemo<Record<SensorKey, number>>(
+    () => ({
+      flights: flights.length,
+      cameras: cameras.length,
+      busStops: busStops.length,
+      mrt: MRT_DISPLAY_LINE_COUNT,
+      parks: parkCount,
+      incidents: incidents.length,
+      carparks: carparks.length,
+      evChargers: evChargers.length,
+      ...amenityCounts,
+    }),
+    [
+      amenityCounts,
+      busStops,
+      cameras,
+      carparks,
+      evChargers,
+      flights,
+      incidents,
+      parkCount,
+    ],
+  );
+  const rowFilters = useMemo(
+    () =>
+      new Map<SensorKey, SensorRowFilter>(
+        AMENITY_LAYERS.flatMap(({ type, layer, filter }) =>
+          filter
+            ? [[layer, {
+                label: filter.label,
+                options: filter.choices,
+                selected: amenityFilters[type] ?? {},
+                onChange: (next: Record<string, boolean>) =>
+                  setAmenityFilters((previous) => ({ ...previous, [type]: next })),
+              }]]
+            : [],
+        ),
+      ),
+    [amenityFilters, setAmenityFilters],
+  );
+  const sensorRows = useMemo<SensorRow[]>(
+    () =>
+      LAYERS.map((layer) => ({
+        key: layer.key,
+        label: layer.label,
+        note: layer.note,
+        tone: layer.tone,
+        dot: layer.dot,
+        value: layerCounts[layer.key],
+        filter: rowFilters.get(layer.key),
+      })),
+    [layerCounts, rowFilters],
+  );
+  const sensorStatsRows = useMemo<SensorStatsRow[]>(
+    () => [
+      {
+        label: "Inbound Flights",
+        note: "approach vector",
+        value: flightSummary.inbound,
+        tone: "text-signal-inbound",
+      },
+      {
+        label: "Outbound Flights",
+        note: "departure vector",
+        value: flightSummary.outbound,
+        tone: "text-signal-outbound",
+      },
+      {
+        label: "Transit Flights",
+        note: "crossing tracks",
+        value: flightSummary.transit,
+        tone: "text-signal-transit",
+      },
+      {
+        label: "OSINT Feed",
+        note: "news stream",
+        value: data.news.length,
+        tone: "text-ink",
+      },
+    ],
+    [data.news, flightSummary],
+  );
   // Hide permanently empty controls when flights are disabled upstream.
-  const visibleSensorRows = FLIGHTS_ENABLED
-    ? sensorRows
-    : sensorRows.filter((row) => row.key !== "flights");
-  const visibleSensorStatsRows = FLIGHTS_ENABLED
-    ? sensorStatsRows
-    : sensorStatsRows.filter((row) => !row.label.includes("Flights"));
+  const visibleSensorRows = useMemo(
+    () =>
+      FLIGHTS_ENABLED
+        ? sensorRows
+        : sensorRows.filter((row) => row.key !== "flights"),
+    [sensorRows],
+  );
+  const visibleSensorStatsRows = useMemo(
+    () =>
+      FLIGHTS_ENABLED
+        ? sensorStatsRows
+        : sensorStatsRows.filter((row) => !row.label.includes("Flights")),
+    [sensorStatsRows],
+  );
   const visibleSensorCount = visibleSensorRows.filter(
     (row) => sensorVisibility[row.key],
   ).length;
@@ -522,24 +418,7 @@ export function useDashboardState() {
     geoFilter,
     geoFilterPicking,
     geoFilterRadiusM,
-    gymBrandCountList,
-    gymBrands,
-    heritageKindCountList,
-    heritageKinds,
-    setHeritageKinds,
-    toggleHeritageKind,
-    healthcareKindCountList,
-    healthcareKinds,
-    setHealthcareKinds,
-    toggleHealthcareKind,
-    supermarketBrandCountList,
-    supermarketBrands,
-    setSupermarketBrands,
-    toggleSupermarketBrand,
-    schoolLevelCountList,
-    schoolLevels,
-    setSchoolLevels,
-    toggleSchoolLevel,
+    amenityFilters,
     clearGeoFilter,
     pickGeoFilterCenter,
     setGeoFilterPicking,
@@ -575,8 +454,7 @@ export function useDashboardState() {
     setSelectedFlight: selectFlight,
     setSelectedPark: selectPark,
     setSensorVisibility,
-    setGymBrands,
-    toggleGymBrand,
+    revealAmenity,
     showBusRoute: busRoute.show,
     signalBars,
     signalsLoaded: data.signalsLoaded,

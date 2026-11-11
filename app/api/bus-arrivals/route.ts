@@ -10,14 +10,14 @@ export async function GET(request: Request) {
     request,
     "bus-arrivals",
     { maxRequests: 90, serviceLabel: "Bus arrival data" },
-    () => {
+    (signal) => {
       const stopId = requiredQueryParam(
         request,
         "stopId",
         BUS_STOP_ID_RE,
         "must be a 5-digit bus stop code",
       );
-      return getBusArrivals(stopId);
+      return getBusArrivals(stopId, signal);
     },
   );
 }

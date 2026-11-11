@@ -1,0 +1,9 @@
+# Local values for `wrangler dev` / `opennextjs-cloudflare preview`.
+# Copy to `.dev.vars` (git-ignored). `.env.local` is not read by Wrangler.
+NEXTJS_ENV=development
+
+# LTA DataMall AccountKey. Without it, bus endpoints return "not configured".
+LTA_API_KEY=your_lta_datamall_key
+
+# Optional: flight data is currently disabled (see lib/features.ts).
+AVIATIONSTACK_API_KEY=your_aviationstack_key

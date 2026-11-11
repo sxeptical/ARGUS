@@ -6,6 +6,6 @@ export async function GET(request: Request) {
     request,
     "train-alerts",
     { maxRequests: 120, serviceLabel: "Train service alert data" },
-    () => getTrainServiceAlerts(),
+    (signal) => getTrainServiceAlerts(signal),
   );
 }

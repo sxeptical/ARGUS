@@ -108,16 +108,36 @@ export function writePointStore<T extends TimestampedPoint>(
   );
 }
 
-/** Per-series union; on a shared timestamp the right-hand store wins. */
+/**
+ * Per-series union; on a shared timestamp the right-hand store wins. Returns
+ * `current` unchanged when persisted adds nothing, so callers can skip writes.
+ */
 export function mergePointStores<T extends TimestampedPoint>(
   persisted: PointStore<T>,
   current: PointStore<T>,
 ): PointStore<T> {
-  const merged: Record<string, readonly T[]> = { ...persisted };
-  for (const [seriesKey, points] of Object.entries(current)) {
-    merged[seriesKey] = mergePointLists(persisted[seriesKey] ?? [], points);
+  const currentKeys = Object.keys(current);
+  if (currentKeys.length === 0) {
+    return Object.keys(persisted).length === 0 ? current : persisted;
   }
-  return merged;
+
+  let changed = Object.keys(persisted).some(
+    (seriesKey) => current[seriesKey] === undefined,
+  );
+  const merged: Record<string, readonly T[]> = { ...persisted };
+  for (const seriesKey of currentKeys) {
+    const points = current[seriesKey];
+    const previous = persisted[seriesKey] ?? [];
+    const list = mergePointLists(previous, points);
+    merged[seriesKey] = list;
+    if (
+      list.length !== points.length ||
+      list.some((point, index) => point !== points[index])
+    ) {
+      changed = true;
+    }
+  }
+  return changed ? merged : current;
 }
 
 function mapStoreSeries<T extends TimestampedPoint>(

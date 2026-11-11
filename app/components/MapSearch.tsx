@@ -1,7 +1,18 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useFocusTrap } from "@/app/hooks/use-focus-trap";
 import type { MapSearchResult } from "@/types";
+
+export function isTypingTarget(target: EventTarget | null): boolean {
+	const element = target as HTMLElement | null;
+	return (
+		element?.tagName === "INPUT" ||
+		element?.tagName === "TEXTAREA" ||
+		element?.tagName === "SELECT" ||
+		element?.isContentEditable === true
+	);
+}
 
 type MapSearchProps = {
 	results: MapSearchResult[];
@@ -15,6 +26,7 @@ export default function MapSearch({ results, onSelect, scope }: MapSearchProps) 
 	const [query, setQuery] = useState("");
 	const inputRef = useRef<HTMLInputElement>(null);
 	const panelRef = useRef<HTMLDivElement>(null);
+	const triggerRef = useRef<HTMLButtonElement>(null);
 	const normalizedQuery = query.trim().toLowerCase();
 	const matches = normalizedQuery
 		? results.filter(
@@ -26,25 +38,24 @@ export default function MapSearch({ results, onSelect, scope }: MapSearchProps) 
 			)
 		: results.slice(0, 6);
 
-	useEffect(() => {
-		if (isOpen) inputRef.current?.focus();
-	}, [isOpen]);
+	// Focus the input on open, wrap Tab inside the dialog and hand focus back
+	// to the search button on close.
+	useFocusTrap(panelRef, isOpen, {
+		initialFocusRef: inputRef,
+		restoreFocusRef: triggerRef,
+	});
 
 	useEffect(() => {
 		const handleKeyDown = (event: KeyboardEvent) => {
-			const target = event.target as HTMLElement | null;
-			const isTyping =
-				target?.tagName === "INPUT" ||
-				target?.tagName === "TEXTAREA" ||
-				target?.isContentEditable;
-
 			// Another dialog (e.g. a mall's store directory) owns the keyboard while open.
 			const otherDialogOpen = !isOpen && document.querySelector('[aria-modal="true"]') !== null;
-			if (!isOpen && event.key.toLowerCase() === "s" && !isTyping && !otherDialogOpen &&
+			if (!isOpen && event.key.toLowerCase() === "s" && !isTypingTarget(event.target) && !otherDialogOpen &&
 				!event.altKey && !event.ctrlKey && !event.metaKey) {
 				event.preventDefault();
 				setIsOpen(true);
 			} else if (isOpen && event.key === "Escape") {
+				// Claim Escape so the radius-picking handler does not also cancel.
+				event.preventDefault();
 				setIsOpen(false);
 				setQuery("");
 			}
@@ -72,6 +83,7 @@ export default function MapSearch({ results, onSelect, scope }: MapSearchProps) 
 	return (
 		<div>
 			<button
+				ref={triggerRef}
 				type="button"
 				onClick={() => setIsOpen(true)}
 				aria-label="Search map locations"

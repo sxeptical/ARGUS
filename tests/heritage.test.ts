@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { HERITAGE_SITES, validateHeritageBundle } from "@/lib/heritage-data";
-import { buildHeritageSearchResults, describeHeritage, filterHeritageByKind, orderedHeritageKindCounts } from "@/lib/heritage";
+import { HERITAGE_SITES, validateHeritageBundle } from "@/lib/data/heritage";
+import { describeHeritage } from "@/lib/heritage";
 import type { HeritageSite } from "@/types";
 
 const site = (overrides: Partial<HeritageSite> = {}): HeritageSite => ({
@@ -44,6 +44,8 @@ describe("heritage bundle", () => {
     expect(validateHeritageBundle([{ ...site(), id: "" }])).toBe(false);
     expect(validateHeritageBundle([{ ...site(), name: "" }])).toBe(false);
     expect(validateHeritageBundle([{ ...site(), website: 42 }])).toBe(false);
+    expect(validateHeritageBundle([{ ...site(), website: "javascript:alert(1)" }])).toBe(false);
+    expect(validateHeritageBundle([{ ...site(), website: "http://example.com" }])).toBe(true);
     expect(validateHeritageBundle([{ ...site(), lat: Number.NaN }])).toBe(false);
   });
 });
@@ -73,35 +75,5 @@ describe("describeHeritage", () => {
       "Museum",
       "Location: © OpenStreetMap contributors (ODbL)",
     ]);
-  });
-});
-
-describe("heritage kind filtering", () => {
-  test("keeps only sites whose kind is on", () => {
-    const sites = [site(), site({ id: "osm-node-1", kind: "museum", name: "A Museum" })];
-    expect(filterHeritageByKind(sites, { museum: false }).map((s) => s.id)).toEqual(["heritage-historic-2333"]);
-    expect(filterHeritageByKind(sites, {})).toHaveLength(2);
-  });
-
-  test("counts kinds in display order", () => {
-    const sites = [
-      site({ id: "a", kind: "museum" }),
-      site({ id: "b", kind: "monument" }),
-      site({ id: "c", kind: "historic-site" }),
-      site({ id: "d", kind: "historic-site" }),
-    ];
-    expect(orderedHeritageKindCounts(sites)).toEqual([
-      { kind: "historic-site", count: 2 },
-      { kind: "monument", count: 1 },
-      { kind: "museum", count: 1 },
-    ]);
-  });
-});
-
-describe("heritage search results", () => {
-  test("lands on the site with a searchable type", () => {
-    expect(buildHeritageSearchResults([site()])[0]).toMatchObject({ id: "heritage-historic-2333", type: "heritage", lat: 1.295836, lng: 103.846397, zoom: 16 });
-    expect(buildHeritageSearchResults([site()])[0].keywords).toContain("heritage");
-    expect(buildHeritageSearchResults([site()])[0].keywords).toContain("Historic site");
   });
 });

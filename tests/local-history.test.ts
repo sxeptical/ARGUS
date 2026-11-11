@@ -30,4 +30,20 @@ describe("local history merge", () => {
     };
     expect(mergePointStores(persisted, current).service).toHaveLength(2);
   });
+
+  test("returns current unchanged when persisted adds nothing, so callers skip writes", () => {
+    const current = {
+      service: [{ timestamp: "2026-01-01T00:05:00.000Z", value: 2 }],
+    };
+    expect(mergePointStores({}, current)).toBe(current);
+    expect(mergePointStores(current, current)).toBe(current);
+    expect(
+      mergePointStores(
+        { service: [{ timestamp: "2026-01-01T00:00:00.000Z", value: 1 }] },
+        current,
+      ),
+    ).not.toBe(current);
+    // A persisted series the current store no longer has still survives.
+    expect(mergePointStores({ other: current.service }, current)).toHaveProperty("other");
+  });
 });

@@ -1,11 +1,11 @@
 /**
- * Popup copy, search entries and brand filtering for the static
- * supermarket layer. Pure so the map, state and tests share one
- * definition; `opening_hours` formatting reuses lib/amenities.
+ * Popup copy for the static supermarket layer; `opening_hours` formatting
+ * reuses lib/amenities. Search and the brand sub-filter are declared in
+ * lib/amenity-layers.ts.
  */
 import { formatOpeningHours } from "@/lib/amenities";
 import type { PopupLine } from "@/lib/mobility";
-import type { MapSearchResult, Supermarket, SupermarketBrand } from "@/types";
+import type { Supermarket } from "@/types";
 
 export const SUPERMARKET_SOURCE_HINT =
   "Location: © OpenStreetMap contributors (ODbL)";
@@ -21,47 +21,4 @@ export const describeSupermarket = (market: Supermarket): PopupLine[] => {
     ...(market.address ? [{ text: market.address, kind: "detail" as const }] : []),
     { text: SUPERMARKET_SOURCE_HINT, kind: "hint" },
   ];
-};
-
-export const buildSupermarketSearchResults = (markets: ReadonlyArray<Supermarket>): MapSearchResult[] =>
-  markets.map((market) => ({
-    id: market.id,
-    type: "supermarket",
-    name: market.name,
-    lat: market.lat,
-    lng: market.lng,
-    zoom: 16,
-    keywords: [
-      "supermarket",
-      "grocery",
-      market.brand,
-      ...(market.address ? [market.address] : []),
-    ],
-  }));
-
-/** Supermarkets whose brand is on (absent from the record means on). */
-export const filterSupermarketsByBrand = (
-  markets: ReadonlyArray<Supermarket>,
-  brandVisible: Readonly<Partial<Record<SupermarketBrand, boolean>>>,
-): Supermarket[] => markets.filter((market) => brandVisible[market.brand] !== false);
-
-export type SupermarketBrandCount = { brand: SupermarketBrand; count: number };
-
-/** Per-brand counts, biggest first (ties alphabetical), for the brand chips. */
-export const supermarketBrandCounts = (markets: ReadonlyArray<Supermarket>): SupermarketBrandCount[] => {
-  const counts = new Map<SupermarketBrand, number>();
-  for (const market of markets) counts.set(market.brand, (counts.get(market.brand) ?? 0) + 1);
-  return [...counts.entries()]
-    .map(([brand, count]) => ({ brand, count }))
-    .sort((a, b) => b.count - a.count || a.brand.localeCompare(b.brand, "en-SG"));
-};
-
-/**
- * Brand options for the sub-filter: biggest first, but the residual
- * "Other" stays last — it is the unbranded remainder, not a brand.
- */
-export const orderedSupermarketBrandCounts = (markets: ReadonlyArray<Supermarket>): SupermarketBrandCount[] => {
-  const counts = supermarketBrandCounts(markets);
-  const other = counts.find((entry) => entry.brand === "Other");
-  return [...counts.filter((entry) => entry.brand !== "Other"), ...(other ? [other] : [])];
 };

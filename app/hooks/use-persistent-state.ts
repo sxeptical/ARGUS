@@ -24,9 +24,16 @@ export function usePersistentState<T>(
   // An update made before hydration wins over the stored value.
   const touched = useRef(false);
   const parseRef = useRef(parse);
+  // Latest value, so `update` can resolve functional actions outside the
+  // state updater (updaters must stay pure, and StrictMode double-invokes them).
+  const valueRef = useRef(value);
 
   useEffect(() => {
     parseRef.current = parse;
+  });
+
+  useEffect(() => {
+    valueRef.current = value;
   });
 
   useEffect(() => {
@@ -41,14 +48,13 @@ export function usePersistentState<T>(
   const update = useCallback<Dispatch<SetStateAction<T>>>(
     (action) => {
       touched.current = true;
-      setValue((current) => {
-        const next =
-          typeof action === "function"
-            ? (action as (previous: T) => T)(current)
-            : action;
-        writeStoredJson(key, next);
-        return next;
-      });
+      const next =
+        typeof action === "function"
+          ? (action as (previous: T) => T)(valueRef.current)
+          : action;
+      valueRef.current = next;
+      writeStoredJson(key, next);
+      setValue(next);
     },
     [key],
   );

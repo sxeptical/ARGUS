@@ -47,6 +47,51 @@ type IndexedBusRouteStop = {
 /** ServiceNo → Direction → ordered stop codes (pre-join). */
 type BusRoutesIndex = Map<string, Map<number, IndexedBusRouteStop[]>>;
 
+/**
+ * JSON shape for the L2 cache. Object keys become strings, so directional
+ * numbers are parsed back on the way out.
+ */
+type SerializedBusRoutesIndex = Record<
+  string,
+  Record<string, IndexedBusRouteStop[]>
+>;
+
+const encodeBusRoutesIndex = (
+  index: BusRoutesIndex,
+): SerializedBusRoutesIndex => {
+  const serialized: SerializedBusRoutesIndex = {};
+  for (const [serviceNo, byDirection] of index) {
+    const directions: Record<string, IndexedBusRouteStop[]> = {};
+    for (const [direction, stops] of byDirection) {
+      directions[String(direction)] = stops;
+    }
+    serialized[serviceNo] = directions;
+  }
+  return serialized;
+};
+
+const decodeBusRoutesIndex = (stored: unknown): BusRoutesIndex => {
+  if (!stored || typeof stored !== "object") {
+    throw new Error("invalid cached bus routes index");
+  }
+  const index: BusRoutesIndex = new Map();
+  for (const [serviceNo, directions] of Object.entries(
+    stored as SerializedBusRoutesIndex,
+  )) {
+    if (!directions || typeof directions !== "object") continue;
+    const byDirection = new Map<number, IndexedBusRouteStop[]>();
+    for (const [direction, stops] of Object.entries(directions)) {
+      const directionNo = Number(direction);
+      if (!Number.isFinite(directionNo) || !Array.isArray(stops)) continue;
+      byDirection.set(directionNo, stops as IndexedBusRouteStop[]);
+    }
+    if (byDirection.size > 0) index.set(serviceNo, byDirection);
+  }
+  // A malformed/empty entry must not masquerade as a valid 26k-row index.
+  if (index.size === 0) throw new Error("empty cached bus routes index");
+  return index;
+};
+
 const toFiniteNumber = (value: number | string): number | null => {
   if (typeof value === "number") {
     return Number.isFinite(value) ? value : null;
@@ -103,18 +148,31 @@ const buildBusRoutesIndex = (
   return raw;
 };
 
-const getBusRoutesIndex = (): Promise<BusRoutesIndex> =>
-  cache.get("bus-routes-index", BUS_ROUTES_CACHE_TTL_MS, () =>
-    withTimeout("lta-bus-routes", BUS_ROUTES_TIMEOUT_MS, async (signal) =>
-      buildBusRoutesIndex(
-        await collectLtaEndpoint("/BusRoutes", LtaBusRoutesResponseSchema, {
-          pageSize: BUS_ROUTES_PAGE_SIZE,
-          maxPages: BUS_ROUTES_MAX_PAGES,
-          concurrency: BUS_ROUTES_PAGE_CONCURRENCY,
-          signal,
-        }),
+const getBusRoutesIndex = (
+  signal?: AbortSignal,
+): Promise<BusRoutesIndex> =>
+  cache.get(
+    "bus-routes-index",
+    BUS_ROUTES_CACHE_TTL_MS,
+    () =>
+      withTimeout("lta-bus-routes", BUS_ROUTES_TIMEOUT_MS, async (pageSignal) =>
+        buildBusRoutesIndex(
+          await collectLtaEndpoint("/BusRoutes", LtaBusRoutesResponseSchema, {
+            pageSize: BUS_ROUTES_PAGE_SIZE,
+            maxPages: BUS_ROUTES_MAX_PAGES,
+            concurrency: BUS_ROUTES_PAGE_CONCURRENCY,
+            signal: pageSignal,
+          }),
+        ),
       ),
-    ),
+    {
+      signal,
+      shared: true,
+      sharedCodec: {
+        encode: encodeBusRoutesIndex,
+        decode: decodeBusRoutesIndex,
+      },
+    },
   );
 
 // ---------- BusRouter geometry ----------
@@ -396,7 +454,9 @@ const fetchBusRouterGeometryIndex =
 const EMPTY_GEOMETRY_INDEX: BusRouterGeometryIndex = new Map();
 
 /** Fall back to stop chords and briefly cache geometry-source failures. */
-const getBusRouterGeometryIndex = async (): Promise<BusRouterGeometryIndex> => {
+const getBusRouterGeometryIndex = async (
+  signal?: AbortSignal,
+): Promise<BusRouterGeometryIndex> => {
   const recentlyUnavailable = cache.peek<BusRouterGeometryIndex>(
     "busrouter-geometry-unavailable",
     BUSROUTER_GEOMETRY_NEGATIVE_TTL_MS,
@@ -408,12 +468,14 @@ const getBusRouterGeometryIndex = async (): Promise<BusRouterGeometryIndex> => {
       "busrouter-geometry-index",
       BUSROUTER_GEOMETRY_CACHE_TTL_MS,
       fetchBusRouterGeometryIndex,
+      { signal },
     );
   } catch {
     return cache.get(
       "busrouter-geometry-unavailable",
       BUSROUTER_GEOMETRY_NEGATIVE_TTL_MS,
       async () => EMPTY_GEOMETRY_INDEX,
+      { signal },
     );
   }
 };
@@ -483,9 +545,10 @@ const findCaseInsensitiveKey = (
 export const getBusRoute = async (
   serviceNo: string,
   stopId?: string,
+  signal?: AbortSignal,
 ): Promise<BusRouteResponse> => {
   const normalizedService = serviceNo.trim();
-  const index = await getBusRoutesIndex();
+  const index = await getBusRoutesIndex(signal);
 
   // LTA service numbers are case-sensitive in practice for letter
   // suffixes (e.g. 12e). Try exact match first, then case-insensitive.
@@ -507,7 +570,7 @@ export const getBusRoute = async (
     });
   }
 
-  const stopsCatalog = await getBusStops();
+  const stopsCatalog = await getBusStops(signal);
   const stopByCode = new Map(
     stopsCatalog.map((stop) => [stop.BusStopCode, stop]),
   );
@@ -579,7 +642,7 @@ export const getBusRoute = async (
     matchingDirections.length === 1 ? matchingDirections[0] : null;
 
   // Attach road-following geometry when BusRouter data is available.
-  const geometryIndex = await getBusRouterGeometryIndex();
+  const geometryIndex = await getBusRouterGeometryIndex(signal);
   let patterns =
     geometryIndex.get(serviceKey) ??
     geometryIndex.get(normalizedService) ??

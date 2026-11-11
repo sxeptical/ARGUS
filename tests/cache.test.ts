@@ -1,17 +1,17 @@
 import { describe, expect, test } from "bun:test";
 import { createCache } from "@/lib/cache";
+import { ExternalApiError } from "@/lib/errors";
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 describe("cache", () => {
   describe("failed producer retry", () => {
-    test("a failed producer is retried on the next get (not permanently cached)", async () => {
+    test("a failure is negatively cached instead of retried on every get", async () => {
       const cache = createCache();
       let attempts = 0;
       const flakyProducer = async () => {
         attempts += 1;
-        if (attempts < 3) throw new Error("transient error");
-        return "recovered";
+        throw new Error("transient error");
       };
 
       await expect(cache.get("flaky", 60_000, flakyProducer)).rejects.toThrow(
@@ -20,8 +20,46 @@ describe("cache", () => {
       await expect(cache.get("flaky", 60_000, flakyProducer)).rejects.toThrow(
         "transient error",
       );
-      expect(await cache.get("flaky", 60_000, flakyProducer)).toBe("recovered");
-      expect(attempts).toBe(3);
+      expect(attempts).toBe(1);
+    });
+
+    test("a failed producer is retried after the negative TTL", async () => {
+      const cache = createCache();
+      let attempts = 0;
+      const flakyProducer = async () => {
+        attempts += 1;
+        if (attempts < 2) throw new Error("transient error");
+        return "recovered";
+      };
+
+      await expect(
+        cache.get("flaky", 60_000, flakyProducer, { negativeTtlMs: 1 }),
+      ).rejects.toThrow("transient error");
+      await sleep(5);
+      expect(
+        await cache.get("flaky", 60_000, flakyProducer, { negativeTtlMs: 1 }),
+      ).toBe("recovered");
+      expect(attempts).toBe(2);
+    });
+
+    test("re-throws the original error object and type", async () => {
+      const cache = createCache();
+      const failure = new ExternalApiError({
+        service: "test",
+        status: 503,
+        message: "upstream down",
+      });
+
+      await expect(
+        cache.get("typed", 60_000, async () => {
+          throw failure;
+        }),
+      ).rejects.toBe(failure);
+      await expect(
+        cache.get("typed", 60_000, async () => {
+          throw new Error("should not run");
+        }),
+      ).rejects.toBe(failure);
     });
 
     test("a producer that throws synchronously rejects instead of escaping", async () => {
@@ -66,9 +104,9 @@ describe("cache", () => {
       };
 
       const settled = await Promise.allSettled([
-        cache.get("conc-fail", 60_000, flakyConcurrent),
-        cache.get("conc-fail", 60_000, flakyConcurrent),
-        cache.get("conc-fail", 60_000, flakyConcurrent),
+        cache.get("conc-fail", 60_000, flakyConcurrent, { negativeTtlMs: 1 }),
+        cache.get("conc-fail", 60_000, flakyConcurrent, { negativeTtlMs: 1 }),
+        cache.get("conc-fail", 60_000, flakyConcurrent, { negativeTtlMs: 1 }),
       ]);
       expect(settled.map((result) => result.status)).toEqual([
         "rejected",
@@ -77,9 +115,12 @@ describe("cache", () => {
       ]);
       expect(calls).toBe(1);
 
-      expect(await cache.get("conc-fail", 60_000, flakyConcurrent)).toBe(
-        "concurrent-ok",
-      );
+      await sleep(5);
+      expect(
+        await cache.get("conc-fail", 60_000, flakyConcurrent, {
+          negativeTtlMs: 1,
+        }),
+      ).toBe("concurrent-ok");
       expect(calls).toBe(2);
     });
   });
@@ -111,6 +152,48 @@ describe("cache", () => {
       await cache.get("expire-key", 1, producer);
 
       expect(calls).toBe(2);
+    });
+
+    test("ttlForValue can shorten the lifetime of a partial result", async () => {
+      const cache = createCache();
+      let calls = 0;
+      const producer = async () => {
+        calls += 1;
+        return { partial: true };
+      };
+      const options = { ttlForValue: () => 1 };
+
+      await cache.get("partial-key", 60_000, producer, options);
+      await sleep(5);
+      await cache.get("partial-key", 60_000, producer, options);
+
+      expect(calls).toBe(2);
+    });
+  });
+
+  describe("caller abort", () => {
+    test("aborting one caller does not cancel the shared producer", async () => {
+      const cache = createCache();
+      let runs = 0;
+      const producer = async () => {
+        runs += 1;
+        await sleep(20);
+        return "shared";
+      };
+      const controller = new AbortController();
+
+      const aborted = cache.get("abort-key", 60_000, producer, {
+        signal: controller.signal,
+      });
+      const other = cache.get("abort-key", 60_000, producer);
+      controller.abort();
+
+      await expect(aborted).rejects.toMatchObject({ name: "AbortError" });
+      expect(await other).toBe("shared");
+      expect(runs).toBe(1);
+      // The producer still populated the cache for later callers.
+      expect(await cache.get("abort-key", 60_000, producer)).toBe("shared");
+      expect(runs).toBe(1);
     });
   });
 

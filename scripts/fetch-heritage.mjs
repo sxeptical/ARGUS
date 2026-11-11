@@ -26,17 +26,11 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { fetchJson, USER_AGENT } from "./lib/commons-photos.mjs";
 import { fetchPlacePhotos } from "./lib/place-photos.mjs";
+import { inSingapore, round, text, websiteOf } from "./lib/place-fields.mjs";
 
 const NHB_HISTORIC = "d_31e16b12809e66673e90d8b04fdee1b2";
 const NHB_MONUMENTS = "d_b29c230ec6b609e29ed42f71ca9a8767";
 const OVERPASS_URL = "https://overpass-api.de/api/interpreter";
-const SG_BOUNDS = { minLat: 1.1, maxLat: 1.5, minLng: 103.5, maxLng: 104.1 };
-
-const inSingapore = (lat, lng) =>
-  Number.isFinite(lat) && Number.isFinite(lng) &&
-  lat >= SG_BOUNDS.minLat && lat <= SG_BOUNDS.maxLat && lng >= SG_BOUNDS.minLng && lng <= SG_BOUNDS.maxLng;
-const round = (value) => Math.round(value * 1e6) / 1e6;
-const text = (value) => (typeof value === "string" && value.trim() ? value.trim() : null);
 
 // "2 Cox Terrace, Battlebox Entrance, Fort Canning Park, Singapore 179622"
 const composeAddress = (props) => {
@@ -44,12 +38,6 @@ const composeAddress = (props) => {
   const base = [street, text(props.ADDRESSBUILDINGNAME)].filter(Boolean).join(", ");
   const postcode = text(props.ADDRESSPOSTALCODE);
   return base ? `${base}${postcode ? `, Singapore ${postcode}` : ""}` : postcode ? `Singapore ${postcode}` : null;
-};
-
-const websiteOf = (raw) => {
-  const website = text(raw);
-  if (!website) return null;
-  return /^https?:\/\//i.test(website) ? website : `https://${website}`;
 };
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));

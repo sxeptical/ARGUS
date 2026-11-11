@@ -13,9 +13,14 @@ export async function apiFetch<T>(
   const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
 
   // Respect a caller-provided signal (e.g. use-bus-route cancellation) by
-  // forwarding its abort to our controller.
+  // forwarding its abort to our controller. Handle an already-aborted signal
+  // before subscribing: `abort` fires only once and may have already passed.
   const onCallerAbort = () => controller.abort();
-  init?.signal?.addEventListener?.("abort", onCallerAbort, { once: true });
+  if (init?.signal?.aborted) {
+    controller.abort(init.signal.reason);
+  } else {
+    init?.signal?.addEventListener?.("abort", onCallerAbort, { once: true });
+  }
 
   try {
     const response = await fetch(url, {

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { PHARMACIES, validatePharmaciesBundle } from "@/lib/pharmacies-data";
-import { buildPharmacySearchResults, describePharmacy } from "@/lib/pharmacies";
+import { PHARMACIES, validatePharmaciesBundle } from "@/lib/data/pharmacies";
+import { describePharmacy } from "@/lib/pharmacies";
 import type { Pharmacy } from "@/types";
 
 const pharmacy = (overrides: Partial<Pharmacy> = {}): Pharmacy => ({
@@ -52,13 +52,5 @@ describe("describePharmacy", () => {
       "Retail pharmacy",
       "Source: HSA via data.gov.sg (Singapore Open Data Licence)",
     ]);
-  });
-});
-
-describe("pharmacy search results", () => {
-  test("lands on the place with a searchable type", () => {
-    expect(buildPharmacySearchResults([pharmacy()])[0]).toMatchObject({ id: "pharmacy-2779", type: "pharmacy", lat: 1.2991, lng: 103.8554, zoom: 16 });
-    expect(buildPharmacySearchResults([pharmacy()])[0].keywords).toContain("pharmacy");
-    expect(buildPharmacySearchResults([pharmacy()])[0].keywords).toContain("chemist");
   });
 });

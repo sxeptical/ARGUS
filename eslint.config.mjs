@@ -17,6 +17,9 @@ const eslintConfig = defineConfig([
     // Local agent-tool scratch space; already in .gitignore, but ESLint
     // does not read .gitignore and fails `bun run lint` on these temp files.
     ".ua/**",
+    // OpenNext / Wrangler build output.
+    ".open-next/**",
+    ".wrangler/**",
   ]),
 ]);
 

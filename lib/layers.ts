@@ -9,33 +9,15 @@
  * registry, so the layer list can grow without the UI growing with it.
  *
  * To add a layer:
- * 1. Add its key to SensorKey, an entry to LAYERS (in display order within
- *    its group) and a default in DEFAULT_SENSOR_VISIBILITY.
+ * 1. Add an entry to LAYERS (in display order within its group). Its key
+ *    joins SensorKey automatically; set `defaultOn` to show it on first load.
  * 2. Give it a count in use-dashboard-state's layerCounts (the Record is
  *    exhaustive, so TypeScript flags a missing entry).
  * 3. Draw it in Map.tsx and gate its map layers on the visibility flag.
+ *
+ * Static point amenities (malls, gyms, schools, ...) skip steps 2 and 3:
+ * describe them in lib/amenity-layers.ts instead.
  */
-
-export type SensorKey =
-  | "flights"
-  | "cameras"
-  | "busStops"
-  | "mrt"
-  | "parks"
-  | "incidents"
-  | "carparks"
-  | "evChargers"
-  | "malls"
-  | "hawkers"
-  | "gyms"
-  | "communityClubs"
-  | "pharmacies"
-  | "hotels"
-  | "heritage"
-  | "healthcare"
-  | "libraries"
-  | "supermarkets"
-  | "schools";
 
 /**
  * Layer groups, in display order. Groups are what keep the panel readable as
@@ -59,8 +41,8 @@ export type LayerLegendItem =
       readonly label: string;
     };
 
-export type LayerDefinition = {
-  readonly key: SensorKey;
+type LayerDefinitionOf<Key extends string> = {
+  readonly key: Key;
   readonly group: LayerGroupId;
   readonly label: string;
   readonly note: string;
@@ -70,11 +52,14 @@ export type LayerDefinition = {
   readonly dot: string;
   /** Legend entries shown on the map while the layer is visible. */
   readonly legend?: readonly LayerLegendItem[];
+  /** Visible on first load; layers are off unless they say otherwise. */
+  readonly defaultOn?: true;
 };
 
-export const LAYERS: readonly LayerDefinition[] = [
+const LAYER_DEFINITIONS = [
   {
     key: "flights",
+    defaultOn: true,
     group: "transport",
     label: "Air Activity",
     note: "live tracks",
@@ -88,6 +73,7 @@ export const LAYERS: readonly LayerDefinition[] = [
   },
   {
     key: "mrt",
+    defaultOn: true,
     group: "transport",
     label: "MRT & LRT",
     note: "lines + stations",
@@ -97,6 +83,7 @@ export const LAYERS: readonly LayerDefinition[] = [
   },
   {
     key: "busStops",
+    defaultOn: true,
     group: "transport",
     label: "Bus Stops",
     note: "monitor points",
@@ -106,6 +93,7 @@ export const LAYERS: readonly LayerDefinition[] = [
   },
   {
     key: "cameras",
+    defaultOn: true,
     group: "ground",
     label: "Road Cameras",
     note: "stream nodes",
@@ -267,53 +255,21 @@ export const LAYERS: readonly LayerDefinition[] = [
     dot: "bg-signal-school",
     legend: [{ kind: "dot", tone: "bg-signal-school", label: "Schools" }],
   },
-];
+] as const satisfies readonly LayerDefinitionOf<string>[];
+
+export type SensorKey = (typeof LAYER_DEFINITIONS)[number]["key"];
+export type LayerDefinition = LayerDefinitionOf<SensorKey>;
+
+export const LAYERS: readonly LayerDefinition[] = LAYER_DEFINITIONS;
 
 export const LAYER_BY_KEY: ReadonlyMap<SensorKey, LayerDefinition> = new Map(
   LAYERS.map((layer) => [layer.key, layer]),
 );
 
 /** Visibility on first load, and the fallback for unknown persisted keys. */
-export const DEFAULT_SENSOR_VISIBILITY: Record<SensorKey, boolean> = {
-  flights: true,
-  cameras: true,
-  busStops: true,
-  mrt: true,
-  parks: false,
-  incidents: false,
-  carparks: false,
-  evChargers: false,
-  malls: false,
-  hawkers: false,
-  gyms: false,
-  communityClubs: false,
-  pharmacies: false,
-  hotels: false,
-  heritage: false,
-  healthcare: false,
-  libraries: false,
-  supermarkets: false,
-  schools: false,
-};
-
-/**
- * Hydrate persisted visibility of unknown shape: keep known boolean entries,
- * fall back to defaults for everything else (layers added after the value
- * was written, corrupted storage, foreign data). The layer set evolves, so
- * an old localStorage entry must never break hydration.
- */
-export function coerceSensorVisibility(
-  value: unknown,
-): Record<SensorKey, boolean> {
-  const next: Record<SensorKey, boolean> = { ...DEFAULT_SENSOR_VISIBILITY };
-  if (!value || typeof value !== "object") return next;
-  const stored = value as Record<string, unknown>;
-  for (const layer of LAYERS) {
-    const entry = stored[layer.key];
-    if (typeof entry === "boolean") next[layer.key] = entry;
-  }
-  return next;
-}
+export const DEFAULT_SENSOR_VISIBILITY = Object.fromEntries(
+  LAYERS.map((layer) => [layer.key, layer.defaultOn === true]),
+) as Record<SensorKey, boolean>;
 
 /**
  * Totally-on record for a sub-filter's options. A sub-filter tracks
