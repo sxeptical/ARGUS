@@ -7,6 +7,7 @@ import {
   AMENITY_SEARCH_RESULTS,
   amenityDisplayKey,
   amenityDisplayPoint,
+  coLocatedAmenities,
   computeAmenityOffsets,
   findAmenity,
   parseAmenityFilters,
@@ -199,6 +200,29 @@ describe("co-located amenity markers", () => {
     const result = AMENITY_SEARCH_RESULTS.find((candidate) => candidate.type === "gym" && candidate.id === gym.id)!;
     expect(result).toMatchObject({ lat: gym.lat, lng: gym.lng });
     expect(findAmenity("gym", gym.id)).toEqual({ type: "gym", place: gym } as never);
+  });
+
+  test("coLocatedAmenities lists the rest of the group, minus places the map hides", () => {
+    const gym = GYMS.find((place) => place.id === "sportsg-tampinessportcentre")!;
+    const pharmacy = PHARMACIES.find((place) => place.id === "pharmacy-2617")!;
+    const fromGym = coLocatedAmenities("gym", gym.id, () => true);
+    expect(fromGym).toContainEqual({ type: "pharmacy", place: pharmacy } as never);
+    expect(fromGym.some((other) => other.type === "gym" && other.place.id === gym.id)).toBe(false);
+    // Symmetric: the pharmacy sees the gym.
+    expect(coLocatedAmenities("pharmacy", pharmacy.id, () => true)).toContainEqual({ type: "gym", place: gym } as never);
+    // Hidden places drop out; a lone place has no neighbours.
+    expect(coLocatedAmenities("gym", gym.id, (entry) => entry.type !== "pharmacy").some((other) => other.type === "pharmacy")).toBe(false);
+    const lonely = amenity("gym").places.find((place) => !AMENITY_DISPLAY_COORDS.has(amenityDisplayKey("gym", place.id)))!;
+    expect(coLocatedAmenities("gym", lonely.id, () => true)).toEqual([]);
+  });
+
+  test("coLocatedAmenities matches the ring: every listed place is offset too", () => {
+    for (const key of AMENITY_DISPLAY_COORDS.keys()) {
+      const separator = key.indexOf(":");
+      const others = coLocatedAmenities(key.slice(0, separator) as AmenityType, key.slice(separator + 1), () => true);
+      expect(others.length).toBeGreaterThan(0);
+      for (const other of others) expect(AMENITY_DISPLAY_COORDS.has(amenityDisplayKey(other.type, other.place.id))).toBe(true);
+    }
   });
 });
 

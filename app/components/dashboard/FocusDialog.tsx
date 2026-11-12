@@ -1,13 +1,13 @@
 "use client";
 
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useFocusTrap } from "@/app/hooks/use-focus-trap";
 import { KeyValue } from "@/app/components/dashboard/IntelPanel";
 import { MapLocationLink } from "@/app/components/dashboard/MapLocationLink";
 import { hasStoreDirectory, MallStoreDirectory } from "@/app/components/dashboard/MallDirectory";
 import { PlacePhotoGallery } from "@/app/components/dashboard/PlacePhotoGallery";
 import { describeHawkerClosure, formatOpeningHours } from "@/lib/amenities";
-import type { SelectedAmenity } from "@/lib/amenity-layers";
+import { AMENITY_LAYER_BY_TYPE, type SelectedAmenity } from "@/lib/amenity-layers";
 import { GYM_CATEGORY_LABEL, GYM_SOURCE_HINT } from "@/lib/gyms";
 import { COMMUNITY_CLUB_KIND_LABEL, COMMUNITY_CLUB_SOURCE_HINT } from "@/lib/community-clubs";
 import { PHARMACY_SOURCE_HINT } from "@/lib/pharmacies";
@@ -20,7 +20,7 @@ import { SCHOOL_LEVEL_LABEL, SCHOOL_SOURCE_HINT } from "@/lib/schools";
 import { formatAltitudeFeet, formatSpeedKmh } from "@/lib/formatters";
 import { photosForPark } from "@/lib/park-photos";
 import { PARK_KIND_TITLE } from "@/lib/parks";
-import type { FlightState, ParksGeoJson } from "@/types";
+import type { AmenityType, FlightState, ParksGeoJson } from "@/types";
 
 type ParkDetails = ParksGeoJson["features"][number]["properties"];
 
@@ -34,11 +34,16 @@ export function FocusDialog({
   flight,
   park,
   amenity,
+  alsoHere = [],
+  onSelectAmenity,
   onClose,
 }: {
   flight: FlightState | null;
   park: ParkDetails | null;
   amenity: SelectedAmenity | null;
+  /** Other places sharing the amenity's spot on the map. */
+  alsoHere?: ReadonlyArray<SelectedAmenity>;
+  onSelectAmenity?: (target: { type: AmenityType; id: string }) => void;
   onClose: () => void;
 }) {
   if (flight) {
@@ -71,7 +76,9 @@ export function FocusDialog({
     );
   }
 
-  return amenity ? <AmenityFocus amenity={amenity} onClose={onClose} /> : null;
+  return amenity ? (
+    <AmenityFocus amenity={amenity} alsoHere={alsoHere} onSelectAmenity={onSelectAmenity} onClose={onClose} />
+  ) : null;
 }
 
 type AmenityDetails = {
@@ -216,12 +223,72 @@ function amenityDetails(amenity: SelectedAmenity): AmenityDetails {
   }
 }
 
+/** Rows listed before "Show all" when many places share one spot. */
+const ALSO_HERE_PREVIEW = 5;
+
+/**
+ * The other markers ringed around this one on the map. Each row switches
+ * the focus to that place, so the dialog still details one place at a time.
+ */
+function AlsoHere({
+  places,
+  onSelect,
+}: {
+  places: ReadonlyArray<SelectedAmenity>;
+  onSelect?: (target: { type: AmenityType; id: string }) => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  if (places.length === 0 || !onSelect) return null;
+  const shown = expanded ? places : places.slice(0, ALSO_HERE_PREVIEW);
+  return (
+    <section aria-labelledby="focus-also-here" className="border-t border-line pt-3">
+      <h3 id="focus-also-here" className="data-label mb-1">Also here ({places.length})</h3>
+      <ul>
+        {shown.map((other) => (
+          <li key={`${other.type}:${other.place.id}`}>
+            <button
+              type="button"
+              onClick={() => onSelect({ type: other.type, id: other.place.id })}
+              className="flex w-full items-center gap-2 rounded px-1 py-1.5 text-left hover:bg-surface-hover"
+            >
+              <span
+                aria-hidden
+                className="h-2 w-2 shrink-0 rounded-full"
+                style={{ backgroundColor: AMENITY_LAYER_BY_TYPE.get(other.type)?.color }}
+              />
+              <span className="data-label w-28 shrink-0 truncate">{amenityDetails(other).kind}</span>
+              <span className="min-w-0 flex-1 truncate text-ink">{other.place.name}</span>
+              <span aria-hidden className="text-muted">›</span>
+            </button>
+          </li>
+        ))}
+      </ul>
+      {places.length > shown.length ? (
+        <button type="button" onClick={() => setExpanded(true)} className="mt-1 text-info underline decoration-info/40 hover:decoration-info">
+          Show all {places.length}
+        </button>
+      ) : null}
+    </section>
+  );
+}
+
 /**
  * Every amenity reads the same way: photos, its facts, the address (linked
- * to Google Maps), its website, then the data source. Malls with a store
- * directory put that beside the details in a wide two-column layout.
+ * to Google Maps), its website, then the data source, then any other places
+ * at the same spot. Malls with a store directory put that beside the details
+ * in a wide two-column layout.
  */
-function AmenityFocus({ amenity, onClose }: { amenity: SelectedAmenity; onClose: () => void }) {
+function AmenityFocus({
+  amenity,
+  alsoHere,
+  onSelectAmenity,
+  onClose,
+}: {
+  amenity: SelectedAmenity;
+  alsoHere: ReadonlyArray<SelectedAmenity>;
+  onSelectAmenity?: (target: { type: AmenityType; id: string }) => void;
+  onClose: () => void;
+}) {
   const { place } = amenity;
   const { kind, rows, website, source } = amenityDetails(amenity);
   const withDirectory = amenity.type === "mall" && hasStoreDirectory(place.id);
@@ -246,6 +313,7 @@ function AmenityFocus({ amenity, onClose }: { amenity: SelectedAmenity; onClose:
         ) : null}
       </div>
       {source ? <p className="text-[11px] leading-relaxed text-muted">{source}</p> : null}
+      <AlsoHere places={alsoHere} onSelect={onSelectAmenity} />
     </div>
   );
   return (

@@ -246,12 +246,16 @@ export const AMENITY_LAYER_BY_TYPE: ReadonlyMap<AmenityType, AmenityLayer> = new
   AMENITY_LAYERS.map((amenity) => [amenity.type, amenity]),
 );
 
+/** Whether a place passes its layer's sub-filter (if any). */
+export function passesSubFilter(amenity: AmenityLayer, filters: AmenityFilters, place: AmenityPlace): boolean {
+  const selection = filters[amenity.type];
+  return !amenity.filter || !selection || selection[amenity.filter.of(place)] !== false;
+}
+
 /** The places a layer shows once its sub-filter (if any) is applied. */
 export function visiblePlaces(amenity: AmenityLayer, filters: AmenityFilters): ReadonlyArray<AmenityPlace> {
-  const { filter } = amenity;
-  const selection = filters[amenity.type];
-  if (!filter || !selection) return amenity.places;
-  return amenity.places.filter((place) => selection[filter.of(place)] !== false);
+  if (!amenity.filter || !filters[amenity.type]) return amenity.places;
+  return amenity.places.filter((place) => passesSubFilter(amenity, filters, place));
 }
 
 /** Points this close (centre to centre) are treated as one on-map collision. */
@@ -282,28 +286,28 @@ function metresBetween(a: AmenityDisplayPoint, b: AmenityDisplayPoint): number {
   return Math.hypot(dLat, dLng);
 }
 
+/** One member of a collision group. */
+type CoLocatedItem = {
+  readonly type: string;
+  readonly id: string;
+  readonly lat: number;
+  readonly lng: number;
+  readonly key: string;
+};
+
 /**
- * Spread co-located points onto a deterministic ring so every dot is visible
- * and clickable. Grouping runs over every registry layer, not just the enabled
- * ones: toggling a layer or sub-filter must not move the markers that remain,
- * so a hidden layer's points still take their places in the ring.
- *
- * Only the returned display positions move. Place records, search results,
- * popups, focus dialogs and radius filtering keep their true coordinates.
+ * Group points within `thresholdM` of each other across every layer. Only
+ * groups of two or more come back; members are in registry order, then id,
+ * so the result is independent of source order.
  */
-export function computeAmenityOffsets(
-  layers: ReadonlyArray<OffsetLayer>,
-  { thresholdM = AMENITY_COINCIDENCE_THRESHOLD_M, radiusM = AMENITY_COLLISION_RADIUS_M } = {},
-): ReadonlyMap<string, AmenityDisplayPoint> {
+function groupCoLocated(layers: ReadonlyArray<OffsetLayer>, thresholdM: number): CoLocatedItem[][] {
   const items = layers
     .flatMap((layer, layerIndex) =>
-      layer.places.map((place) => ({ ...place, layerIndex, key: amenityDisplayKey(layer.type, place.id) })),
+      layer.places.map(({ id, lat, lng }) => ({ type: layer.type, id, lat, lng, layerIndex, key: amenityDisplayKey(layer.type, id) })),
     )
-    // Registry order, then id: ring positions are independent of source order.
     .sort((a, b) => a.layerIndex - b.layerIndex || a.id.localeCompare(b.id, "en-SG"));
 
-  const offsets = new Map<string, AmenityDisplayPoint>();
-  if (items.length < 2 || thresholdM <= 0) return offsets;
+  if (items.length < 2 || thresholdM <= 0) return [];
 
   // Grid-bucket nearby points so ~5k places stay cheap; bucket by a cell a bit
   // wider than the threshold so every neighbour is in the 3x3 block around it.
@@ -350,20 +354,22 @@ export function computeAmenityOffsets(
     }
   });
 
-  const groups = new Map<number, number[]>();
-  items.forEach((_, index) => {
+  const groups = new Map<number, CoLocatedItem[]>();
+  items.forEach((item, index) => {
     const root = find(index);
     const group = groups.get(root);
-    if (group) group.push(index);
-    else groups.set(root, [index]);
+    if (group) group.push(item);
+    else groups.set(root, [item]);
   });
+  return [...groups.values()].filter((members) => members.length > 1);
+}
 
-  for (const members of groups.values()) {
-    if (members.length < 2) continue;
+function ringOffsets(groups: ReadonlyArray<ReadonlyArray<CoLocatedItem>>, radiusM: number): ReadonlyMap<string, AmenityDisplayPoint> {
+  const offsets = new Map<string, AmenityDisplayPoint>();
+  for (const members of groups) {
     // Members sit on a ring; enough spacing that each dot keeps its own hit area.
     const ringRadius = Math.max(radiusM, (members.length * AMENITY_COLLISION_SPACING_M) / (2 * Math.PI));
-    members.forEach((index, position) => {
-      const item = items[index];
+    members.forEach((item, position) => {
       const angle = (2 * Math.PI * position) / members.length;
       const eastM = Math.cos(angle) * ringRadius;
       const northM = Math.sin(angle) * ringRadius;
@@ -378,11 +384,35 @@ export function computeAmenityOffsets(
 }
 
 /**
+ * Spread co-located points onto a deterministic ring so every dot is visible
+ * and clickable. Grouping runs over every registry layer, not just the enabled
+ * ones: toggling a layer or sub-filter must not move the markers that remain,
+ * so a hidden layer's points still take their places in the ring.
+ *
+ * Only the returned display positions move. Place records, search results,
+ * popups, focus dialogs and radius filtering keep their true coordinates.
+ */
+export function computeAmenityOffsets(
+  layers: ReadonlyArray<OffsetLayer>,
+  { thresholdM = AMENITY_COINCIDENCE_THRESHOLD_M, radiusM = AMENITY_COLLISION_RADIUS_M } = {},
+): ReadonlyMap<string, AmenityDisplayPoint> {
+  return ringOffsets(groupCoLocated(layers, thresholdM), radiusM);
+}
+
+/** Collision groups for the whole registry, computed once. */
+const AMENITY_GROUPS = groupCoLocated(AMENITY_LAYERS, AMENITY_COINCIDENCE_THRESHOLD_M);
+
+/** Each grouped place's display key to its whole group (itself included). */
+const AMENITY_GROUP_BY_KEY: ReadonlyMap<string, ReadonlyArray<CoLocatedItem>> = new Map(
+  AMENITY_GROUPS.flatMap((members) => members.map((member) => [member.key, members] as const)),
+);
+
+/**
  * Display positions for the whole registry, computed once. Every render and
  * source update reads this map, so toggling layers or filters cannot shift a
  * marker: collisions are derived from all layers regardless of visibility.
  */
-export const AMENITY_DISPLAY_COORDS: ReadonlyMap<string, AmenityDisplayPoint> = computeAmenityOffsets(AMENITY_LAYERS);
+export const AMENITY_DISPLAY_COORDS: ReadonlyMap<string, AmenityDisplayPoint> = ringOffsets(AMENITY_GROUPS, AMENITY_COLLISION_RADIUS_M);
 
 /** The point to draw for a place; its true coordinates when nothing collides. */
 export function amenityDisplayPoint(type: AmenityType, place: AmenityPlace): AmenityDisplayPoint {
@@ -395,6 +425,25 @@ export type SelectedAmenity = { [K in AmenityType]: { type: K; place: AmenityPla
 export function findAmenity(type: AmenityType, id: string): SelectedAmenity | null {
   const place = AMENITY_LAYER_BY_TYPE.get(type)?.byId.get(id);
   return place ? ({ type, place } as SelectedAmenity) : null;
+}
+
+/**
+ * The other places in a selection's collision group (the ones ringed around
+ * it on the map), in registry order. `shown` drops places the map is not
+ * drawing, so the focus dialog only lists markers the user can see.
+ */
+export function coLocatedAmenities(
+  type: AmenityType,
+  id: string,
+  shown: (amenity: AmenityLayer, place: AmenityPlace) => boolean,
+): SelectedAmenity[] {
+  const group = AMENITY_GROUP_BY_KEY.get(amenityDisplayKey(type, id)) ?? [];
+  return group.flatMap((member) => {
+    if (member.type === type && member.id === id) return [];
+    const amenity = AMENITY_LAYER_BY_TYPE.get(member.type as AmenityType)!;
+    const place = amenity.byId.get(member.id)!;
+    return shown(amenity, place) ? [{ type: amenity.type, place } as SelectedAmenity] : [];
+  });
 }
 
 export const AMENITY_SEARCH_RESULTS: MapSearchResult[] = AMENITY_LAYERS.flatMap((amenity) =>

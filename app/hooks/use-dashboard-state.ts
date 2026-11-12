@@ -17,8 +17,10 @@ import {
 import {
   AMENITY_LAYER_BY_TYPE,
   AMENITY_LAYERS,
+  coLocatedAmenities,
   findAmenity,
   parseAmenityFilters,
+  passesSubFilter,
   visiblePlaces,
   type AmenityFilters,
   type AmenityLayerKey,
@@ -267,6 +269,22 @@ export function useDashboardState() {
         : null,
     [selectedAmenityId],
   );
+  // The other markers ringed with the selection that the map is drawing:
+  // layer on, sub-filter option on and inside the radius.
+  const coLocatedWithSelection = useMemo(
+    () =>
+      selectedAmenityId
+        ? coLocatedAmenities(
+            selectedAmenityId.type,
+            selectedAmenityId.id,
+            (amenity, place) =>
+              sensorVisibility[amenity.layer] &&
+              passesSubFilter(amenity, amenityFilters, place) &&
+              withinRadius([place], geoFilter, (p) => [p.lng, p.lat]).length > 0,
+          )
+        : [],
+    [selectedAmenityId, sensorVisibility, amenityFilters, geoFilter],
+  );
   const flightSummary = useMemo(
     () => summarizeFlights(flights),
     [flights],
@@ -435,6 +453,7 @@ export function useDashboardState() {
     resetMrtRoute: mrt.reset,
     selectBusRouteDirection: busRoute.selectDirection,
     clearSelection,
+    coLocatedWithSelection,
     selectedAmenity,
     selectedCamera,
     selectedFlight,

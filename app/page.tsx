@@ -57,6 +57,7 @@ export default function Home() {
     clearBusRoute,
     clearGeoFilter,
     clearSelection,
+    coLocatedWithSelection,
     disruptedMrtLines,
     error,
     evChargers,
@@ -403,10 +404,12 @@ export default function Home() {
       <DashboardFooter />
 
       <FocusDialog
-        key={selectedFlight?.id ?? selectedPark?.name ?? selectedAmenity?.place.id ?? "none"}
+        key={selectedFlight?.id ?? selectedPark?.name ?? (selectedAmenity ? `${selectedAmenity.type}:${selectedAmenity.place.id}` : "none")}
         flight={selectedFlight}
         park={selectedPark}
         amenity={selectedAmenity}
+        alsoHere={coLocatedWithSelection}
+        onSelectAmenity={setSelectedAmenity}
         onClose={clearSelection}
       />
     </div>
