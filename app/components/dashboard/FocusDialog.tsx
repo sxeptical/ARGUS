@@ -2,8 +2,8 @@
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useFocusTrap } from "@/app/hooks/use-focus-trap";
-import { KeyValue } from "@/app/components/dashboard/IntelPanel";
-import { MapLocationLink } from "@/app/components/dashboard/MapLocationLink";
+import { KeyProse, KeyValue } from "@/app/components/dashboard/IntelPanel";
+import { displayUrl, ExternalLinkRow, MapLocationLink } from "@/app/components/dashboard/MapLocationLink";
 import { hasStoreDirectory, MallStoreDirectory } from "@/app/components/dashboard/MallDirectory";
 import { PlacePhotoGallery } from "@/app/components/dashboard/PlacePhotoGallery";
 import { describeHawkerClosure, formatOpeningHours } from "@/lib/amenities";
@@ -16,7 +16,7 @@ import { HERITAGE_KIND_LABEL, HERITAGE_SOURCE_HINT } from "@/lib/heritage";
 import { HEALTHCARE_KIND_LABEL, HEALTHCARE_SOURCE_HINT } from "@/lib/healthcare";
 import { LIBRARY_SOURCE_HINT } from "@/lib/libraries";
 import { SUPERMARKET_SOURCE_HINT } from "@/lib/supermarkets";
-import { SCHOOL_LEVEL_LABEL, SCHOOL_SOURCE_HINT } from "@/lib/schools";
+import { isHigherLearning, SCHOOL_LEVEL_LABEL, schoolSourceHint } from "@/lib/schools";
 import { formatAltitudeFeet, formatSpeedKmh } from "@/lib/formatters";
 import { photosForPark } from "@/lib/park-photos";
 import { PARK_KIND_TITLE } from "@/lib/parks";
@@ -161,7 +161,7 @@ function amenityDetails(amenity: SelectedAmenity): AmenityDetails {
       const site = amenity.place;
       return {
         kind: HERITAGE_KIND_LABEL[site.kind],
-        rows: site.description ? <KeyValue label="About" value={site.description} /> : null,
+        rows: site.description ? <KeyProse label="About" value={site.description} /> : null,
         website: site.website
           ? site.source === "nhb"
             ? { href: site.website, label: "Roots.sg", text: "More on Roots.sg" }
@@ -208,7 +208,7 @@ function amenityDetails(amenity: SelectedAmenity): AmenityDetails {
     case "school": {
       const school = amenity.place;
       return {
-        kind: `${SCHOOL_LEVEL_LABEL[school.level]} School`,
+        kind: isHigherLearning(school.level) ? SCHOOL_LEVEL_LABEL[school.level] : `${SCHOOL_LEVEL_LABEL[school.level]} School`,
         rows: (
           <>
             {school.phone ? <KeyValue label="Telephone" value={school.phone} /> : null}
@@ -217,7 +217,7 @@ function amenityDetails(amenity: SelectedAmenity): AmenityDetails {
           </>
         ),
         website: school.website ? { href: school.website } : undefined,
-        source: SCHOOL_SOURCE_HINT,
+        source: schoolSourceHint(school),
       };
     }
   }
@@ -299,17 +299,12 @@ function AmenityFocus({
         {rows}
         <MapLocationLink name={place.name} address={place.address} lat={place.lat} lng={place.lng} />
         {website ? (
-          <div className="flex gap-2 py-1">
-            <span className="data-label w-20 shrink-0">{website.label ?? "Website"}</span>
-            <a
-              href={website.href}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="min-w-0 break-all text-info underline decoration-info/40 hover:decoration-info"
-            >
-              {website.text ?? website.href}
-            </a>
-          </div>
+          <ExternalLinkRow
+            label={website.label ?? "Website"}
+            href={website.href}
+            text={website.text ?? displayUrl(website.href)}
+            title={`Open ${website.text ?? displayUrl(website.href)} in a new tab`}
+          />
         ) : null}
       </div>
       {source ? <p className="text-[11px] leading-relaxed text-muted">{source}</p> : null}

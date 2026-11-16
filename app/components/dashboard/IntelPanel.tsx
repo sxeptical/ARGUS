@@ -78,9 +78,24 @@ export function SignalBar({
 
 export function KeyValue({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex items-center justify-between gap-3 border-b border-line px-1 py-2 last:border-b-0">
-      <span className="data-label">{label}</span>
-      <span className="font-mono text-xs text-ink">{value}</span>
+    // Baseline, not centre: a long value (an "About" blurb) wraps below the
+    // label instead of the label floating mid-paragraph.
+    <div className="flex items-baseline justify-between gap-3 border-b border-line px-1 py-2 last:border-b-0">
+      <span className="data-label shrink-0">{label}</span>
+      <span className="min-w-0 text-right font-mono text-xs text-ink">{value}</span>
+    </div>
+  );
+}
+
+/**
+ * A KeyValue for prose ("About" blurbs): label on its own line, then the
+ * text full width, so a paragraph doesn't wrap into a narrow ragged column.
+ */
+export function KeyProse({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="space-y-1 border-b border-line px-1 py-2 last:border-b-0">
+      <span className="data-label block">{label}</span>
+      <p className="text-xs leading-relaxed text-ink">{value}</p>
     </div>
   );
 }
