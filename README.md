@@ -105,6 +105,7 @@ ARGUS can run with partial data, but the best experience needs these keys:
 | --- | --- | --- |
 | `LTA_API_KEY` | Bus stops, bus arrivals, traffic cameras, road incidents, carparks, EV chargers | Get this from Singapore LTA DataMall. |
 | `AVIATIONSTACK_API_KEY` | Primary flight feed | Used for live flights around Changi/Seletar. |
+| `DATABASE_URL` | Feedback form (shown to visitors in Singapore) | Neon Postgres connection string. Create the table with `psql "$DATABASE_URL" -f scripts/sql/feedback.sql`. Set `ARGUS_DEV_COUNTRY=SG` to see the form locally. |
 
 Example:
 
@@ -185,6 +186,7 @@ cp .dev.vars.example .dev.vars   # local preview only; fill in keys
 bun run preview
 bunx wrangler secret put LTA_API_KEY
 bunx wrangler secret put AVIATIONSTACK_API_KEY   # optional
+bunx wrangler secret put DATABASE_URL            # feedback form
 bun run deploy
 ```
 
