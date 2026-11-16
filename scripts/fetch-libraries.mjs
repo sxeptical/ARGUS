@@ -25,6 +25,7 @@
  */
 import { mkdir, writeFile } from "node:fs/promises";
 import { fetchJson, USER_AGENT } from "./lib/commons-photos.mjs";
+import { applyPhotoPicks } from "./lib/photo-picks.mjs";
 import { fetchPlacePhotos } from "./lib/place-photos.mjs";
 import { parseKmlDescription } from "./lib/kml-description.mjs";
 import { inSingapore, round, text } from "./lib/place-fields.mjs";
@@ -121,7 +122,11 @@ const { photos, stats } = await fetchPlacePhotos(libraries, {
   radiusM: 300,
   searchNames: (library) => [library.name],
 });
-const withPhotos = libraries.map((library) => ({ ...library, photos: photos.get(library.id) ?? [] }));
+// Hand-picked Commons photos (scripts/data/photo-picks.json) fill the gaps.
+const { places: withPhotos, applied: pickedCount } = await applyPhotoPicks(
+  "libraries",
+  libraries.map((library) => ({ ...library, photos: photos.get(library.id) ?? [] })),
+);
 const photoCount = withPhotos.filter((library) => library.photos.length).length;
 
 const serialized = JSON.stringify(withPhotos);
@@ -130,5 +135,6 @@ await writeFile("public/libraries.json", serialized);
 console.log(
   `Library bundle: ${libraries.length} branches ` +
     `(${nlbSkipped.length} skipped; ${added.length} added from OSM: ${added.map((l) => l.name).join("; ") || "none"}; photos on ${photoCount} ` +
-    `(${stats.matched} matched to a Wikidata item, ${stats.searched} label searches)), ${Buffer.byteLength(serialized)} bytes`,
+    `(${stats.matched} matched to a Wikidata item, ${stats.searched} label searches, ${pickedCount} hand-picked)), ` +
+    `${Buffer.byteLength(serialized)} bytes`,
 );

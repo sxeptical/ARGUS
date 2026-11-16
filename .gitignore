@@ -59,3 +59,6 @@ package-lock.json
 # OpenNext / Wrangler build output
 /.open-next/
 /.wrangler/
+
+# photo research scratch (subagent batches; reviewed picks go to scripts/data/photo-picks.json)
+/.photo-research/

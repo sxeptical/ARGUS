@@ -13,7 +13,8 @@
  * media paths 404 today and the roots.gov.sg/rights terms could not be
  * confirmed as permitting Open Data Licence reuse, so no NHB imagery is
  * bundled. Photos come only from Wikimedia Commons via the place-photos
- * helper (OSM `wikidata` bridge + label search, name + <=300 m gate).
+ * helper (OSM `wikidata` bridge, National Monument pool, label search;
+ * loose name + <=300 m gate), archival photos included.
  *
  * HYPERLINK is kept as the record's `website` ("More on Roots.sg" in the UI)
  * only when it resolves; NHB id fields differ (OBJECTID_1 vs OBJECTID).
@@ -24,8 +25,9 @@
  * malls, or their photos.
  */
 import { mkdir, writeFile } from "node:fs/promises";
-import { fetchJson, USER_AGENT } from "./lib/commons-photos.mjs";
-import { fetchPlacePhotos } from "./lib/place-photos.mjs";
+import { ARCHIVAL_PHOTO_OPTIONS, fetchJson, USER_AGENT } from "./lib/commons-photos.mjs";
+import { applyPhotoPicks } from "./lib/photo-picks.mjs";
+import { fetchDesignatedItems, fetchPlacePhotos } from "./lib/place-photos.mjs";
 import { inSingapore, round, text, websiteOf } from "./lib/place-fields.mjs";
 
 const NHB_HISTORIC = "d_31e16b12809e66673e90d8b04fdee1b2";
@@ -41,6 +43,28 @@ const composeAddress = (props) => {
 };
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// NHB's GeoJSON already carries U+FFFD where a curly apostrophe was lost
+// upstream ("Singapore�s"); every case is a possessive, so restore it.
+const repairNhbText = (value) => value?.replace(/(?<=\p{L})�(?=s\b)/gu, "’") ?? null;
+
+// NHB pins that are plainly wrong, corrected from OneMap. Keyed by record
+// id and checked against the name, so a renumbered dataset fails loudly
+// instead of moving the wrong site.
+const NHB_COORD_FIXES = {
+  // NHB: 1.267357, 103.893033 (open sea off Marina South). OneMap "BUKIT
+  // BROWN CHINESE CEMETERY", matching the record's Lornie Road description.
+  "heritage-historic-2250": { name: "Bukit Brown Municipal Cemetery", lat: 1.336766, lng: 103.824874 },
+  // NHB: 1.290745, 103.806514 (mainland, ~3.5 km north of Sentosa).
+  // OneMap "FORT SILOSO", 098978.
+  "heritage-monument-1684": { name: "Fort Siloso", lat: 1.258516, lng: 103.808634 },
+};
+const applyCoordFix = (site) => {
+  const fix = NHB_COORD_FIXES[site.id];
+  if (!fix) return site;
+  if (fix.name !== site.name) throw new Error(`NHB_COORD_FIXES: ${site.id} is now "${site.name}", not "${fix.name}"`);
+  return { ...site, lat: fix.lat, lng: fix.lng };
+};
 
 async function fetchNhb(dataset, kind, idKey) {
   const poll = await fetchJson(`https://api-open.data.gov.sg/v1/public/api/datasets/${dataset}/poll-download`);
@@ -59,17 +83,17 @@ async function fetchNhb(dataset, kind, idKey) {
       skipped.push(name ?? "(unnamed)");
       continue;
     }
-    sites.push({
+    sites.push(applyCoordFix({
       id: `heritage-${kind === "monument" ? "monument" : "historic"}-${props[idKey]}`,
-      name,
+      name: repairNhbText(name),
       kind,
-      address: composeAddress(props),
-      description: text(props.DESCRIPTION),
+      address: repairNhbText(composeAddress(props)),
+      description: repairNhbText(text(props.DESCRIPTION)),
       website: websiteOf(props.HYPERLINK),
       lat: round(lat),
       lng: round(lng),
       source: "nhb",
-    });
+    }));
   }
   return { sites, skipped };
 }
@@ -147,16 +171,42 @@ const sites = [...historic.sites, ...monumentsResult.sites, ...museums].sort((a,
 );
 if (sites.length < 240) throw new Error(`Heritage sources returned only ${sites.length} named sites`);
 
-// Photos: Commons only (see header re NHB PHOTOURL). The museum wikidata
-// bridge covers OSM museums directly and many NHB sites share their
-// buildings; NHB markers also match on name + proximity.
-const { photos, stats } = await fetchPlacePhotos(sites, {
-  overpassQuery: `[out:json][timeout:90];area["ISO3166-1"="SG"]->.a;nwr["tourism"="museum"]["wikidata"](area.a);out center tags;`,
+// Photos: Commons only (see header re NHB PHOTOURL). The OSM bridge covers
+// museums, historic features and places of worship tagged with a Wikidata
+// item; Wikidata's National Monument designation (Q3862742) is a curated
+// pool for the NHB monuments; label search catches the rest. NHB names
+// drift from Wikidata's ("Abdul Gafoor Mosque" / "Masjid Abdul Gaffoor",
+// "Former X (now Y)"), so names match loosely, still within 300 m.
+// Archival photos are welcome here (ARCHIVAL_PHOTO_OPTIONS). Hand-picked
+// Commons photos (scripts/data/photo-picks.json) then fill the gaps.
+const monumentPool = await fetchDesignatedItems("Q3862742");
+const { photos, stats, matches } = await fetchPlacePhotos(sites, {
+  overpassQuery: `[out:json][timeout:90];area["ISO3166-1"="SG"]->.a;(
+    nwr["tourism"="museum"]["wikidata"](area.a);
+    nwr["historic"]["wikidata"](area.a);
+    nwr["heritage"]["wikidata"](area.a);
+    nwr["amenity"="place_of_worship"]["wikidata"](area.a);
+  );out center tags;`,
+  itemPool: monumentPool,
   radiusM: 300,
   searchNames: (site) => [site.name],
+  looseNames: true,
+  // Two monuments never share a building's photos, but a museum may sit in
+  // a monument ("Sun Yat Sen Nanyang Museum" in the former villa).
+  exclusiveGroup: (site) => site.kind,
+  photoOptions: ARCHIVAL_PHOTO_OPTIONS,
 });
-const withPhotos = sites.map((site) => ({ ...site, photos: photos.get(site.id) ?? [] }));
+const { places: withPhotos, applied: pickedCount } = await applyPhotoPicks(
+  "heritage",
+  sites.map((site) => ({ ...site, photos: photos.get(site.id) ?? [] })),
+  ARCHIVAL_PHOTO_OPTIONS,
+);
 const photoCount = withPhotos.filter((site) => site.photos.length).length;
+// Loose matches are worth eyeballing after each rebuild.
+for (const site of sites) {
+  const label = matches.get(site.id);
+  if (label && label !== site.name) console.log(`  ${site.name} → ${label}`);
+}
 
 const serialized = JSON.stringify(withPhotos);
 await mkdir("public", { recursive: true });
@@ -165,5 +215,7 @@ console.log(
   `Heritage bundle: ${sites.length} sites ` +
     `(${historic.sites.length} historic sites, ${monumentsResult.sites.length} monuments, ${museums.length} museums; ` +
     `${historic.skipped.length + monumentsResult.skipped.length + osmSkipped.length} skipped; photos on ${photoCount} ` +
-    `(${stats.matched} matched to a Wikidata item, ${stats.searched} label searches)), ${Buffer.byteLength(serialized)} bytes`,
+    `(${stats.matched} matched to a Wikidata item, ${stats.pooled} via the monument pool, ${stats.searched} label searches; ` +
+    `${pickedCount} hand-picked)), ` +
+    `${Buffer.byteLength(serialized)} bytes`,
 );

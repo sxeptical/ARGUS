@@ -11,6 +11,9 @@ const COMMONS_API_URL = "https://commons.wikimedia.org/w/api.php";
 export const MAX_PHOTOS_PER_PLACE = 3;
 const PHOTO_THUMB_WIDTH = 480;
 const MIN_PHOTO_EDGE = 800;
+// Heritage layers welcome archival photos: years back to 1840 keep their
+// date, and scans down to 600 px pass (the gallery thumb is 480 px wide).
+export const ARCHIVAL_PHOTO_OPTIONS = { minEdge: 600, oldestYear: 1840 };
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 // Overpass and the Wikimedia APIs shed load with 429/5xx; retry those a few times.
@@ -111,15 +114,22 @@ async function itemPhotoTitles(item) {
 /**
  * Capture year from Commons' DateTimeOriginal ("2024-05-12 14:03", "12 May
  * 2024", "<time datetime=...>"), or null when missing or implausible.
+ * `oldestYear` defaults to 1980 (modern venues); heritage layers pass an
+ * earlier floor so archival photos keep their date.
  */
-export const photoYear = (raw, now = new Date()) => {
-  const match = /\b(19[89]\d|20\d\d)\b/.exec(stripHtml(raw));
-  const year = match ? Number(match[1]) : null;
-  return year !== null && year <= now.getFullYear() ? year : null;
+export const photoYear = (raw, now = new Date(), oldestYear = 1980) => {
+  const year = [...stripHtml(raw).matchAll(/\b(1[89]\d\d|20\d\d)\b/g)]
+    .map((match) => Number(match[1]))
+    .find((value) => value >= oldestYear && value <= now.getFullYear());
+  return year ?? null;
 };
 
-/** Thumbnail + attribution for each usable file title, in batches of 50. */
-export async function resolvePhotoInfo(titles) {
+/**
+ * Thumbnail + attribution for each usable file title, in batches of 50.
+ * `minEdge` (default MIN_PHOTO_EDGE) can be lowered for archival scans;
+ * `oldestYear` is passed to photoYear.
+ */
+export async function resolvePhotoInfo(titles, { minEdge = MIN_PHOTO_EDGE, oldestYear } = {}) {
   const allTitles = [...new Set(titles)];
   const infoByTitle = new Map();
   for (let i = 0; i < allTitles.length; i += 50) {
@@ -140,14 +150,14 @@ export async function resolvePhotoInfo(titles) {
       // enough to fill the gallery without upscaling.
       if (info?.mime !== "image/jpeg" || !license || /fair use|non-free/i.test(license)) continue;
       if (!WIKIMEDIA_MEDIA_URL_RE.test(info.thumburl ?? "")) continue;
-      if (Math.max(info.width ?? 0, info.height ?? 0) < MIN_PHOTO_EDGE) continue;
+      if (Math.max(info.width ?? 0, info.height ?? 0) < minEdge) continue;
       infoByTitle.set(page.title, {
         thumb: withoutTracking(info.thumburl),
         page: info.descriptionurl,
         author,
         license,
         source: "commons",
-        year: photoYear(meta.DateTimeOriginal?.value),
+        year: photoYear(meta.DateTimeOriginal?.value, new Date(), oldestYear),
       });
     }
   }
@@ -177,9 +187,10 @@ export const pickPhotos = (titles, infoByTitle, now = new Date()) => {
 
 /**
  * Up to MAX_PHOTOS_PER_PLACE Commons photos per place, keyed by place id.
- * `itemFor` picks the place's Wikidata item (or undefined).
+ * `itemFor` picks the place's Wikidata item (or undefined); `photoOptions`
+ * is passed to resolvePhotoInfo.
  */
-export async function fetchCommonsPhotos(places, itemFor) {
+export async function fetchCommonsPhotos(places, itemFor, photoOptions) {
   const candidates = new Map();
   for (const place of places) {
     const item = itemFor(place);
@@ -187,6 +198,6 @@ export async function fetchCommonsPhotos(places, itemFor) {
     const titles = await itemPhotoTitles(item);
     if (titles.length) candidates.set(place.id, titles);
   }
-  const infoByTitle = await resolvePhotoInfo([...candidates.values()].flat());
+  const infoByTitle = await resolvePhotoInfo([...candidates.values()].flat(), photoOptions);
   return new Map([...candidates].map(([id, titles]) => [id, pickPhotos(titles, infoByTitle)]));
 }

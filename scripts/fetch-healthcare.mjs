@@ -23,6 +23,7 @@
  */
 import { mkdir, writeFile } from "node:fs/promises";
 import { fetchJson, USER_AGENT } from "./lib/commons-photos.mjs";
+import { applyPhotoPicks } from "./lib/photo-picks.mjs";
 import { fetchPlacePhotos } from "./lib/place-photos.mjs";
 import { parseKmlDescription } from "./lib/kml-description.mjs";
 import { inSingapore, phoneOf, round, text } from "./lib/place-fields.mjs";
@@ -121,7 +122,11 @@ const { photos, stats } = await fetchPlacePhotos(hospitalPlaces, {
   radiusM: 300,
   searchNames: (site) => [site.name],
 });
-const withPhotos = sites.map((site) => ({ ...site, photos: photos.get(site.id) ?? [] }));
+// Hand-picked Commons photos (scripts/data/photo-picks.json) fill the gaps.
+const { places: withPhotos, applied: pickedCount } = await applyPhotoPicks(
+  "healthcare",
+  sites.map((site) => ({ ...site, photos: photos.get(site.id) ?? [] })),
+);
 const photoCount = withPhotos.filter((site) => site.photos.length).length;
 
 const serialized = JSON.stringify(withPhotos);
@@ -131,5 +136,6 @@ console.log(
   `Healthcare bundle: ${sites.length} sites ` +
     `(${clinics.length} GP clinics, ${hospitals.places.length} hospitals, ${dentists.places.length} dental; ` +
     `${chimSkipped.length + hospitals.skipped.length + dentists.skipped.length} skipped; photos on ${photoCount} ` +
-    `(${stats.matched} matched to a Wikidata item, ${stats.searched} label searches)), ${Buffer.byteLength(serialized)} bytes`,
+    `(${stats.matched} matched to a Wikidata item, ${stats.searched} label searches, ${pickedCount} hand-picked)), ` +
+    `${Buffer.byteLength(serialized)} bytes`,
 );

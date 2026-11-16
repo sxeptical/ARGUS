@@ -21,6 +21,7 @@
  */
 import { mkdir, writeFile } from "node:fs/promises";
 import { fetchJson, USER_AGENT } from "./lib/commons-photos.mjs";
+import { applyPhotoPicks } from "./lib/photo-picks.mjs";
 import { fetchPlacePhotos } from "./lib/place-photos.mjs";
 import { inSingapore, round, text } from "./lib/place-fields.mjs";
 
@@ -69,7 +70,11 @@ const { photos, stats } = await fetchPlacePhotos(hotels, {
   radiusM: 300,
   searchNames: (hotel) => [hotel.name],
 });
-const withPhotos = hotels.map((hotel) => ({ ...hotel, photos: photos.get(hotel.id) ?? [] }));
+// Hand-picked Commons photos (scripts/data/photo-picks.json) fill the gaps.
+const { places: withPhotos, applied: pickedCount } = await applyPhotoPicks(
+  "hotels",
+  hotels.map((hotel) => ({ ...hotel, photos: photos.get(hotel.id) ?? [] })),
+);
 const photoCount = withPhotos.filter((hotel) => hotel.photos.length).length;
 
 const serialized = JSON.stringify(withPhotos);
@@ -77,5 +82,6 @@ await mkdir("public", { recursive: true });
 await writeFile("public/hotels.json", serialized);
 console.log(
   `Hotel bundle: ${hotels.length} hotels (${skipped.length} skipped${skipped.length ? `: ${skipped.join("; ")}` : ""}; ` +
-    `photos on ${photoCount}; ${stats.matched} matched to a Wikidata item, ${stats.searched} label searches), ${Buffer.byteLength(serialized)} bytes`,
+    `photos on ${photoCount}; ${stats.matched} matched to a Wikidata item, ${stats.searched} label searches, ` +
+    `${pickedCount} hand-picked), ${Buffer.byteLength(serialized)} bytes`,
 );

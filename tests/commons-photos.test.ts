@@ -41,6 +41,12 @@ describe("photoYear", () => {
     expect(photoYear("2031-01-01", now)).toBeNull();
     expect(photoYear("1890", now)).toBeNull();
   });
+
+  test("keeps archival years when given an earlier floor", () => {
+    expect(photoYear("circa 1890", now, 1840)).toBe(1890);
+    expect(photoYear("1 January 1925", now, 1840)).toBe(1925);
+    expect(photoYear("1820", now, 1840)).toBeNull();
+  });
 });
 
 describe("pickPhotos", () => {

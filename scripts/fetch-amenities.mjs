@@ -14,6 +14,7 @@
  */
 import { mkdir, writeFile } from "node:fs/promises";
 import { fetchCommonsPhotos, fetchJson, fetchWikidataItems, USER_AGENT } from "./lib/commons-photos.mjs";
+import { applyPhotoPicks } from "./lib/photo-picks.mjs";
 import { inSingapore, round, text } from "./lib/place-fields.mjs";
 
 const HAWKER_DATASET = "d_4a086da0a5553be1d89383cd90d07ecd";
@@ -200,8 +201,15 @@ const { enriched } = mallResult;
 // Commons requests are paced one at a time, so run these sequentially.
 const mallPhotos = await fetchMallPhotos(mallResult.malls, mallResult.wikidataIds);
 const hawkerPhotos = await fetchHawkerPhotos(hawkerResult.hawkers, hawkerResult.neaPhotos);
-const malls = mallResult.malls.map((mall) => ({ ...mall, photos: mallPhotos.get(mall.id) ?? [] }));
-const hawkers = hawkerResult.hawkers.map((hawker) => ({ ...hawker, photos: hawkerPhotos.get(hawker.id) ?? [] }));
+// Hand-picked Commons photos (scripts/data/photo-picks.json) fill the gaps.
+const { places: malls } = await applyPhotoPicks(
+  "malls",
+  mallResult.malls.map((mall) => ({ ...mall, photos: mallPhotos.get(mall.id) ?? [] })),
+);
+const { places: hawkers } = await applyPhotoPicks(
+  "hawkers",
+  hawkerResult.hawkers.map((hawker) => ({ ...hawker, photos: hawkerPhotos.get(hawker.id) ?? [] })),
+);
 const withPhotos = (places, source) => places.filter((place) => place.photos.some((photo) => photo.source === source)).length;
 const serialized = JSON.stringify({ hawkers, malls });
 await mkdir("public", { recursive: true });

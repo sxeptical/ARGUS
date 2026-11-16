@@ -17,6 +17,7 @@
  */
 import { mkdir, writeFile } from "node:fs/promises";
 import { fetchJson, USER_AGENT } from "./lib/commons-photos.mjs";
+import { applyPhotoPicks } from "./lib/photo-picks.mjs";
 import { fetchPlacePhotos } from "./lib/place-photos.mjs";
 import { inSingapore, round, text } from "./lib/place-fields.mjs";
 
@@ -77,7 +78,11 @@ const { photos, stats } = await fetchPlacePhotos(clubs, {
   radiusM: 300,
   searchNames: (club) => [club.name, club.name.replace(/\bCC\b/g, "Community Club")],
 });
-const withPhotos = clubs.map((club) => ({ ...club, photos: photos.get(club.id) ?? [] }));
+// Hand-picked Commons photos (scripts/data/photo-picks.json) fill the gaps.
+const { places: withPhotos, applied: pickedCount } = await applyPhotoPicks(
+  "community-clubs",
+  clubs.map((club) => ({ ...club, photos: photos.get(club.id) ?? [] })),
+);
 const photoCount = withPhotos.filter((club) => club.photos.length).length;
 
 const serialized = JSON.stringify(withPhotos);
@@ -87,5 +92,6 @@ console.log(
   `Community club bundle: ${clubs.length} outlets ` +
     `(${clubs.filter((club) => club.kind === "community-club").length} community clubs, ${clubs.filter((club) => club.kind === "passionwave").length} PAssion WaVe; ` +
     `${skipped.length} skipped${skipped.length ? `: ${skipped.join("; ")}` : ""}; photos on ${photoCount} ` +
-    `(${stats.matched} matched to a Wikidata item, ${stats.searched} label searches)), ${Buffer.byteLength(serialized)} bytes`,
+    `(${stats.matched} matched to a Wikidata item, ${stats.searched} label searches, ${pickedCount} hand-picked)), ` +
+    `${Buffer.byteLength(serialized)} bytes`,
 );
