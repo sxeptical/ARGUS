@@ -195,6 +195,137 @@ export function clipLineToRadius(
   return pieces;
 }
 
+/** A regular polygon approximating the circle, in local metres (CCW). */
+function circleRingLocal(radiusM: number, steps = 96): [number, number][] {
+  const ring: [number, number][] = [];
+  for (let i = 0; i < steps; i += 1) {
+    const angle = (i / steps) * 2 * Math.PI;
+    ring.push([radiusM * Math.cos(angle), radiusM * Math.sin(angle)]);
+  }
+  return ring;
+}
+
+/** Where segment p→q crosses the infinite line a→b. */
+function segmentLineIntersection(
+  p: [number, number],
+  q: [number, number],
+  a: [number, number],
+  b: [number, number],
+): [number, number] {
+  const rx = q[0] - p[0];
+  const ry = q[1] - p[1];
+  const sx = b[0] - a[0];
+  const sy = b[1] - a[1];
+  const denominator = rx * sy - ry * sx;
+  if (Math.abs(denominator) < 1e-12) return [...p];
+  const t = ((a[0] - p[0]) * sy - (a[1] - p[1]) * sx) / denominator;
+  return [p[0] + t * rx, p[1] + t * ry];
+}
+
+/** Sutherland–Hodgman clip of a ring against a convex CCW clip polygon. */
+function clipRingToConvex(
+  subject: [number, number][],
+  clip: [number, number][],
+): [number, number][] {
+  let output = subject;
+  for (let i = 0; i < clip.length && output.length > 0; i += 1) {
+    const a = clip[i];
+    const b = clip[(i + 1) % clip.length];
+    const input = output;
+    output = [];
+    const inside = (point: [number, number]) =>
+      (b[0] - a[0]) * (point[1] - a[1]) - (b[1] - a[1]) * (point[0] - a[0]) >= 0;
+    for (let j = 0; j < input.length; j += 1) {
+      const current = input[j];
+      const previous = input[(j + input.length - 1) % input.length];
+      const currentIn = inside(current);
+      const previousIn = inside(previous);
+      if (currentIn) {
+        if (!previousIn) output.push(segmentLineIntersection(previous, current, a, b));
+        output.push(current);
+      } else if (previousIn) {
+        output.push(segmentLineIntersection(previous, current, a, b));
+      }
+    }
+  }
+  return output;
+}
+
+/** Clip one ring to the circle, keeping the original when it is wholly inside. */
+function clipRingToRadius(
+  filter: GeoFilter,
+  ring: ReadonlyArray<LngLat>,
+  circle: [number, number][],
+): [number, number][] {
+  const local = ring.map((point) => toLocalMetres(filter.center, point));
+  const radiusSq = filter.radiusM * filter.radiusM;
+  if (local.every((point) => point[0] ** 2 + point[1] ** 2 <= radiusSq)) {
+    return ring.map((point) => [...point] as [number, number]);
+  }
+  return clipRingToConvex(local, circle).map((point) =>
+    fromLocalMetres(filter.center, point),
+  );
+}
+
+/** Clip polygon rings to the circle. The first ring is the outer boundary. */
+function clipPolygonRings(
+  filter: GeoFilter,
+  rings: ReadonlyArray<ReadonlyArray<LngLat>>,
+): [number, number][][] | null {
+  if (rings.length === 0) return null;
+  const circle = circleRingLocal(filter.radiusM);
+  const outer = clipRingToRadius(filter, rings[0], circle);
+  if (outer.length < 3) return null;
+  const clipped: [number, number][][] = [outer];
+  for (const hole of rings.slice(1)) {
+    const clippedHole = clipRingToRadius(filter, hole, circle);
+    if (clippedHole.length >= 3) clipped.push(clippedHole);
+  }
+  return clipped;
+}
+
+/**
+ * Geometry cut exactly at the radius, or null when nothing lies inside.
+ * Lines may split into several pieces; polygons are clipped by a many-sided
+ * circle approximation, which is what keeps fills and outlines inside too.
+ */
+export function clipGeometryToRadius(
+  filter: GeoFilter,
+  geometry: FilterableGeometry,
+): FilterableGeometry | null {
+  switch (geometry.type) {
+    case "Point":
+      return distanceM(filter.center, geometry.coordinates as LngLat) <= filter.radiusM
+        ? geometry
+        : null;
+    case "LineString":
+    case "MultiLineString": {
+      const lines =
+        geometry.type === "LineString"
+          ? [geometry.coordinates as LngLat[]]
+          : (geometry.coordinates as LngLat[][]);
+      const pieces = lines.flatMap((line) => clipLineToRadius(filter, line));
+      if (pieces.length === 0) return null;
+      return pieces.length === 1
+        ? { type: "LineString", coordinates: pieces[0] }
+        : { type: "MultiLineString", coordinates: pieces };
+    }
+    case "Polygon": {
+      const coordinates = clipPolygonRings(filter, geometry.coordinates as LngLat[][]);
+      return coordinates ? { type: "Polygon", coordinates } : null;
+    }
+    case "MultiPolygon": {
+      const polygons = (geometry.coordinates as LngLat[][][])
+        .map((rings) => clipPolygonRings(filter, rings))
+        .filter((value): value is [number, number][][] => value !== null);
+      if (polygons.length === 0) return null;
+      return polygons.length === 1
+        ? { type: "Polygon", coordinates: polygons[0] }
+        : { type: "MultiPolygon", coordinates: polygons };
+    }
+  }
+}
+
 /** Keep items whose position is within the radius; `null` filter keeps all. */
 export function withinRadius<T>(
   items: T[],

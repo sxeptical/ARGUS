@@ -24,6 +24,7 @@ import {
 import {
   buildGeoFilterCircleGeoJson,
   buildGeoFilterMaskGeoJson,
+  clipGeometryToRadius,
   clipLineToRadius,
   featuresTouchingRadius,
   withinRadius,
@@ -66,6 +67,7 @@ import type {
   TrafficIncident,
   AmenityType,
   ParkFeatureKind,
+  ParksGeoJson,
 } from "@/types";
 
 export type { BusRouteOverlay };
@@ -458,12 +460,14 @@ function filterPointFeatures<C extends { features: Array<{ geometry: { type: "Po
 }
 
 function filterParks(filter: GeoFilter | null) {
-  return filter
-    ? {
-        ...PARKS_GEOJSON,
-        features: featuresTouchingRadius(PARKS_GEOJSON.features, filter),
-      }
-    : PARKS_GEOJSON;
+  if (!filter) return PARKS_GEOJSON;
+  const features = PARKS_GEOJSON.features.flatMap((feature) => {
+    const geometry = clipGeometryToRadius(filter, feature.geometry);
+    return geometry
+      ? [{ ...feature, geometry: geometry as ParksGeoJson["features"][number]["geometry"] }]
+      : [];
+  });
+  return { ...PARKS_GEOJSON, features };
 }
 
 /** Push one amenity's points (sub-filter + radius filter) to its source. */

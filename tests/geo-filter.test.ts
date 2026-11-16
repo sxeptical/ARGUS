@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   buildGeoFilterCircleGeoJson,
   buildGeoFilterMaskGeoJson,
+  clipGeometryToRadius,
   clipLineToRadius,
   distanceM,
   featuresTouchingRadius,
@@ -172,6 +173,61 @@ describe("clipLineToRadius", () => {
     expect(pieces).toHaveLength(1);
     expect(distanceM(pieces[0][0], east(-0.5))).toBeLessThan(0.01);
     expect(distanceM(pieces[0][1], east(0.5))).toBeLessThan(0.01);
+  });
+});
+
+describe("clipGeometryToRadius", () => {
+  const east = (km: number) => [CENTER[0] + km * DEG_PER_KM, CENTER[1]] as const;
+  const north = (km: number) => [CENTER[0], CENTER[1] + km * DEG_PER_KM] as const;
+  const ring = (points: ReadonlyArray<readonly [number, number]>) =>
+    points.map((p) => [p[0], p[1]]);
+
+  test("clips a MultiLineString", () => {
+    const result = clipGeometryToRadius(FILTER, {
+      type: "MultiLineString",
+      coordinates: [ring([east(-3), east(3)]), ring([north(-3), north(-2)])],
+    });
+    expect(result?.type).toBe("LineString");
+    const coords = (result as { coordinates: number[][] }).coordinates;
+    expect(coords).toHaveLength(2);
+  });
+
+  test("clips a polygon crossing the circle", () => {
+    const result = clipGeometryToRadius(FILTER, {
+      type: "Polygon",
+      // Big square spanning the circle, counter-clockwise in local coords.
+      coordinates: [
+        ring([east(-3), north(-3), north(3), east(3), east(-3)]),
+      ],
+    });
+    expect(result?.type).toBe("Polygon");
+    const outer = (result as { coordinates: number[][][] }).coordinates[0];
+    expect(outer.length).toBeGreaterThanOrEqual(3);
+    for (const point of outer) {
+      expect(distanceM(CENTER, point as unknown as readonly [number, number])).toBeLessThanOrEqual(FILTER.radiusM + 5);
+    }
+  });
+
+  test("keeps a polygon wholly inside the circle", () => {
+    const inside = [ring([east(-0.1), north(-0.1), north(0.1), east(0.1), east(-0.1)])];
+    const result = clipGeometryToRadius(FILTER, { type: "Polygon", coordinates: inside });
+    expect(result?.coordinates).toEqual(inside);
+  });
+
+  test("drops a polygon wholly outside the circle", () => {
+    const outside = [ring([east(3), north(3), north(4), east(4), east(3)])];
+    expect(clipGeometryToRadius(FILTER, { type: "Polygon", coordinates: outside })).toBeNull();
+  });
+
+  test("clips a MultiPolygon", () => {
+    const result = clipGeometryToRadius(FILTER, {
+      type: "MultiPolygon",
+      coordinates: [
+        [ring([east(-3), north(-3), north(3), east(3), east(-3)])],
+        [ring([east(3), north(3), north(4), east(4), east(3)])],
+      ],
+    });
+    expect(result?.type).toBe("Polygon");
   });
 });
 
