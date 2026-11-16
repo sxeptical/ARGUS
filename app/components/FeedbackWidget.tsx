@@ -226,7 +226,7 @@ function FeedbackDialog({
         <div className="flex items-start gap-3 border-b border-line px-4 py-3.5">
           <div className="min-w-0 flex-1">
             <div className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted">
-              Feedback · Singapore
+              Feedback
             </div>
             <h2 id="feedback-dialog-title" className="font-mono text-base font-medium text-ink">
               {view === "intro" ? "Heya!" : "How is ARGUS working for you?"}
