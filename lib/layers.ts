@@ -250,7 +250,7 @@ const LAYER_DEFINITIONS = [
     key: "schools",
     group: "amenities",
     label: "Schools",
-    note: "MOE schools",
+    note: "MOE schools · polytechnics · universities",
     tone: "text-signal-school",
     dot: "bg-signal-school",
     legend: [{ kind: "dot", tone: "bg-signal-school", label: "Schools" }],

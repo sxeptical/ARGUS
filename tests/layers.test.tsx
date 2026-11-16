@@ -38,7 +38,7 @@ const layerCounts: Record<SensorKey, number> = {
   healthcare: 1460,
   libraries: 28,
   supermarkets: 553,
-  schools: 337,
+  schools: 350,
 };
 
 const allRows: SensorRow[] = LAYERS.map((layer) => ({

@@ -74,7 +74,7 @@ describe("sub-filters", () => {
   test("kinds and levels keep their declared order, with readable labels", () => {
     expect(choiceValues("heritage")).toEqual(["historic-site", "monument", "museum"]);
     expect(choiceValues("healthcare")).toEqual(["gp", "hospital", "dental"]);
-    expect(choiceValues("school")).toEqual(["primary", "secondary", "jc", "mixed"]);
+    expect(choiceValues("school")).toEqual(["primary", "secondary", "jc", "mixed", "polytechnic", "university"]);
     expect(amenity("healthcare").filter!.choices[0].label).toBe("GP clinic");
     expect(amenity("gym").filter!.choices[0].label).toBe("ActiveSG");
   });
@@ -83,7 +83,7 @@ describe("sub-filters", () => {
     const schools = amenity("school");
     expect(visiblePlaces(schools, {})).toBe(schools.places);
     expect(visiblePlaces(schools, { school: {} })).toHaveLength(schools.places.length);
-    const primaryOnly = visiblePlaces(schools, { school: { primary: true, secondary: false, jc: false, mixed: false } });
+    const primaryOnly = visiblePlaces(schools, { school: { primary: true, secondary: false, jc: false, mixed: false, polytechnic: false, university: false } });
     expect(primaryOnly).toHaveLength(schools.filter!.choices.find((choice) => choice.value === "primary")!.count);
     // A selection for another amenity, or for one without a filter, changes nothing.
     expect(visiblePlaces(schools, { gym: { ActiveSG: false } })).toBe(schools.places);
@@ -99,7 +99,7 @@ describe("sub-filters", () => {
       mall: { anything: false },
       gym: "junk",
     })!;
-    expect(parsed.school).toEqual({ primary: false, secondary: true, jc: true, mixed: true });
+    expect(parsed.school).toEqual({ primary: false, secondary: true, jc: true, mixed: true, polytechnic: true, university: true });
     expect(parsed.healthcare).toEqual({ gp: true, hospital: true, dental: true });
     expect(parsed.mall).toBeUndefined();
     expect(parsed.gym).toBeUndefined();

@@ -446,12 +446,14 @@ export interface Supermarket {
 }
 
 /**
- * MOE school from the static schools bundle (MOE via data.gov.sg).
- * `level` is the `mainlevel_code` mapping used by the level sub-filter;
- * `coordsSource` records how coordinates were found (OneMap name search,
- * OpenStreetMap name join). Staff names are never stored.
+ * School from the static schools bundle: MOE schools (data.gov.sg), plus
+ * the autonomous universities and polytechnics from a curated list.
+ * `level` is the MOE `mainlevel_code` mapping, or "university" /
+ * "polytechnic", and drives the level sub-filter; `coordsSource` records
+ * how coordinates were found (OneMap search, OpenStreetMap name join).
+ * Staff names are never stored.
  */
-export const SCHOOL_LEVELS = ["primary", "secondary", "jc", "mixed"] as const;
+export const SCHOOL_LEVELS = ["primary", "secondary", "jc", "mixed", "polytechnic", "university"] as const;
 export type SchoolLevel = (typeof SCHOOL_LEVELS)[number];
 
 export interface School {

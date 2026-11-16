@@ -12,7 +12,10 @@
  *    a token (with an auth warning); no token is stored. Results are
  *    cached by name within the run and paced politely.
  *
- * Fails its guard if fewer than 320 schools geocode.
+ *  - Autonomous universities and polytechnics: a hand-curated list (see
+ *    HIGHER_LEARNING), pinned on named OneMap buildings.
+ *
+ * Fails its guard if fewer than 320 MOE schools geocode.
  *
  * This is a separate script and output from scripts/fetch-amenities.mjs,
  * following the gyms pattern: rerunning it never refetches hawker centres,
@@ -51,11 +54,15 @@ const LEVEL_BY_CODE = {
   PRIMARY: "primary",
   SECONDARY: "secondary",
   "MIXED LEVEL(S)": "mixed",
+  "MIXED LEVEL": "mixed",
   "JUNIOR COLLEGE": "jc",
   "CENTRALISED INSTITUTE": "jc",
 };
+// MOE now suffixes the level with its range ("SECONDARY (S1-S5)", "MIXED
+// LEVEL (S1-JC2)"); the range isn't kept, so match on the level itself.
 const levelOf = (code) => {
-  const level = LEVEL_BY_CODE[(code ?? "").toUpperCase()];
+  const upper = (code ?? "").toUpperCase().trim();
+  const level = LEVEL_BY_CODE[upper] ?? LEVEL_BY_CODE[upper.replace(/\s*\([^)]*\)\s*$/, "")];
   if (!level) throw new Error(`Unknown school mainlevel_code: ${JSON.stringify(code)}`);
   return level;
 };
@@ -120,6 +127,29 @@ for (const row of rows.slice(1)) {
 }
 
 if (schools.length < 330) throw new Error(`MOE dataset returned only ${schools.length} schools`);
+
+// --- Autonomous universities and polytechnics (MOE's publicly funded
+// institutes of higher learning). No open dataset lists them with
+// coordinates, so this short, stable list is curated by hand: one pin per
+// main campus, placed on the OneMap building named here (exact building +
+// postcode match, else the run fails). Private institutions, ITE and
+// satellite campuses (NUS Bukit Timah/Outram, NTU Novena) are left out.
+const HIGHER_LEARNING = [
+  { name: "National University of Singapore", level: "university", building: "NATIONAL UNIVERSITY OF SINGAPORE (UNIVERSITY HALL)", address: "21 Lower Kent Ridge Road", postal: "119077", website: "https://www.nus.edu.sg/" },
+  { name: "Nanyang Technological University", level: "university", building: "NANYANG TECHNOLOGICAL UNIVERSITY (ADMINISTRATION BUILDING)", address: "50 Nanyang Avenue", postal: "639798", website: "https://www.ntu.edu.sg/" },
+  { name: "Singapore Management University", level: "university", building: "SINGAPORE MANAGEMENT UNIVERSITY (ADMIN BUILDING)", address: "81 Victoria Street", postal: "188065", website: "https://www.smu.edu.sg/" },
+  { name: "Singapore University of Technology and Design", level: "university", building: "SINGAPORE UNIVERSITY OF TECHNOLOGY AND DESIGN", address: "8 Somapah Road", postal: "487372", website: "https://www.sutd.edu.sg/" },
+  { name: "Singapore Institute of Technology", level: "university", building: "SINGAPORE INSTITUTE OF TECHNOLOGY", address: "1 Punggol Coast Road", postal: "828608", website: "https://www.singaporetech.edu.sg/" },
+  { name: "Singapore University of Social Sciences", level: "university", building: "SINGAPORE UNIVERSITY OF SOCIAL SCIENCES", address: "463 Clementi Road", postal: "599494", website: "https://www.suss.edu.sg/" },
+  // University of the Arts Singapore teaches on its two colleges' campuses.
+  { name: "University of the Arts Singapore (LASALLE College of the Arts)", level: "university", building: "LASALLE COLLEGE OF THE ARTS", address: "1 McNally Street", postal: "187940", website: "https://www.uas.edu.sg/" },
+  { name: "University of the Arts Singapore (Nanyang Academy of Fine Arts)", level: "university", building: "NANYANG ACADEMY OF FINE ARTS", address: "80 Bencoolen Street", postal: "189655", website: "https://www.uas.edu.sg/" },
+  { name: "Singapore Polytechnic", level: "polytechnic", building: "SINGAPORE POLYTECHNIC (ADMIN BUILDING)", address: "500 Dover Road", postal: "139651", website: "https://www.sp.edu.sg/" },
+  { name: "Ngee Ann Polytechnic", level: "polytechnic", building: "NGEE ANN POLYTECHNIC (NP)", address: "535 Clementi Road", postal: "599489", website: "https://www.np.edu.sg/" },
+  { name: "Temasek Polytechnic", level: "polytechnic", building: "TEMASEK POLYTECHNIC (9 ADMINISTRATION)", address: "21 Tampines Avenue 1", postal: "529757", website: "https://www.tp.edu.sg/" },
+  { name: "Nanyang Polytechnic", level: "polytechnic", building: "NANYANG POLYTECHNIC", address: "180 Ang Mo Kio Avenue 8", postal: "569830", website: "https://www.nyp.edu.sg/" },
+  { name: "Republic Polytechnic", level: "polytechnic", building: "REPUBLIC POLYTECHNIC (RP)", address: "9 Woodlands Avenue 9", postal: "738964", website: "https://www.rp.edu.sg/" },
+];
 
 // --- OneMap (best name match; results are cached per name) ---
 const onemapCache = new Map();
@@ -240,14 +270,51 @@ if (geocoded < 320) {
   throw new Error(`Only ${geocoded} schools geocoded (OneMap ${geocodedOneMap}, OSM ${geocodedOsm}); ungeocoded: ${ungeocoded.slice(0, 10).join("; ")}`);
 }
 
-const kept = schools.filter((school) => school.lat !== null && school.lng !== null);
+// Higher learning: the named OneMap building at the listed postcode.
+async function onemapBuilding(building, postal) {
+  for (let attempt = 1; attempt <= 4; attempt++) {
+    const res = await fetch(
+      `${ONEMAP_BASE}?${new URLSearchParams({ searchVal: building, returnGeom: "Y", getAddrDetails: "Y", pageNum: "1" })}`,
+      { headers: { "User-Agent": USER_AGENT } },
+    );
+    let data = null;
+    try { data = await res.json(); } catch { data = null; }
+    await sleep(attempt * 1000);
+    if (!res.ok || !Array.isArray(data?.results)) continue;
+    const hit = data.results.find((result) => result.BUILDING === building && String(result.POSTAL).trim() === postal);
+    if (hit && inSingapore(Number(hit.LATITUDE), Number(hit.LONGITUDE))) {
+      return { lat: round(Number(hit.LATITUDE)), lng: round(Number(hit.LONGITUDE)) };
+    }
+    break;
+  }
+  throw new Error(`OneMap has no "${building}" at ${postal}; update HIGHER_LEARNING`);
+}
+const higherLearning = [];
+for (const institution of HIGHER_LEARNING) {
+  const coords = await onemapBuilding(institution.building, institution.postal);
+  higherLearning.push({
+    id: `ihl-${slug(institution.name)}`,
+    name: institution.name,
+    level: institution.level,
+    address: `${institution.address}, Singapore ${institution.postal}`,
+    postalCode: institution.postal,
+    phone: null,
+    website: websiteOf(institution.website),
+    mrt: null,
+    bus: null,
+    ...coords,
+    coordsSource: "onemap",
+  });
+}
+
+const kept = [...schools.filter((school) => school.lat !== null && school.lng !== null), ...higherLearning];
 kept.sort((a, b) => a.name.localeCompare(b.name, "en-SG"));
 
 const serialized = JSON.stringify(kept);
 await mkdir("public", { recursive: true });
 await writeFile("public/schools.json", serialized);
 console.log(
-  `School bundle: ${kept.length} schools ` +
+  `School bundle: ${kept.length} schools incl. ${higherLearning.length} universities/polytechnics ` +
     `(OneMap ${geocodedOneMap}, OSM ${geocodedOsm}, ${ungeocoded.length} ungeocoded; ` +
     `levels: ${Object.entries(kept.reduce((acc, s) => { acc[s.level] = (acc[s.level] ?? 0) + 1; return acc; }, {})).map(([l, n]) => `${l} ${n}`).join(", ")}), ${Buffer.byteLength(serialized)} bytes`,
 );

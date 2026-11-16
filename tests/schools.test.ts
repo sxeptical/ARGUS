@@ -27,6 +27,8 @@ describe("schools bundle", () => {
     expect(SCHOOLS.some((s) => s.level === "secondary")).toBe(true);
     expect(SCHOOLS.some((s) => s.level === "jc")).toBe(true);
     expect(SCHOOLS.some((s) => s.level === "mixed")).toBe(true);
+    expect(SCHOOLS.filter((s) => s.level === "polytechnic")).toHaveLength(5);
+    expect(SCHOOLS.filter((s) => s.level === "university").length).toBeGreaterThanOrEqual(6);
   });
 
   test("rejects malformed bundles", () => {
@@ -38,6 +40,27 @@ describe("schools bundle", () => {
 });
 
 describe("describeSchool", () => {
+  test("names universities and polytechnics by kind, with their own source", () => {
+    const nus = school({
+      id: "ihl-nationaluniversityofsingapore",
+      name: "National University of Singapore",
+      level: "university",
+      address: "21 Lower Kent Ridge Road, Singapore 119077",
+      postalCode: "119077",
+      phone: null,
+      website: "https://www.nus.edu.sg/",
+      mrt: null,
+      bus: null,
+    });
+    expect(texts(describeSchool(nus))).toEqual([
+      "National University of Singapore",
+      "University",
+      "21 Lower Kent Ridge Road, Singapore 119077",
+      "Source: curated list of autonomous universities and polytechnics; location via OneMap",
+    ]);
+    expect(describeSchool({ ...nus, level: "polytechnic" })[1]?.text).toBe("Polytechnic");
+  });
+
   test("shows the level, address, phone, MRT and bus", () => {
     expect(texts(describeSchool(school()))).toEqual([
       "ADMIRALTY PRIMARY SCHOOL",
