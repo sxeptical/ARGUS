@@ -180,6 +180,34 @@ function FeedbackDialog({
     }
   };
 
+  // Once sent, show only the thank-you box: no title bar, no Esc button.
+  if (status === "sent") {
+    return (
+      <div
+        className="fixed inset-0 z-50 flex items-start justify-center bg-black/65 p-3 pt-[calc(env(safe-area-inset-top)+0.75rem)] backdrop-blur-[2px] sm:items-center sm:p-4"
+        onClick={onClose}
+        role="presentation"
+      >
+        <div
+          ref={panelRef}
+          tabIndex={-1}
+          className="flex max-h-[calc(100dvh-1.5rem)] w-full max-w-md flex-col overflow-hidden rounded-xl border border-line-strong bg-surface p-5 text-xs shadow-2xl shadow-black/50 outline-none"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="feedback-thanks-title"
+          onClick={(event) => event.stopPropagation()}
+        >
+          <p id="feedback-thanks-title" role="status" className="leading-relaxed text-ink">
+            Thanks for your feedback, this will help improve the app further!
+          </p>
+          <button type="button" className="action-button mt-4 w-full" onClick={onClose}>
+            Close
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-start justify-center bg-black/65 p-3 pt-[calc(env(safe-area-inset-top)+0.75rem)] backdrop-blur-[2px] sm:items-center sm:p-4"
@@ -236,19 +264,6 @@ function FeedbackDialog({
                 Will do
               </button>
             </div>
-          </div>
-        ) : status === "sent" ? (
-          <div className="space-y-3 p-4 text-xs">
-            <p role="status" className="leading-relaxed text-ink">
-              Thanks, your feedback was sent.
-            </p>
-            <p className="leading-relaxed text-muted">
-              The Feedback tab at the top of the screen stays there if you
-              want to tell us more later.
-            </p>
-            <button type="button" className="action-button w-full" onClick={onClose}>
-              Close
-            </button>
           </div>
         ) : (
           <form className="space-y-4 overflow-y-auto p-4 text-xs" onSubmit={submit}>
