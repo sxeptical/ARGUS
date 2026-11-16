@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import BusPanel from "@/app/components/BusPanel";
 import CameraPanel from "@/app/components/CameraPanel";
+import FeedbackWidget from "@/app/components/FeedbackWidget";
 import Map, {
   EMPTY_MRT_ROUTE_SEGMENTS,
   type MapSearchTarget,
@@ -180,6 +181,7 @@ export default function Home() {
   return (
     <div className="flex min-h-dvh flex-col gap-2 bg-paper p-2 pl-[max(0.5rem,env(safe-area-inset-left))] pr-[max(0.5rem,env(safe-area-inset-right))] pb-[max(0.5rem,env(safe-area-inset-bottom))] sm:gap-3 sm:p-3 lg:h-dvh lg:overflow-hidden">
       <UpdateAvailableToast />
+      <FeedbackWidget />
       <NotificationToasts
         toasts={toasts}
         onDismiss={dismissToast}

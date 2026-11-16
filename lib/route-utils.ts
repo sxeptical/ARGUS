@@ -7,6 +7,7 @@ import { sharedRateLimiter } from "@/lib/shared-rate-limit";
 import {
   BadRequestError,
   ExternalApiError,
+  ForbiddenError,
   SchemaParseError,
   TimeoutError,
 } from "@/lib/errors";
@@ -81,6 +82,9 @@ const errorToResponse = (
 ): Response => {
   if (error instanceof BadRequestError) {
     return jsonResponse({ error: error.message }, 400);
+  }
+  if (error instanceof ForbiddenError) {
+    return jsonResponse({ error: error.message }, 403);
   }
   if (error instanceof TimeoutError) {
     return jsonResponse({ error: `${serviceLabel} timed out` }, 504);

@@ -56,5 +56,6 @@
   // Secrets (set with `wrangler secret put <NAME>`, never committed):
   //   LTA_API_KEY              - LTA DataMall AccountKey (required for bus data)
   //   AVIATIONSTACK_API_KEY    - AviationStack key (optional; flights are disabled)
+  //   DATABASE_URL             - Neon Postgres URL (required for the feedback form)
   // Local preview values go in .dev.vars (see .dev.vars.example).
 }

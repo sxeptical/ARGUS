@@ -21,4 +21,5 @@ interface CloudflareEnv {
   ARGUS_TRUST_PROXY_HEADERS?: string;
   LTA_API_KEY?: string;
   AVIATIONSTACK_API_KEY?: string;
+  DATABASE_URL?: string;
 }

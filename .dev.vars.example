@@ -7,3 +7,6 @@ LTA_API_KEY=your_lta_datamall_key
 
 # Optional: flight data is currently disabled (see lib/features.ts).
 AVIATIONSTACK_API_KEY=your_aviationstack_key
+
+# Neon Postgres connection string for the visitor feedback form.
+DATABASE_URL=postgresql://user:password@host/dbname?sslmode=require

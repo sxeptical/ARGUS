@@ -41,3 +41,11 @@ export class BadRequestError extends Error {
     this.name = "BadRequestError";
   }
 }
+
+/** A valid request this visitor is not allowed to make (HTTP 403). */
+export class ForbiddenError extends Error {
+  constructor(options: { message: string }) {
+    super(options.message);
+    this.name = "ForbiddenError";
+  }
+}
