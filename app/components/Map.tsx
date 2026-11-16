@@ -24,6 +24,7 @@ import {
 import {
   buildGeoFilterCircleGeoJson,
   buildGeoFilterMaskGeoJson,
+  clipLineToRadius,
   featuresTouchingRadius,
   withinRadius,
   type GeoFilter,
@@ -421,6 +422,23 @@ function buildGeoFilterCenterGeoJson(filter: GeoFilter | null) {
   };
 }
 
+/** MRT/LRT lines cut at the radius, so only the track inside the circle is drawn. */
+function clipMrtLines(lines: MRTGeoJson, filter: GeoFilter | null): MRTGeoJson {
+  if (!filter) return lines;
+  return {
+    type: "FeatureCollection",
+    features: lines.features.flatMap((feature) =>
+      clipLineToRadius(
+        filter,
+        feature.geometry.coordinates as [number, number][],
+      ).map((coordinates) => ({
+        ...feature,
+        geometry: { type: "LineString" as const, coordinates },
+      })),
+    ),
+  };
+}
+
 function filterMrtStations(
   stations: MRTStationGeoJson,
   filter: GeoFilter | null,
@@ -633,6 +651,8 @@ function useMapController({
     geoFilterFrameRef.current = requestAnimationFrame(() => {
       geoFilterFrameRef.current = null;
       if (mapRef.current !== map) return;
+      (map.getSource("mrt-lines") as maplibregl.GeoJSONSource | undefined)
+        ?.setData(clipMrtLines(MRT_LINES, geoFilter));
       (map.getSource("mrt-stations") as maplibregl.GeoJSONSource | undefined)
         ?.setData(filterMrtStations(MRT_STATION_GEOJSON, geoFilter));
       (map.getSource("parks-data") as maplibregl.GeoJSONSource | undefined)
@@ -1542,9 +1562,10 @@ function useMapController({
         const geoJson = MRT_LINES;
         mrtLinesRef.current = geoJson;
 
+        // The planned-route overlay keeps using the full lines (mrtLinesRef).
         map.addSource("mrt-lines", {
           type: "geojson",
-          data: geoJson,
+          data: clipMrtLines(geoJson, geoFilterRef.current),
         });
 
         // LRT lines are thinner and sort beneath MRT where they meet. Their

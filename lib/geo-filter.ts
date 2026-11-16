@@ -39,6 +39,15 @@ function toLocalMetres(origin: LngLat, [lng, lat]: LngLat): [number, number] {
   ];
 }
 
+/** Inverse of `toLocalMetres`. */
+function fromLocalMetres(origin: LngLat, [x, y]: readonly [number, number]): [number, number] {
+  const scale = metresPerRadian(origin[1]);
+  return [
+    origin[0] + x / scale.east / DEG_TO_RAD,
+    origin[1] + y / scale.north / DEG_TO_RAD,
+  ];
+}
+
 export function distanceM(from: LngLat, to: LngLat): number {
   return Math.hypot(...toLocalMetres(from, to));
 }
@@ -127,6 +136,63 @@ export function geometryTouchesRadius(
         polygonTouches(filter, polygon),
       );
   }
+}
+
+/**
+ * Parameter range [t0, t1] ⊆ [0, 1] of segment a→b lying inside a circle of
+ * `radiusM` around the local origin, or null when the segment stays outside.
+ */
+function segmentInsideRange(
+  a: [number, number],
+  b: [number, number],
+  radiusM: number,
+): [number, number] | null {
+  const dx = b[0] - a[0];
+  const dy = b[1] - a[1];
+  const qa = dx * dx + dy * dy;
+  const qb = 2 * (a[0] * dx + a[1] * dy);
+  const qc = a[0] * a[0] + a[1] * a[1] - radiusM * radiusM;
+  if (qa === 0) return qc <= 0 ? [0, 1] : null;
+  const discriminant = qb * qb - 4 * qa * qc;
+  if (discriminant < 0) return null;
+  const root = Math.sqrt(discriminant);
+  const t0 = Math.max(0, (-qb - root) / (2 * qa));
+  const t1 = Math.min(1, (-qb + root) / (2 * qa));
+  return t0 < t1 ? [t0, t1] : null;
+}
+
+/**
+ * The parts of a line inside the radius, cut exactly at the circle. A line
+ * that leaves and re-enters the circle yields several pieces.
+ */
+export function clipLineToRadius(
+  filter: GeoFilter,
+  line: ReadonlyArray<LngLat>,
+): [number, number][][] {
+  const projected = line.map((point) => toLocalMetres(filter.center, point));
+  const toLngLat = (point: [number, number]) => fromLocalMetres(filter.center, point);
+  const pieces: [number, number][][] = [];
+  let current: [number, number][] | null = null;
+
+  for (let i = 0; i < projected.length - 1; i += 1) {
+    const a = projected[i];
+    const b = projected[i + 1];
+    const range = segmentInsideRange(a, b, filter.radiusM);
+    if (!range) {
+      current = null;
+      continue;
+    }
+    const at = (t: number): [number, number] =>
+      toLngLat([a[0] + t * (b[0] - a[0]), a[1] + t * (b[1] - a[1])]);
+    // Continue the open piece only when this segment starts inside the circle.
+    if (!current || range[0] > 0) {
+      current = [at(range[0])];
+      pieces.push(current);
+    }
+    current.push(at(range[1]));
+    if (range[1] < 1) current = null;
+  }
+  return pieces;
 }
 
 /** Keep items whose position is within the radius; `null` filter keeps all. */

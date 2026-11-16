@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   buildGeoFilterCircleGeoJson,
   buildGeoFilterMaskGeoJson,
+  clipLineToRadius,
   distanceM,
   featuresTouchingRadius,
   formatRadius,
@@ -131,6 +132,46 @@ describe("featuresTouchingRadius", () => {
     ];
     expect(featuresTouchingRadius(features, FILTER).map((f) => f.id)).toEqual(["a"]);
     expect(featuresTouchingRadius(features, null)).toBe(features);
+  });
+});
+
+describe("clipLineToRadius", () => {
+  const east = (km: number) => [CENTER[0] + km * DEG_PER_KM, CENTER[1]] as const;
+  const north = (km: number) => [CENTER[0], CENTER[1] + km * DEG_PER_KM] as const;
+  const onCircle = (point: readonly [number, number]) =>
+    Math.abs(distanceM(CENTER, point) - FILTER.radiusM) < 0.01;
+
+  test("cuts a line crossing the circle at both edges", () => {
+    const pieces = clipLineToRadius(FILTER, [east(-3), east(3)]);
+    expect(pieces).toHaveLength(1);
+    expect(pieces[0]).toHaveLength(2);
+    expect(onCircle(pieces[0][0])).toBe(true);
+    expect(onCircle(pieces[0][1])).toBe(true);
+  });
+
+  test("keeps inner vertices and joins segments into one piece", () => {
+    const pieces = clipLineToRadius(FILTER, [east(-3), east(-0.2), north(0.3), east(3)]);
+    expect(pieces).toHaveLength(1);
+    expect(pieces[0]).toHaveLength(4);
+    expect(distanceM(pieces[0][1], east(-0.2))).toBeLessThan(0.01);
+    expect(distanceM(pieces[0][2], north(0.3))).toBeLessThan(0.01);
+  });
+
+  test("splits a line that leaves and re-enters the circle", () => {
+    const pieces = clipLineToRadius(FILTER, [east(-0.5), north(3), east(0.5)]);
+    expect(pieces).toHaveLength(2);
+  });
+
+  test("drops lines entirely outside the circle", () => {
+    expect(clipLineToRadius(FILTER, [north(2), east(2)])).toEqual([]);
+    expect(clipLineToRadius(FILTER, [north(-3), north(-2)])).toEqual([]);
+  });
+
+  test("keeps a line entirely inside unchanged", () => {
+    const pieces = clipLineToRadius(FILTER, [east(-0.5), east(0.5)]);
+    expect(pieces).toHaveLength(1);
+    expect(distanceM(pieces[0][0], east(-0.5))).toBeLessThan(0.01);
+    expect(distanceM(pieces[0][1], east(0.5))).toBeLessThan(0.01);
   });
 });
 
