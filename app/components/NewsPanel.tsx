@@ -1,14 +1,16 @@
+import type { SourceStatus } from "@/app/hooks/use-dashboard-sources";
 import TerminalPanel from "@/app/components/TerminalPanel";
 import { formatSgDateTime } from "@/lib/formatters";
 import type { NewsItem } from "@/types";
 
 type NewsPanelProps = {
+  feedStatus: SourceStatus;
   news: NewsItem[];
 };
 
-export default function NewsPanel({ news }: NewsPanelProps) {
+export default function NewsPanel({ feedStatus, news }: NewsPanelProps) {
   return (
-    <TerminalPanel title="NEWS" contentClassName="min-h-36 sm:min-h-44">
+    <TerminalPanel feedStatus={feedStatus} title="NEWS" contentClassName="min-h-36 sm:min-h-44">
       <div className="space-y-2">
         {news.length === 0 ? (
           <div className="text-[11px] text-muted">

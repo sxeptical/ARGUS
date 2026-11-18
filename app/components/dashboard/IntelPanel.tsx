@@ -1,3 +1,4 @@
+import type { SourceStatus } from "@/app/hooks/use-dashboard-sources";
 import type { ReactNode } from "react";
 
 export function IntelPanel({
@@ -47,20 +48,20 @@ export function IntelPanel({
   );
 }
 
-export function SignalBar({
-  label,
-  value,
-  tone,
-}: {
-  label: string;
-  value: number;
-  tone: string;
-}) {
+const SOURCE_HEALTH = {
+  ok: { value: 100, tone: "bg-success", text: "Online" },
+  loading: { value: 50, tone: "bg-warning", text: "Connecting" },
+  stale: { value: 50, tone: "bg-warning", text: "Stale" },
+  error: { value: 0, tone: "bg-danger", text: "Offline" },
+} as const;
+
+export function SignalBar({ label, status }: { label: string; status: SourceStatus }) {
+  const { value, tone, text } = SOURCE_HEALTH[status];
   return (
     <div className="border-b border-line px-1 py-2 last:border-b-0">
       <div className="mb-1.5 flex items-center justify-between gap-2 text-[10px] text-muted">
         <span>{label}</span>
-        <span className="font-mono text-ink">{value}%</span>
+        <span className="font-mono text-ink">{text}</span>
       </div>
       <div
         className="h-1 w-full overflow-hidden bg-line"
@@ -69,6 +70,7 @@ export function SignalBar({
         aria-valuemin={0}
         aria-valuemax={100}
         aria-valuenow={value}
+        aria-valuetext={text}
       >
         <div className={`h-full ${tone}`} style={{ width: `${value}%` }} />
       </div>

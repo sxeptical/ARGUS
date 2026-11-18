@@ -1,3 +1,4 @@
+import type { SourceStatus } from "@/app/hooks/use-dashboard-sources";
 import TerminalPanel from "@/app/components/TerminalPanel";
 import { MiniTrend, summarizeValues } from "@/app/components/trend";
 import { usePersistentState } from "@/app/hooks/use-persistent-state";
@@ -32,6 +33,7 @@ function formatMetric(value: number | null, unit: string): string {
 }
 
 type WeatherPanelProps = {
+  feedStatus: SourceStatus;
   weather: WeatherData;
   history: WeatherHistoryPoint[];
   onAirQualityOverlayChange?: (overlay: AirQualityOverlay | null) => void;
@@ -95,6 +97,7 @@ const REGION_STRIP_ORDER: ReadonlyArray<{
 ];
 
 export default function WeatherPanel({
+  feedStatus,
   weather,
   history,
   onAirQualityOverlayChange,
@@ -149,6 +152,7 @@ export default function WeatherPanel({
 
   return (
     <TerminalPanel
+      feedStatus={feedStatus}
       title="WEATHER"
       className={className}
       contentClassName="min-h-40 xl:min-h-0"

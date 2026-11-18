@@ -1,3 +1,4 @@
+import type { SourceStatus } from "@/app/hooks/use-dashboard-sources";
 import { useId } from "react";
 import { usePersistentState } from "@/app/hooks/use-persistent-state";
 import {
@@ -8,6 +9,7 @@ import {
 type TerminalPanelProps = {
   title: string;
   children: React.ReactNode;
+  feedStatus?: SourceStatus;
   className?: string;
   contentClassName?: string;
   defaultExpanded?: boolean;
@@ -16,6 +18,7 @@ type TerminalPanelProps = {
 export default function TerminalPanel({
   title,
   children,
+  feedStatus,
   className,
   contentClassName,
   defaultExpanded = true,
@@ -49,7 +52,14 @@ export default function TerminalPanel({
           id={contentId}
           className={`terminal-content min-h-0 flex-1 overflow-auto ${contentClassName ?? ""}`}
         >
-          {children}
+          {feedStatus && feedStatus !== "ok" && (
+            <p role="status" className="text-[11px] text-muted">
+              {feedStatus === "loading" ? "Loading feed…" :
+                feedStatus === "stale" ? "Refresh failed. Showing the last available data." :
+                "Feed unavailable. Retrying on refresh."}
+            </p>
+          )}
+          {feedStatus !== "loading" && feedStatus !== "error" && children}
         </div>
       ) : null}
     </section>

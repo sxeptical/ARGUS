@@ -1,3 +1,4 @@
+import type { SourceStatus } from "@/app/hooks/use-dashboard-sources";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import TerminalPanel from "@/app/components/TerminalPanel";
@@ -6,11 +7,13 @@ import { googleMapsUrl } from "@/lib/maps-links";
 import type { TrafficCamera } from "@/types";
 
 type CameraPanelProps = {
+  feedStatus: SourceStatus;
   cameras: TrafficCamera[];
   selectedCamera: TrafficCamera | null;
 };
 
 export default function CameraPanel({
+  feedStatus,
   cameras,
   selectedCamera,
 }: CameraPanelProps) {
@@ -61,6 +64,7 @@ export default function CameraPanel({
   return (
     <>
       <TerminalPanel
+        feedStatus={feedStatus}
         title="ROAD CAMERAS"
         contentClassName="min-h-40 sm:min-h-52"
       >

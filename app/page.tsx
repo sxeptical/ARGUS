@@ -23,7 +23,6 @@ import {
   SignalBar,
 } from "@/app/components/dashboard/IntelPanel";
 import { LayersSidebar } from "@/app/components/dashboard/LayersSidebar";
-import { LoadingScreen } from "@/app/components/dashboard/LoadingScreen";
 import { FocusDialog } from "@/app/components/dashboard/FocusDialog";
 import { MobileLayersDrawer } from "@/app/components/dashboard/MobileLayersDrawer";
 import { NotificationBell } from "@/app/components/dashboard/NotificationBell";
@@ -49,7 +48,7 @@ export default function Home() {
     activeSources,
     allBusStops,
     allIncidents,
-    bootComplete,
+    feeds,
     busRouteOverlay,
     busRouteState,
     busStops,
@@ -101,9 +100,7 @@ export default function Home() {
     setSelectedPark,
     setSensorVisibility,
     showBusRoute,
-    signalBars,
     signalsLoaded,
-    sources,
     systemStatus,
     trainAlerts,
     visibleSensorCount,
@@ -174,12 +171,12 @@ export default function Home() {
     />
   );
 
-  if (!bootComplete) {
-    return <LoadingScreen sources={sources} />;
-  }
+  const signalFeeds = [feeds.trainAlerts, feeds.incidents, feeds.weather];
+  const signalsPending = signalFeeds.some((feed) => feed.status === "loading");
+  const signalsIncomplete = signalFeeds.some((feed) => feed.status === "error" || feed.status === "stale");
 
   return (
-    <div className="flex min-h-dvh flex-col gap-2 bg-paper p-2 pl-[max(0.5rem,env(safe-area-inset-left))] pr-[max(0.5rem,env(safe-area-inset-right))] pb-[max(0.5rem,env(safe-area-inset-bottom))] sm:gap-3 sm:p-3 lg:h-dvh lg:overflow-hidden">
+    <div className="flex min-h-dvh flex-col gap-2 bg-paper p-2 pl-[max(0.5rem,env(safe-area-inset-left))] pr-[max(0.5rem,env(safe-area-inset-right))] pb-[max(0.5rem,env(safe-area-inset-bottom))] sm:gap-3 sm:p-3 xl:h-dvh xl:overflow-hidden">
       <UpdateAvailableToast />
       <FeedbackWidget />
       <NotificationToasts
@@ -190,7 +187,6 @@ export default function Home() {
       />
       <DashboardHeader
         activeSourceCount={activeSources.length}
-        hasError={error !== null}
         notificationBell={
           <NotificationBell
             alerts={alerts}
@@ -213,7 +209,7 @@ export default function Home() {
         </div>
       ) : null}
 
-      <main className="grid min-w-0 grid-cols-1 gap-2 sm:gap-3 lg:min-h-0 lg:flex-1 xl:grid-cols-[248px_minmax(0,1fr)_292px]">
+      <main className="grid min-w-0 grid-cols-1 gap-2 sm:gap-3 xl:min-h-0 xl:flex-1 xl:grid-cols-[248px_minmax(0,1fr)_292px]">
         <LayersSidebar
           flights={flights}
           selectedFlight={selectedFlight}
@@ -223,6 +219,7 @@ export default function Home() {
           setSelectedFlight={setSelectedFlight}
           setSensorVisibility={setSensorVisibility}
           visibleSensorCount={visibleSensorCount}
+          weatherStatus={feeds.weather.status}
           weather={weather}
           weatherHistory={weatherHistory}
           onAirQualityOverlayChange={setAirQualityOverlay}
@@ -349,6 +346,7 @@ export default function Home() {
             </div>
             <div className="max-h-[60dvh] min-h-0 overflow-auto xl:max-h-none">
               <BusPanel
+                feedStatus={feeds.busStops.status}
                 busStops={busStops}
                 searchScope={searchScope}
                 selectedStop={selectedStop}
@@ -360,16 +358,16 @@ export default function Home() {
               />
             </div>
             <div className="max-h-[60dvh] min-h-0 overflow-auto xl:max-h-none">
-              <NewsPanel news={news} />
+              <NewsPanel feedStatus={feeds.news.status} news={news} />
             </div>
             <div className="max-h-[60dvh] min-h-0 overflow-auto sm:col-span-2 xl:max-h-none 2xl:col-span-1">
-              <CameraPanel cameras={cameras} selectedCamera={selectedCamera} />
+              <CameraPanel feedStatus={feeds.cameras.status} cameras={cameras} selectedCamera={selectedCamera} />
             </div>
           </section>
         </section>
 
         <aside className="order-2 flex min-w-0 flex-col gap-2 sm:gap-3 xl:order-3 xl:min-h-0 xl:overflow-y-auto xl:pr-1">
-          <IntelPanel title="Intelligence" badge={`${signalDigest.length} signals`}>
+          <IntelPanel title="Intelligence" badge={signalsPending ? "Updating" : signalsIncomplete ? "Partial" : `${signalDigest.length} signals`}>
             {signalDigest.length > 0 ? (
               <div className="space-y-1">
                 {signalDigest.filter((signal, index) => signal.category !== "road" || signalDigest.slice(0, index).filter((item) => item.category === "road").length < 8).map((signal, index) => (
@@ -380,7 +378,11 @@ export default function Home() {
                 ))}
                 {incidents.length > 8 ? <div className="font-mono text-[9px] uppercase tracking-[0.1em] text-muted">+{incidents.length - 8} MORE ROAD INCIDENTS</div> : null}
               </div>
-            ) : <div className="text-xs leading-relaxed text-muted">NO ACTIVE SIGNALS<br />Rail, road and weather feeds nominal.</div>}
+            ) : <div className="text-xs leading-relaxed text-muted">
+              {signalsPending ? "Checking rail, road and weather feeds…" :
+                signalsIncomplete ? "No active signals in the available data. Some feeds could not refresh." :
+                <>NO ACTIVE SIGNALS<br />Rail, road and weather feeds nominal.</>}
+            </div>}
           </IntelPanel>
 
           <IntelPanel
@@ -388,12 +390,11 @@ export default function Home() {
             badge={`${onlineSourceCount}/${activeSources.length}`}
           >
             <div className="space-y-2">
-              {signalBars.map((item) => (
+              {activeSources.map((item) => (
                 <SignalBar
                   key={item.label}
                   label={item.label}
-                  value={item.value}
-                  tone={item.tone}
+                  status={item.status}
                 />
               ))}
             </div>

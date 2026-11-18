@@ -403,24 +403,12 @@ export function useDashboardState() {
   const visibleSensorCount = visibleSensorRows.filter(
     (row) => sensorVisibility[row.key],
   ).length;
-  // Disabled feeds are not health indicators.
-  const signalBars = data.sources
-    .filter((source) => source.message !== "disabled")
-    .map((source) => ({
-      label: source.label,
-      value:
-        source.status === "ok" ? 100 : source.status === "loading" ? 50 : 0,
-      tone:
-        source.status === "ok"
-          ? "bg-success"
-          : source.status === "loading"
-            ? "bg-warning"
-            : "bg-danger",
-    }));
+  const systemStatus = data.error ? "Degraded"
+    : data.onlineSourceCount < data.activeSources.length ? "Connecting" : "Live";
 
   return {
     activeSources: data.activeSources,
-    bootComplete: data.bootComplete,
+    feeds: data.feeds,
     busRouteOverlay: busRoute.overlay,
     busRouteState: busRoute.state,
     allBusStops: data.busStops,
@@ -475,10 +463,8 @@ export function useDashboardState() {
     setSensorVisibility,
     revealAmenity,
     showBusRoute: busRoute.show,
-    signalBars,
     signalsLoaded: data.signalsLoaded,
-    sources: data.sources,
-    systemStatus: data.error ? "Degraded" : "Live",
+    systemStatus,
     visibleSensorCount,
     weather: data.weather,
     weatherHistory,

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useFocusTrap } from "@/app/hooks/use-focus-trap";
 import type { MapSearchResult } from "@/types";
 
@@ -14,6 +14,8 @@ export function isTypingTarget(target: EventTarget | null): boolean {
 	);
 }
 
+const PAGE_SIZE = 40;
+
 type MapSearchProps = {
 	results: MapSearchResult[];
 	onSelect: (result: MapSearchResult) => void;
@@ -24,19 +26,30 @@ type MapSearchProps = {
 export default function MapSearch({ results, onSelect, scope }: MapSearchProps) {
 	const [isOpen, setIsOpen] = useState(false);
 	const [query, setQuery] = useState("");
+	const [limit, setLimit] = useState(PAGE_SIZE);
 	const inputRef = useRef<HTMLInputElement>(null);
 	const panelRef = useRef<HTMLDivElement>(null);
 	const triggerRef = useRef<HTMLButtonElement>(null);
 	const normalizedQuery = query.trim().toLowerCase();
-	const matches = normalizedQuery
-		? results.filter(
-				(result) =>
-					result.name.toLowerCase().includes(normalizedQuery) ||
-					result.keywords.some((keyword) =>
-						keyword.toLowerCase().includes(normalizedQuery),
-					),
-			)
-		: results.slice(0, 6);
+	const index = useMemo(
+		() => isOpen ? results.map((result) => ({
+			result,
+			fields: [result.name, ...result.keywords].map((field) => field.toLowerCase()),
+		})) : [],
+		[isOpen, results],
+	);
+	const matches = useMemo(
+		() => normalizedQuery
+			? index.filter(({ fields }) => fields.some((field) => field.includes(normalizedQuery)))
+			: index.slice(0, 6),
+		[index, normalizedQuery],
+	);
+
+	function closeSearch() {
+		setIsOpen(false);
+		setQuery("");
+		setLimit(PAGE_SIZE);
+	}
 
 	// Focus the input on open, wrap Tab inside the dialog and hand focus back
 	// to the search button on close.
@@ -56,13 +69,12 @@ export default function MapSearch({ results, onSelect, scope }: MapSearchProps) 
 			} else if (isOpen && event.key === "Escape") {
 				// Claim Escape so the radius-picking handler does not also cancel.
 				event.preventDefault();
-				setIsOpen(false);
-				setQuery("");
+				closeSearch();
 			}
 		};
 		const handlePointerDown = (event: PointerEvent) => {
-			if (!panelRef.current?.contains(event.target as Node)) {
-				setIsOpen(false);
+			if (isOpen && !panelRef.current?.contains(event.target as Node)) {
+				closeSearch();
 			}
 		};
 
@@ -76,8 +88,7 @@ export default function MapSearch({ results, onSelect, scope }: MapSearchProps) 
 
 	const selectResult = (result: MapSearchResult) => {
 		onSelect(result);
-		setIsOpen(false);
-		setQuery("");
+		closeSearch();
 	};
 
 	return (
@@ -98,10 +109,7 @@ export default function MapSearch({ results, onSelect, scope }: MapSearchProps) 
 			{isOpen ? (
 				<div
 					className="fixed inset-0 z-50 flex items-start justify-center bg-black/65 p-3 pt-[calc(env(safe-area-inset-top)+0.75rem)] sm:items-center sm:p-4 backdrop-blur-[2px]"
-					onClick={() => {
-						setIsOpen(false);
-						setQuery("");
-					}}
+					onClick={closeSearch}
 					role="presentation"
 				>
 					<div
@@ -113,54 +121,65 @@ export default function MapSearch({ results, onSelect, scope }: MapSearchProps) 
 						onClick={(event) => event.stopPropagation()}
 					>
 						<div className="flex items-center gap-3 border-b border-line px-4 py-4">
-						<label htmlFor="map-search-input" className="sr-only">
-							Search map locations
-						</label>
-						<span id="map-search-title" className="font-mono text-xs text-muted" aria-hidden="true">
-							SEARCH
-						</span>
-						<input
-							ref={inputRef}
-							id="map-search-input"
-							type="search"
-							value={query}
-							onChange={(event) => setQuery(event.target.value)}
-							placeholder={scope ? `Search within ${scope}...` : "Search map locations..."}
-							className="min-w-0 flex-1 bg-transparent text-base text-ink outline-none placeholder:text-muted"
-						/>
-						<button
-							type="button"
-							onClick={() => {
-								setIsOpen(false);
-								setQuery("");
-							}}
-							className="shrink-0 rounded border border-line px-3 py-2 font-mono sm:px-2 sm:py-1 text-[10px] uppercase tracking-[0.1em] text-muted hover:border-line-strong hover:text-ink"
-							aria-label="Close map search"
-						>
-							<span className="sm:hidden">Close</span>
-							<span className="hidden sm:inline">Esc</span>
-						</button>
-					</div>
-						<div className="max-h-[min(60vh,24rem)] overflow-y-auto p-2">
-						{matches.length > 0 ? matches.map((result) => (
+							<label htmlFor="map-search-input" className="sr-only">
+								Search map locations
+							</label>
+							<span id="map-search-title" className="font-mono text-xs text-muted" aria-hidden="true">
+								SEARCH
+							</span>
+							<input
+								ref={inputRef}
+								id="map-search-input"
+								type="search"
+								value={query}
+								onChange={(event) => {
+									setQuery(event.target.value);
+									setLimit(PAGE_SIZE);
+								}}
+								placeholder={scope ? `Search within ${scope}...` : "Search map locations..."}
+								className="min-w-0 flex-1 bg-transparent text-base text-ink outline-none placeholder:text-muted"
+							/>
 							<button
-								key={`${result.type}-${result.id}`}
 								type="button"
-								onClick={() => selectResult(result)}
-									className="flex w-full items-center justify-between gap-3 rounded-md border border-transparent px-3 py-3 text-left hover:border-line hover:bg-surface-hover"
+								onClick={closeSearch}
+								className="shrink-0 rounded border border-line px-3 py-2 font-mono sm:px-2 sm:py-1 text-[10px] uppercase tracking-[0.1em] text-muted hover:border-line-strong hover:text-ink"
+								aria-label="Close map search"
 							>
-								<span className="min-w-0 truncate text-xs text-ink">{result.name}</span>
-								<span className="shrink-0 font-mono text-[9px] uppercase tracking-[0.08em] text-muted">
-									{result.type}
-								</span>
+								<span className="sm:hidden">Close</span>
+								<span className="hidden sm:inline">Esc</span>
 							</button>
-						)) : (
-							<div className="px-3 py-5 text-center text-[10px] uppercase tracking-[0.1em] text-muted">
-								{scope ? `No locations found within ${scope}` : "No locations found"}
-							</div>
-						)}
+						</div>
+						<div className="max-h-[min(60vh,24rem)] overflow-y-auto p-2">
+							{normalizedQuery && matches.length > 0 && (
+								<p role="status" className="px-3 py-1 text-xs text-muted">
+									Showing {Math.min(limit, matches.length)} of {matches.length} matches
+								</p>
+							)}
+							{matches.length > 0 ? matches.slice(0, limit).map(({ result }) => (
+								<button
+									key={`${result.type}-${result.id}`}
+									type="button"
+									onClick={() => selectResult(result)}
+									className="flex w-full items-center justify-between gap-3 rounded-md border border-transparent px-3 py-3 text-left hover:border-line hover:bg-surface-hover"
+								>
+									<span className="min-w-0 truncate text-xs text-ink">{result.name}</span>
+									<span className="shrink-0 font-mono text-[9px] uppercase tracking-[0.08em] text-muted">
+										{result.type}
+									</span>
+								</button>
+							)) : (
+								<div className="px-3 py-5 text-center text-[10px] uppercase tracking-[0.1em] text-muted">
+									{scope ? `No locations found within ${scope}` : "No locations found"}
+								</div>
+							)}
+							{matches.length > limit && (
+								<button type="button" className="action-button mt-2 w-full"
+									onClick={() => setLimit((current) => current + PAGE_SIZE)}>
+									Show more
+								</button>
+							)}
+						</div>
 					</div>
-				</div>
 				</div>
 			) : null}
 		</div>
