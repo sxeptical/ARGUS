@@ -3,7 +3,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 
 export function HeaderClock() {
-  const [now, setNow] = useState(() => new Date());
+  const [now, setNow] = useState<Date | null>(null);
 
   useEffect(() => {
     const clockTimer = setInterval(() => setNow(new Date()), 1000);
@@ -11,15 +11,15 @@ export function HeaderClock() {
   }, []);
 
   return (
-    <span suppressHydrationWarning>
+    <span>
       <HeaderChip
-        label={now.toLocaleDateString("en-SG", {
+        label={now?.toLocaleDateString("en-SG", {
           month: "short",
           day: "numeric",
           year: "numeric",
           timeZone: "Asia/Singapore",
-        })}
-        value={now.toLocaleTimeString("en-SG", { timeZone: "Asia/Singapore" })}
+        }) ?? "—"}
+        value={now?.toLocaleTimeString("en-SG", { timeZone: "Asia/Singapore" }) ?? "--:--:--"}
         className="[&>span:first-child]:hidden sm:[&>span:first-child]:inline"
       />
     </span>
@@ -47,13 +47,11 @@ export function HeaderChip({
 
 export function DashboardHeader({
   activeSourceCount,
-  hasError,
   notificationBell,
   onlineSourceCount,
   systemStatus,
 }: {
   activeSourceCount: number;
-  hasError: boolean;
   notificationBell: ReactNode;
   onlineSourceCount: number;
   systemStatus: string;
@@ -79,7 +77,7 @@ export function DashboardHeader({
           />
           <span
             className={`inline-flex items-center gap-2 whitespace-nowrap font-semibold ${
-              hasError ? "text-warning" : "text-success"
+              systemStatus === "Live" ? "text-success" : "text-warning"
             }`}
           >
             <span className="status-dot" aria-hidden="true" />

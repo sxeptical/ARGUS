@@ -1,6 +1,7 @@
 "use client";
 
 import { Fragment, type Dispatch, type SetStateAction } from "react";
+import type { SourceStatus } from "@/app/hooks/use-dashboard-sources";
 import FlightPanel from "@/app/components/FlightPanel";
 import WeatherPanel from "@/app/components/WeatherPanel";
 import {
@@ -35,6 +36,7 @@ export function LayersSidebar({
   visibleSensorCount,
   weather,
   weatherHistory,
+  weatherStatus,
   onAirQualityOverlayChange,
 }: {
   flights: FlightState[];
@@ -46,6 +48,7 @@ export function LayersSidebar({
   setSensorVisibility: Dispatch<SetStateAction<Record<SensorKey, boolean>>>;
   visibleSensorCount: number;
   weather: WeatherData;
+  weatherStatus: SourceStatus;
   weatherHistory: WeatherHistoryPoint[];
   onAirQualityOverlayChange?: (overlay: AirQualityOverlay | null) => void;
 }) {
@@ -172,6 +175,7 @@ export function LayersSidebar({
       </IntelPanel>
 
       <WeatherPanel
+        feedStatus={weatherStatus}
         weather={weather}
         history={weatherHistory}
         onAirQualityOverlayChange={onAirQualityOverlayChange}

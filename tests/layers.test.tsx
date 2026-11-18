@@ -193,6 +193,7 @@ describe("layer surfaces render", () => {
         setSelectedFlight={() => {}}
         setSensorVisibility={() => {}}
         visibleSensorCount={4}
+        weatherStatus="ok"
         weather={weather}
         weatherHistory={[]}
       />,

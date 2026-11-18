@@ -1,3 +1,4 @@
+import type { SourceStatus } from "@/app/hooks/use-dashboard-sources";
 import { useEffect, useMemo, useRef, useState } from "react";
 import useSWR from "swr";
 import TerminalPanel from "@/app/components/TerminalPanel";
@@ -16,6 +17,7 @@ import {
 import type { BusArrival, BusRouteDirection, BusStop } from "@/types";
 
 type BusPanelProps = {
+  feedStatus: SourceStatus;
   busStops: BusStop[];
   selectedStop: BusStop | null;
   onSelectStop?: (stop: BusStop) => void;
@@ -116,6 +118,7 @@ function appendBusArrivalHistory(
 }
 
 export default function BusPanel({
+  feedStatus,
   busStops,
   selectedStop,
   onSelectStop,
@@ -241,7 +244,7 @@ export default function BusPanel({
   }, [activeStop, arrivals]);
 
   return (
-    <TerminalPanel title="BUS ARRIVALS" contentClassName="min-h-44 sm:min-h-56">
+    <TerminalPanel feedStatus={feedStatus} title="BUS ARRIVALS" contentClassName="min-h-44 sm:min-h-56">
       <div className="space-y-3">
         <label className="sr-only" htmlFor="bus-stop-search">
           Search bus stops
