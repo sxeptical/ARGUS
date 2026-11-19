@@ -108,13 +108,13 @@ export default function MapSearch({ results, onSelect, scope }: MapSearchProps) 
 			</button>
 			{isOpen ? (
 				<div
-					className="fixed inset-0 z-50 flex items-start justify-center bg-black/65 p-3 pt-[calc(env(safe-area-inset-top)+0.75rem)] sm:items-center sm:p-4 backdrop-blur-[2px]"
+					className="fixed inset-0 z-50 flex items-start justify-center bg-scrim p-3 pt-[calc(env(safe-area-inset-top)+0.75rem)] sm:items-center sm:p-4 backdrop-blur-[2px]"
 					onClick={closeSearch}
 					role="presentation"
 				>
 					<div
 						ref={panelRef}
-						className="w-full max-w-xl overflow-hidden rounded-xl border border-line-strong bg-surface shadow-2xl shadow-black/50"
+						className="w-full max-w-xl overflow-hidden rounded-xl border border-line-strong bg-surface shadow-2xl shadow-elevation"
 						role="dialog"
 						aria-modal="true"
 						aria-labelledby="map-search-title"

@@ -364,14 +364,14 @@ function FocusShell({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-start justify-center bg-black/65 p-3 pt-[calc(env(safe-area-inset-top)+0.75rem)] backdrop-blur-[2px] sm:items-center sm:p-4"
+      className="fixed inset-0 z-50 flex items-start justify-center bg-scrim p-3 pt-[calc(env(safe-area-inset-top)+0.75rem)] backdrop-blur-[2px] sm:items-center sm:p-4"
       onClick={onClose}
       role="presentation"
     >
       <div
         ref={panelRef}
         tabIndex={-1}
-        className={`flex max-h-[calc(100dvh-1.5rem)] w-full flex-col overflow-hidden rounded-xl border border-line-strong bg-surface shadow-2xl shadow-black/50 outline-none ${
+        className={`flex max-h-[calc(100dvh-1.5rem)] w-full flex-col overflow-hidden rounded-xl border border-line-strong bg-surface shadow-2xl shadow-elevation outline-none ${
           wide ? "max-w-4xl md:h-[min(85vh,44rem)]" : "max-w-md sm:max-h-[min(85vh,44rem)]"
         }`}
         role="dialog"

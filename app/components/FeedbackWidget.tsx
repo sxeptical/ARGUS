@@ -109,7 +109,7 @@ export default function FeedbackWidget() {
       // Phones have no free space in the header, so the tab takes its own row
       // above it (sticky while scrolling); wider screens float it over the gap
       // in the middle of the header.
-      className="sticky top-[env(safe-area-inset-top)] z-40 -mt-2 inline-flex self-center sm:fixed sm:left-1/2 sm:mt-0 sm:-translate-x-1/2 items-center gap-2 rounded-b border border-t-0 border-line-strong bg-surface-raised px-2.5 py-1 font-mono text-[10px] uppercase tracking-[0.12em] text-muted shadow-lg shadow-black/40 transition-colors duration-150 hover:bg-surface-hover hover:text-ink"
+      className="sticky top-[env(safe-area-inset-top)] z-40 -mt-2 inline-flex self-center sm:fixed sm:left-1/2 sm:mt-0 sm:-translate-x-1/2 items-center gap-2 rounded-b border border-t-0 border-line-strong bg-surface-raised px-2.5 py-1 font-mono text-[10px] uppercase tracking-[0.12em] text-muted shadow-lg shadow-elevation/80 transition-colors duration-150 hover:bg-surface-hover hover:text-ink"
     >
       <span className="status-dot text-success" aria-hidden />
       Feedback
@@ -184,14 +184,14 @@ function FeedbackDialog({
   if (status === "sent") {
     return (
       <div
-        className="fixed inset-0 z-50 flex items-start justify-center bg-black/65 p-3 pt-[calc(env(safe-area-inset-top)+0.75rem)] backdrop-blur-[2px] sm:items-center sm:p-4"
+        className="fixed inset-0 z-50 flex items-start justify-center bg-scrim p-3 pt-[calc(env(safe-area-inset-top)+0.75rem)] backdrop-blur-[2px] sm:items-center sm:p-4"
         onClick={onClose}
         role="presentation"
       >
         <div
           ref={panelRef}
           tabIndex={-1}
-          className="flex max-h-[calc(100dvh-1.5rem)] w-full max-w-md flex-col overflow-hidden rounded-xl border border-line-strong bg-surface p-5 text-xs shadow-2xl shadow-black/50 outline-none"
+          className="flex max-h-[calc(100dvh-1.5rem)] w-full max-w-md flex-col overflow-hidden rounded-xl border border-line-strong bg-surface p-5 text-xs shadow-2xl shadow-elevation outline-none"
           role="dialog"
           aria-modal="true"
           aria-labelledby="feedback-thanks-title"
@@ -210,14 +210,14 @@ function FeedbackDialog({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-start justify-center bg-black/65 p-3 pt-[calc(env(safe-area-inset-top)+0.75rem)] backdrop-blur-[2px] sm:items-center sm:p-4"
+      className="fixed inset-0 z-50 flex items-start justify-center bg-scrim p-3 pt-[calc(env(safe-area-inset-top)+0.75rem)] backdrop-blur-[2px] sm:items-center sm:p-4"
       onClick={onClose}
       role="presentation"
     >
       <div
         ref={panelRef}
         tabIndex={-1}
-        className="flex max-h-[calc(100dvh-1.5rem)] w-full max-w-md flex-col overflow-hidden rounded-xl border border-line-strong bg-surface shadow-2xl shadow-black/50 outline-none"
+        className="flex max-h-[calc(100dvh-1.5rem)] w-full max-w-md flex-col overflow-hidden rounded-xl border border-line-strong bg-surface shadow-2xl shadow-elevation outline-none"
         role="dialog"
         aria-modal="true"
         aria-labelledby="feedback-dialog-title"

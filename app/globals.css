@@ -24,6 +24,9 @@
   --info: oklch(0.76 0.1 230);
   --bus: oklch(0.89 0.18 158);
   --overlay: oklch(0.04 0 0 / 0.88);
+  /* Modal backdrop and drop-shadow tint; light mode softens both. */
+  --scrim: oklch(0 0 0 / 0.65);
+  --elevation: oklch(0 0 0 / 0.5);
 
   --color-paper: var(--paper);
   --color-surface: var(--surface);
@@ -87,19 +90,21 @@
  * `--color-*` aliases and signal refs above resolve through var(), so they
  * pick these values up automatically. Signal hues are kept, with lightness
  * dropped and chroma trimmed so labels stay readable on a white surface.
+ * Neutrals carry a faint warm tint (hue 85): pure greys read as an unstyled
+ * wireframe on a bright screen, and the tint matches the light basemap.
  */
 :root[data-theme="light"] {
   color-scheme: light;
-  --paper: oklch(0.965 0 0);
-  --surface: oklch(0.995 0 0);
-  --surface-raised: oklch(0.945 0 0);
-  --surface-hover: oklch(0.915 0 0);
-  --line: oklch(0.895 0 0);
-  --line-strong: oklch(0.74 0 0);
-  --ink: oklch(0.19 0 0);
-  --muted: oklch(0.5 0 0);
-  --faint: oklch(0.66 0 0);
-  --accent: oklch(0.24 0 0);
+  --paper: oklch(0.968 0.004 85);
+  --surface: oklch(0.995 0.002 85);
+  --surface-raised: oklch(0.955 0.005 85);
+  --surface-hover: oklch(0.935 0.006 85);
+  --line: oklch(0.9 0.006 85);
+  --line-strong: oklch(0.79 0.008 85);
+  --ink: oklch(0.23 0.008 85);
+  --muted: oklch(0.5 0.01 85);
+  --faint: oklch(0.64 0.01 85);
+  --accent: oklch(0.28 0.01 85);
   --success: oklch(0.52 0.12 155);
   --success-soft: oklch(0.94 0.045 155);
   --success-line: oklch(0.72 0.09 155);
@@ -107,7 +112,9 @@
   --danger: oklch(0.52 0.18 25);
   --info: oklch(0.5 0.11 230);
   --bus: oklch(0.58 0.15 158);
-  --overlay: oklch(0.97 0 0 / 0.92);
+  --overlay: oklch(0.99 0.003 85 / 0.92);
+  --scrim: oklch(0.3 0.01 85 / 0.3);
+  --elevation: oklch(0.35 0.02 85 / 0.14);
 
   --signal-park: oklch(0.52 0.12 155);
   --signal-incident: oklch(0.5 0.15 45);
@@ -145,6 +152,8 @@
   --color-info: var(--info);
   --color-bus: var(--bus);
   --color-overlay: var(--overlay);
+  --color-scrim: var(--scrim);
+  --color-elevation: var(--elevation);
   --color-signal-inbound: var(--signal-inbound);
   --color-signal-outbound: var(--signal-outbound);
   --color-signal-transit: var(--signal-transit);

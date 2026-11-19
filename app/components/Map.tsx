@@ -140,9 +140,9 @@ const DARK_MAP_COLORS = {
 type MapColors = { [K in keyof typeof DARK_MAP_COLORS]: string };
 
 const LIGHT_MAP_COLORS: MapColors = {
-  paper: "#f7f7f5",
-  ink: "#1f1f1f",
-  muted: "#7d7d7d",
+  paper: "#fbfaf7",
+  ink: "#2a2925",
+  muted: "#8a8780",
   success: "#2f9e63",
   danger: "#d15252",
   warning: "#a87d1c",
@@ -164,6 +164,12 @@ const getMapStyleUrl = (theme: Theme) =>
   theme === "light"
     ? "https://tiles.openfreemap.org/styles/positron"
     : "https://tiles.openfreemap.org/styles/dark";
+
+/**
+ * Resting bus-stop opacity. Thousands of stops glow softly on the dark
+ * basemap but read as solid blotches on a light one, so they recede there.
+ */
+const getBusStopOpacity = (theme: Theme) => (theme === "light" ? 0.5 : 0.88);
 
 const NO_AMENITY_FILTERS: AmenityFilters = {};
 
@@ -250,6 +256,72 @@ function improveDarkBasemapContrast(map: maplibregl.Map): void {
     } catch {
       // Some third-party layers use expressions that cannot be replaced by
       // every paint property. Keep the provider default for those layers.
+    }
+  }
+}
+
+/**
+ * Warm up OpenFreeMap's positron style to match the light UI tokens. Stock
+ * positron is cool grey with mid-grey water and black place labels, which
+ * fights the overlays; this keeps land near-white, gives water and parks a
+ * faint tint, and drops labels to a muted ink so data stays in front.
+ */
+function softenLightBasemap(map: maplibregl.Map): void {
+  for (const layer of map.getStyle().layers ?? []) {
+    const id = layer.id.toLowerCase();
+    try {
+      switch (layer.type) {
+        case "background":
+          map.setPaintProperty(layer.id, "background-color", "#f3f1ec");
+          break;
+        case "fill": {
+          const color = id.includes("water")
+            ? "#d3e2ea"
+            : id.includes("park") || id.includes("wood")
+              ? "#e1e9da"
+              : id.includes("building")
+                ? "#e6e3dc"
+                : id.includes("residential")
+                  ? "#eeebe5"
+                  : "#ebe8e2";
+          map.setPaintProperty(layer.id, "fill-color", color);
+          if (id.includes("building")) {
+            map.setPaintProperty(layer.id, "fill-outline-color", "#d9d5cc");
+          }
+          break;
+        }
+        case "line": {
+          const color = id.includes("water")
+            ? "#bcd2de"
+            : id.includes("casing")
+              ? "#dcd8cf"
+              : id.includes("highway") || id.includes("road") || id.includes("aeroway")
+                ? id.includes("path")
+                  ? "#e2ded6"
+                  : "#ffffff"
+                : id.includes("rail")
+                  ? "#d0ccc3"
+                  : id.includes("boundary")
+                    ? "#bdb8ae"
+                    : "#d6d2c9";
+          map.setPaintProperty(layer.id, "line-color", color);
+          break;
+        }
+        case "symbol": {
+          const color = id.includes("water")
+            ? "#7593a5"
+            : id.includes("city") || id.includes("country")
+              ? "#55524b"
+              : "#7a766e";
+          map.setPaintProperty(layer.id, "text-color", color);
+          map.setPaintProperty(layer.id, "text-halo-color", "#f7f6f2");
+          map.setPaintProperty(layer.id, "text-halo-width", 1.2);
+          break;
+        }
+      }
+    } catch {
+      // Same as the dark pass: keep the provider default where a paint
+      // property cannot be replaced.
     }
   }
 }
@@ -429,12 +501,16 @@ function applyDisruptedLineColors(
 }
 
 /** Fade the general bus stops so the active route's stops stand out. */
-function applyBusRouteFocus(map: maplibregl.Map, hasRoute: boolean) {
+function applyBusRouteFocus(
+  map: maplibregl.Map,
+  hasRoute: boolean,
+  restingOpacity: number,
+) {
   if (!map.getLayer("bus-stops-layer")) return;
   map.setPaintProperty(
     "bus-stops-layer",
     "circle-opacity",
-    hasRoute ? 0.18 : 0.88,
+    hasRoute ? 0.18 : restingOpacity,
   );
   map.setPaintProperty(
     "bus-stops-layer",
@@ -610,6 +686,7 @@ function useMapController({
   // change (`key={theme}` in page.tsx), so a fresh mount re-adds every layer
   // with the new colors and basemap; nothing here needs live re-painting.
   const MAP_COLORS = getMapColors(theme);
+  const busStopOpacity = getBusStopOpacity(theme);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const busStopsRef = useLazyRef(createBusStopMap);
@@ -856,7 +933,7 @@ function useMapController({
     if (stopsSource) {
       stopsSource.setData(stopsGeoJson);
     }
-    applyBusRouteFocus(map, geoJson.features.length > 0);
+    applyBusRouteFocus(map, geoJson.features.length > 0, busStopOpacity);
 
     const overlayKey = busRouteOverlay
       ? `${busRouteOverlay.serviceNo}:${busRouteOverlay.direction}:${busRouteOverlay.selectedPathIndex ?? busRouteOverlay.selectedStopIndex ?? "x"}:${busRouteOverlay.path.length}`
@@ -869,7 +946,7 @@ function useMapController({
     if (!overlayKey) {
       lastFittedBusRouteKeyRef.current = null;
     }
-  }, [busRouteOverlay]);
+  }, [busRouteOverlay, busStopOpacity]);
 
   useEffect(() => {
     if (!containerRef.current || mapRef.current) {
@@ -1199,9 +1276,9 @@ function useMapController({
     const handleMapLoad = () => {
       mapLoadedRef.current = true;
       window.clearTimeout(loadTimeoutId);
-      // The dark OpenFreeMap style is low-contrast out of the box; the light
-      // positron style already reads well as-is.
+      // Retune the provider basemap so it sits under the theme's tokens.
       if (theme === "dark") improveDarkBasemapContrast(map);
+      else softenLightBasemap(map);
 
       // Radius filter circle sits beneath every data overlay.
       map.addSource("geo-filter", {
@@ -1272,8 +1349,10 @@ function useMapController({
         paint: {
           "circle-radius": 3,
           "circle-color": MAP_COLORS.bus,
-          "circle-opacity": 0.88,
-          "circle-stroke-width": 1,
+          "circle-opacity": busStopOpacity,
+          // A paper ring separates stops on dark tiles; on light tiles it
+          // only adds a halo that makes dense areas look blotchy.
+          "circle-stroke-width": theme === "light" ? 0 : 1,
           "circle-stroke-color": MAP_COLORS.paper,
         },
       });
@@ -1374,7 +1453,7 @@ function useMapController({
           "text-halo-width": 1.2,
         },
       });
-      applyBusRouteFocus(map, initialBusRouteGeoJson.features.length > 0);
+      applyBusRouteFocus(map, initialBusRouteGeoJson.features.length > 0, busStopOpacity);
 
       layerListenerCleanups.push(
         registerLayerMouseListener(
@@ -2024,7 +2103,7 @@ function useMapController({
       map.remove();
       mapRef.current = null;
     };
-  }, [busStopsRef, busStopLookupRef, camerasRef, carparksRef, evChargersRef, flightsRef, incidentsRef, MAP_COLORS, theme]);
+  }, [busStopsRef, busStopLookupRef, camerasRef, carparksRef, evChargersRef, flightsRef, incidentsRef, MAP_COLORS, theme, busStopOpacity]);
 
   useEffect(() => {
     const map = mapRef.current;
