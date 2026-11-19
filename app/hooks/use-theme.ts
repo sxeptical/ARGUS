@@ -1,10 +1,10 @@
 "use client";
 
 import { useCallback, useSyncExternalStore } from "react";
-import { writeStoredJson } from "@/lib/local-history";
-import { THEME_STORAGE_KEY, type Theme } from "@/lib/theme";
+import { readStoredJson, writeStoredJson } from "@/lib/local-history";
+import { parseTheme, THEME_STORAGE_KEY, type Theme } from "@/lib/theme";
 
-/** Toggled here; other tabs announce changes through the storage event. */
+/** Dispatched in this tab after a toggle; other tabs hear the storage event. */
 const THEME_EVENT = "argus:theme-change";
 
 /**
@@ -13,21 +13,31 @@ const THEME_EVENT = "argus:theme-change";
  * useSyncExternalStore so hydration stays safe (the server snapshot is the
  * dark default) and every mounted consumer updates on a toggle.
  */
-function subscribe(callback: () => void) {
-  window.addEventListener(THEME_EVENT, callback);
-  window.addEventListener("storage", callback);
-  return () => {
-    window.removeEventListener(THEME_EVENT, callback);
-    window.removeEventListener("storage", callback);
-  };
-}
-
 function getSnapshot(): Theme {
   return document.documentElement.dataset.theme === "light" ? "light" : "dark";
 }
 
 function getServerSnapshot(): Theme {
   return "dark";
+}
+
+function subscribe(callback: () => void) {
+  const onThemeChange = () => callback();
+  // A storage event fires in *other* tabs when this tab writes; it does not
+  // touch this document's attribute, so mirror the stored theme into the
+  // document before React re-reads the snapshot above.
+  const onStorage = (event: StorageEvent) => {
+    if (event.key !== null && event.key !== THEME_STORAGE_KEY) return;
+    const stored = parseTheme(readStoredJson(THEME_STORAGE_KEY));
+    if (stored) document.documentElement.dataset.theme = stored;
+    callback();
+  };
+  window.addEventListener(THEME_EVENT, onThemeChange);
+  window.addEventListener("storage", onStorage);
+  return () => {
+    window.removeEventListener(THEME_EVENT, onThemeChange);
+    window.removeEventListener("storage", onStorage);
+  };
 }
 
 export function useTheme(): readonly [Theme, () => void] {
