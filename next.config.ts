@@ -1,5 +1,4 @@
 import type { NextConfig } from "next";
-import { initOpenNextCloudflareForDev } from "@opennextjs/cloudflare";
 
 // Content-Security-Policy is set per request in proxy.ts (nonce-based, so Next
 // can nonce its inline bootstrap scripts). The other headers below are static
@@ -66,6 +65,3 @@ const nextConfig: NextConfig = {
 };
 
 export default nextConfig;
-
-// Expose wrangler.jsonc bindings (rate limiters) to `next dev`.
-initOpenNextCloudflareForDev();

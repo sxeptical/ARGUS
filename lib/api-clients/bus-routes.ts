@@ -47,51 +47,6 @@ type IndexedBusRouteStop = {
 /** ServiceNo → Direction → ordered stop codes (pre-join). */
 type BusRoutesIndex = Map<string, Map<number, IndexedBusRouteStop[]>>;
 
-/**
- * JSON shape for the L2 cache. Object keys become strings, so directional
- * numbers are parsed back on the way out.
- */
-type SerializedBusRoutesIndex = Record<
-  string,
-  Record<string, IndexedBusRouteStop[]>
->;
-
-const encodeBusRoutesIndex = (
-  index: BusRoutesIndex,
-): SerializedBusRoutesIndex => {
-  const serialized: SerializedBusRoutesIndex = {};
-  for (const [serviceNo, byDirection] of index) {
-    const directions: Record<string, IndexedBusRouteStop[]> = {};
-    for (const [direction, stops] of byDirection) {
-      directions[String(direction)] = stops;
-    }
-    serialized[serviceNo] = directions;
-  }
-  return serialized;
-};
-
-const decodeBusRoutesIndex = (stored: unknown): BusRoutesIndex => {
-  if (!stored || typeof stored !== "object") {
-    throw new Error("invalid cached bus routes index");
-  }
-  const index: BusRoutesIndex = new Map();
-  for (const [serviceNo, directions] of Object.entries(
-    stored as SerializedBusRoutesIndex,
-  )) {
-    if (!directions || typeof directions !== "object") continue;
-    const byDirection = new Map<number, IndexedBusRouteStop[]>();
-    for (const [direction, stops] of Object.entries(directions)) {
-      const directionNo = Number(direction);
-      if (!Number.isFinite(directionNo) || !Array.isArray(stops)) continue;
-      byDirection.set(directionNo, stops as IndexedBusRouteStop[]);
-    }
-    if (byDirection.size > 0) index.set(serviceNo, byDirection);
-  }
-  // A malformed/empty entry must not masquerade as a valid 26k-row index.
-  if (index.size === 0) throw new Error("empty cached bus routes index");
-  return index;
-};
-
 const toFiniteNumber = (value: number | string): number | null => {
   if (typeof value === "number") {
     return Number.isFinite(value) ? value : null;
@@ -165,14 +120,7 @@ const getBusRoutesIndex = (
           }),
         ),
       ),
-    {
-      signal,
-      shared: true,
-      sharedCodec: {
-        encode: encodeBusRoutesIndex,
-        decode: decodeBusRoutesIndex,
-      },
-    },
+    { signal },
   );
 
 // ---------- BusRouter geometry ----------

@@ -170,7 +170,7 @@ export const getBusStops = (signal?: AbortSignal): Promise<BusStop[]> =>
           signal: pageSignal,
         }),
       ),
-    { signal, shared: true },
+    { signal },
   );
 
 // `stopId` is validated by the route handler (see `BUS_STOP_ID_RE` in
@@ -223,7 +223,7 @@ export const getTrafficCameras = (
           location: `Camera ${camera.CameraID}`,
         }));
     },
-    { signal, shared: true },
+    { signal },
   );
 
 export const getTrafficIncidents = (
@@ -239,7 +239,7 @@ export const getTrafficIncidents = (
       );
       return normalizeTrafficIncidents(payload.value);
     },
-    { signal, shared: true },
+    { signal },
   );
 
 export const normalizeTrafficIncidents = (rows: ReadonlyArray<RawTrafficIncident>): TrafficIncident[] =>
@@ -320,7 +320,7 @@ export const getTrainServiceAlerts = (
       normalizeTrainServiceAlerts(
         await ltaGet("/TrainServiceAlerts", LtaTrainServiceAlertsResponseSchema),
       ),
-    { signal, shared: true },
+    { signal },
   );
 
 // LTA refreshes carpark availability every minute.
@@ -389,7 +389,7 @@ export const getCarparkAvailability = (
           ),
         ),
       ),
-    { signal, shared: true },
+    { signal },
   );
 
 // LTA regenerates the EV batch snapshot every five minutes.
@@ -475,5 +475,5 @@ export const getEvChargingLocations = (
       );
       return normalizeEvChargingLocations(file.evLocationsData);
     },
-    { signal, shared: true },
+    { signal },
   );

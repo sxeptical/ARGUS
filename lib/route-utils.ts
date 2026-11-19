@@ -2,8 +2,7 @@
  * Route handler helper. Rate limiting precedes validation so malformed requests
  * also consume budget; allowed requests invoke the producer lazily.
  */
-import { extractClientIp } from "@/lib/rate-limit";
-import { sharedRateLimiter } from "@/lib/shared-rate-limit";
+import { extractClientIp, rateLimiter } from "@/lib/rate-limit";
 import {
   BadRequestError,
   ExternalApiError,
@@ -139,8 +138,6 @@ export async function handle<A>(
   options: RouteOptions,
   produce: (signal: AbortSignal) => A | Promise<A>,
 ): Promise<Response> {
-  // Start the deadline before the first await so it covers the (possibly
-  // remote) rate-limit lookup as well as the producer.
   const deadlineError = new TimeoutError({
     service: options.serviceLabel,
     message: `${options.serviceLabel} timed out`,
@@ -152,7 +149,7 @@ export async function handle<A>(
   );
   const signal = AbortSignal.any([request.signal, deadline.signal]);
 
-  const decision = await sharedRateLimiter.check(extractClientIp(request), {
+  const decision = rateLimiter.check(extractClientIp(request), {
     scope,
     maxRequests: options.maxRequests,
   });

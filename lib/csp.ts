@@ -1,8 +1,8 @@
 /**
  * Content Security Policy helpers shared by `proxy.ts`.
  *
- * Kept free of Node.js-only APIs so it runs unchanged in the Cloudflare
- * Workers runtime (Web Crypto + btoa are available in both Workers and Node).
+ * Kept free of Node.js-only APIs (Web Crypto + btoa only) so it runs in any
+ * runtime the proxy is deployed to.
  */
 
 export type CspOptions = {

@@ -7,15 +7,10 @@
     "predev": "node ./scripts/copy-maplibre-worker.mjs",
     "dev": "NODE_OPTIONS='--network-family-autoselection-attempt-timeout=1000' next dev",
     "build": "node ./scripts/copy-maplibre-worker.mjs && next build",
-    "build:worker": "node ./scripts/copy-maplibre-worker.mjs && opennextjs-cloudflare build",
     "start": "NODE_OPTIONS='--network-family-autoselection-attempt-timeout=1000' next start",
     "lint": "eslint",
     "test": "bun test",
     "typecheck": "tsc --noEmit",
-    "preview": "opennextjs-cloudflare build && opennextjs-cloudflare preview",
-    "deploy": "opennextjs-cloudflare build && opennextjs-cloudflare deploy",
-    "upload": "opennextjs-cloudflare build && opennextjs-cloudflare upload",
-    "cf-typegen": "wrangler types --env-interface CloudflareEnv --include-runtime=false --include-main-module=false .wrangler/cloudflare-env.generated.d.ts",
     "verify": "bun run typecheck && bun run lint && bun test && bun run build"
   },
   "dependencies": {
@@ -28,7 +23,6 @@
     "zod": "^4.6.7"
   },
   "devDependencies": {
-    "@opennextjs/cloudflare": "^1.20.16",
     "@tailwindcss/postcss": "^4.3.4",
     "@types/node": "^26.6.6",
     "@types/react": "^19.3.0",
@@ -37,7 +31,6 @@
     "eslint": "^9.39.5",
     "eslint-config-next": "16.4.6",
     "tailwindcss": "^4.3.4",
-    "typescript": "6.0.3",
-    "wrangler": "^4.160.0"
+    "typescript": "6.0.3"
   }
 }

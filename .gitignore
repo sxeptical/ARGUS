@@ -33,10 +33,6 @@ yarn-error.log*
 # env files (can opt-in for committing if needed)
 .env*
 !.env.example
-# Wrangler local secrets / vars
-.dev.vars*
-!.dev.vars.example
-
 # vercel
 .vercel
 
@@ -66,9 +62,8 @@ AGENTS.md
 # scratch data
 search-results.json
 
-# OpenNext / Wrangler build output
-/.open-next/
-/.wrangler/
+# vercel
+.vercel
 
 # photo research scratch (subagent batches; reviewed picks go to scripts/data/photo-picks.json)
 /.photo-research/

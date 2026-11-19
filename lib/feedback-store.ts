@@ -1,6 +1,6 @@
 /**
  * Feedback persistence in Neon Postgres. Uses Neon's HTTP driver, which runs
- * on Workers and Node alike (one fetch per query, no connection to manage).
+ * well in serverless functions (one fetch per query, no connection to manage).
  * The table is created by `scripts/sql/feedback.sql`.
  */
 import { neon } from "@neondatabase/serverless";
