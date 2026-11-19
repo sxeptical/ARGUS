@@ -55,6 +55,7 @@ import { PARK_LABELS_GEOJSON, PARKS_GEOJSON } from "@/lib/data/parks";
 import { describeParkFeature, PARK_KIND_TITLE } from "@/lib/parks";
 import { photosForPark } from "@/lib/park-photos";
 import { LAYER_BY_KEY, type SensorKey } from "@/lib/layers";
+import type { Theme } from "@/lib/theme";
 import type {
   AirRegionKey,
   BusStop,
@@ -93,6 +94,8 @@ type MapProps = {
   airQualityOverlay?: AirQualityOverlay | null;
   /** Display names of MRT lines currently flagged as disrupted by LTA. */
   disruptedMrtLines?: ReadonlyArray<string>;
+  /** Visual theme; light swaps the basemap and overlay palette. */
+  theme?: Theme;
   /** On/off state per map layer; keys are defined in the layer registry. */
   sensorVisibility: Record<SensorKey, boolean>;
   /** Sub-filter selections (gym brands, school levels, ...) per amenity. */
@@ -114,8 +117,10 @@ type MapProps = {
   onGeoFilterPick?: (center: [number, number]) => void;
 };
 
-// Mirror the CSS design tokens in MapLibre-compatible colors.
-const MAP_COLORS = {
+// Mirror the CSS design tokens in MapLibre-compatible colors, per theme.
+// The dark palette matches the `:root` tokens; the light palette matches the
+// `:root[data-theme="light"]` overrides in app/globals.css.
+const DARK_MAP_COLORS = {
   paper: "#0a0a0a",
   ink: "#f2f2f2",
   muted: "#8f8f8f",
@@ -131,6 +136,34 @@ const MAP_COLORS = {
   ev: "#4fd6e6",
   geoFilter: "#73b9d9",
 } as const;
+
+type MapColors = { [K in keyof typeof DARK_MAP_COLORS]: string };
+
+const LIGHT_MAP_COLORS: MapColors = {
+  paper: "#f7f7f5",
+  ink: "#1f1f1f",
+  muted: "#7d7d7d",
+  success: "#2f9e63",
+  danger: "#d15252",
+  warning: "#a87d1c",
+  info: "#4d80a8",
+  bus: "#14a06d",
+  park: "#4d9e70",
+  parkConnector: "#5cb482",
+  trail: "#3f7d52",
+  carpark: "#5c6bc0",
+  ev: "#1c9aa8",
+  geoFilter: "#4d80a8",
+};
+
+const getMapColors = (theme: Theme): MapColors =>
+  theme === "light" ? LIGHT_MAP_COLORS : DARK_MAP_COLORS;
+
+/** Basemap style per theme; both are served by OpenFreeMap. */
+const getMapStyleUrl = (theme: Theme) =>
+  theme === "light"
+    ? "https://tiles.openfreemap.org/styles/positron"
+    : "https://tiles.openfreemap.org/styles/dark";
 
 const NO_AMENITY_FILTERS: AmenityFilters = {};
 
@@ -156,16 +189,17 @@ const buildAmenityGeoJson = (amenity: AmenityLayer, filters: AmenityFilters, geo
 // layers stay distinguishable; only low/full/unknown points change colour.
 const availabilityColorExpr = (
   layerColor: string,
+  colors: MapColors,
 ): maplibregl.ExpressionSpecification => [
   "match",
   ["get", "tone"],
   "success",
   layerColor,
   "warning",
-  MAP_COLORS.warning,
+  colors.warning,
   "danger",
-  MAP_COLORS.danger,
-  MAP_COLORS.muted,
+  colors.danger,
+  colors.muted,
 ];
 
 /** Increase basemap contrast without changing overlay colors. */
@@ -308,7 +342,9 @@ function buildPlaneIcon(size = 64): ImageData {
 
   context.clearRect(0, 0, size, size);
   context.translate(size / 2, size / 2);
-  context.fillStyle = MAP_COLORS.ink;
+  // The plane icon is registered as an SDF image, so this fill only shapes
+  // the alpha mask; the rendered colour comes from icon-color paint props.
+  context.fillStyle = DARK_MAP_COLORS.ink;
 
   context.beginPath();
   context.moveTo(0, -size * 0.34); // nose
@@ -376,6 +412,7 @@ function applyMrtRouteFocus(
 function applyDisruptedLineColors(
   map: maplibregl.Map,
   disruptedLines: ReadonlyArray<string>,
+  colors: MapColors,
 ) {
   if (!map.getLayer("mrt-lines-layer")) return;
   const lineColor: maplibregl.ExpressionSpecification =
@@ -384,7 +421,7 @@ function applyDisruptedLineColors(
           "match",
           ["get", "name"],
           [...disruptedLines],
-          MAP_COLORS.danger,
+          colors.danger,
           ["get", "color"],
         ]
       : ["get", "color"];
@@ -553,6 +590,7 @@ function useMapController({
   evChargers,
   airQualityOverlay = null,
   disruptedMrtLines = EMPTY_DISRUPTED_MRT_LINES,
+  theme = "dark",
   sensorVisibility,
   amenityFilters = NO_AMENITY_FILTERS,
   onStopClick,
@@ -568,6 +606,10 @@ function useMapController({
   geoFilterPicking = false,
   onGeoFilterPick,
 }: MapProps) {
+  // Per-theme overlay palette. Callers remount this component on theme
+  // change (`key={theme}` in page.tsx), so a fresh mount re-adds every layer
+  // with the new colors and basemap; nothing here needs live re-painting.
+  const MAP_COLORS = getMapColors(theme);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const busStopsRef = useLazyRef(createBusStopMap);
@@ -839,7 +881,7 @@ function useMapController({
     try {
       map = new maplibregl.Map({
         container: containerRef.current,
-        style: "https://tiles.openfreemap.org/styles/dark",
+        style: getMapStyleUrl(theme),
         center: [103.8198, 1.3521],
         zoom: 10.8,
       });
@@ -1157,7 +1199,9 @@ function useMapController({
     const handleMapLoad = () => {
       mapLoadedRef.current = true;
       window.clearTimeout(loadTimeoutId);
-      improveDarkBasemapContrast(map);
+      // The dark OpenFreeMap style is low-contrast out of the box; the light
+      // positron style already reads well as-is.
+      if (theme === "dark") improveDarkBasemapContrast(map);
 
       // Radius filter circle sits beneath every data overlay.
       map.addSource("geo-filter", {
@@ -1821,7 +1865,7 @@ function useMapController({
         } });
         layerListenerCleanups.push(registerLayerMouseListener(map, "mouseenter", "incidents-point-layer", handleIncidentEnter), registerLayerMouseListener(map, "mouseleave", "incidents-point-layer", handleHoverPopupLeave), registerLayerMouseListener(map, "mouseenter", "incidents-point-layer", handleInteractiveLayerEnter), registerLayerMouseListener(map, "mouseleave", "incidents-point-layer", handleInteractiveLayerLeave));
         const availabilityPointPaint = (layerColor: string): maplibregl.CircleLayerSpecification["paint"] => ({
-          "circle-color": availabilityColorExpr(layerColor),
+          "circle-color": availabilityColorExpr(layerColor, MAP_COLORS),
           "circle-radius": ["interpolate", ["linear"], ["zoom"], 10, 2.5, 15, 5.5],
           "circle-stroke-color": MAP_COLORS.paper,
           "circle-stroke-width": 1,
@@ -1953,7 +1997,7 @@ function useMapController({
       }
       applyMrtRouteFocus(map, mrtRouteSegmentsRef.current, sensorVisibilityRef.current.mrt);
       // The layer did not exist when the disruption effect last ran.
-      applyDisruptedLineColors(map, disruptedMrtLinesRef.current);
+      applyDisruptedLineColors(map, disruptedMrtLinesRef.current, MAP_COLORS);
       // Every source above was just seeded from the current refs, so anything
       // deferred while the style was loading is no longer stale.
       dirtyAmenityLayersRef.current.clear();
@@ -1980,7 +2024,7 @@ function useMapController({
       map.remove();
       mapRef.current = null;
     };
-  }, [busStopsRef, busStopLookupRef, camerasRef, carparksRef, evChargersRef, flightsRef, incidentsRef]);
+  }, [busStopsRef, busStopLookupRef, camerasRef, carparksRef, evChargersRef, flightsRef, incidentsRef, MAP_COLORS, theme]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -2026,8 +2070,8 @@ function useMapController({
     disruptedMrtLinesRef.current = disruptedMrtLines;
     const map = mapRef.current;
     if (!map) return;
-    applyDisruptedLineColors(map, disruptedMrtLines);
-  }, [disruptedMrtLines]);
+    applyDisruptedLineColors(map, disruptedMrtLines, MAP_COLORS);
+  }, [disruptedMrtLines, MAP_COLORS]);
 
   useEffect(() => {
     const map = mapRef.current;
