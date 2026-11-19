@@ -28,6 +28,7 @@ import { MobileLayersDrawer } from "@/app/components/dashboard/MobileLayersDrawe
 import { NotificationBell } from "@/app/components/dashboard/NotificationBell";
 import { useDashboardState } from "@/app/hooks/use-dashboard-state";
 import { useNotifications } from "@/app/hooks/use-notifications";
+import { useTheme } from "@/app/hooks/use-theme";
 import { AMENITY_LAYER_BY_TYPE, AMENITY_SEARCH_RESULTS } from "@/lib/amenity-layers";
 import { buildParkSearchResults } from "@/lib/parks";
 import { PARKS_GEOJSON } from "@/lib/data/parks";
@@ -132,6 +133,7 @@ export default function Home() {
   const [searchTarget, setSearchTarget] = useState<MapSearchTarget | null>(null);
   const [airQualityOverlay, setAirQualityOverlay] =
     useState<AirQualityOverlay | null>(null);
+  const [theme, toggleTheme] = useTheme();
   // Scope station search and pickers to the active radius filter.
   const mrtStationsInRadius = useMemo(
     () =>
@@ -196,8 +198,10 @@ export default function Home() {
             setPrefs={setNotificationPrefs}
           />
         }
+        onToggleTheme={toggleTheme}
         onlineSourceCount={onlineSourceCount}
         systemStatus={systemStatus}
+        theme={theme}
       />
 
       {error ? (
@@ -228,6 +232,8 @@ export default function Home() {
         <section className="contents xl:order-2 xl:grid xl:min-w-0 xl:gap-3 xl:min-h-0 xl:grid-rows-[minmax(0,1fr)_minmax(236px,38%)]">
           <section className="relative order-1 h-[45dvh] xl:order-none min-h-72 overflow-hidden border border-line bg-surface xl:h-auto xl:min-h-0">
             <Map
+              key={theme}
+              theme={theme}
               busStops={busStops}
               allBusStops={allBusStops}
               cameras={cameras}

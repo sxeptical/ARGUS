@@ -55,6 +55,16 @@ next-env.d.ts
 package-lock.json
 
 .ua
+.openchamber
+
+# local feedback viewer scratch
+scripts/view-feedback.mjs
+
+# next dev generated agent instructions (recreated on every dev run)
+AGENTS.md
+
+# scratch data
+search-results.json
 
 # OpenNext / Wrangler build output
 /.open-next/
@@ -62,3 +72,4 @@ package-lock.json
 
 # photo research scratch (subagent batches; reviewed picks go to scripts/data/photo-picks.json)
 /.photo-research/
+

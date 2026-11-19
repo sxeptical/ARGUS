@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, type ReactNode } from "react";
+import type { Theme } from "@/lib/theme";
 
 export function HeaderClock() {
   const [now, setNow] = useState<Date | null>(null);
@@ -48,13 +49,17 @@ export function HeaderChip({
 export function DashboardHeader({
   activeSourceCount,
   notificationBell,
+  onToggleTheme,
   onlineSourceCount,
   systemStatus,
+  theme,
 }: {
   activeSourceCount: number;
   notificationBell: ReactNode;
+  onToggleTheme: () => void;
   onlineSourceCount: number;
   systemStatus: string;
+  theme: Theme;
 }) {
   return (
     <header className="border border-line bg-surface px-3 py-2 sm:px-4 sm:py-3">
@@ -83,6 +88,15 @@ export function DashboardHeader({
             <span className="status-dot" aria-hidden="true" />
             {systemStatus}
           </span>
+          <button
+            type="button"
+            onClick={onToggleTheme}
+            title={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
+            aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
+            className="whitespace-nowrap border border-line px-2 py-1 font-semibold text-muted transition-colors duration-150 hover:border-line-strong hover:text-ink"
+          >
+            {theme === "dark" ? "Light" : "Dark"}
+          </button>
           {notificationBell}
         </div>
       </div>

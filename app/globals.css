@@ -5,6 +5,7 @@
  * audience: Singapore signal monitors · use: scan and inspect · tone: austere
  */
 :root {
+  color-scheme: dark;
   --paper: oklch(0.08 0 0);
   --surface: oklch(0.105 0 0);
   --surface-raised: oklch(0.135 0 0);
@@ -78,6 +79,51 @@
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-in: cubic-bezier(0.7, 0, 0.84, 0);
   --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+}
+
+/*
+ * Light mode. Selected on <html data-theme="light"> by the layout's pre-paint
+ * script and the theme toggle. Only raw tokens are overridden: the
+ * `--color-*` aliases and signal refs above resolve through var(), so they
+ * pick these values up automatically. Signal hues are kept, with lightness
+ * dropped and chroma trimmed so labels stay readable on a white surface.
+ */
+:root[data-theme="light"] {
+  color-scheme: light;
+  --paper: oklch(0.965 0 0);
+  --surface: oklch(0.995 0 0);
+  --surface-raised: oklch(0.945 0 0);
+  --surface-hover: oklch(0.915 0 0);
+  --line: oklch(0.895 0 0);
+  --line-strong: oklch(0.74 0 0);
+  --ink: oklch(0.19 0 0);
+  --muted: oklch(0.5 0 0);
+  --faint: oklch(0.66 0 0);
+  --accent: oklch(0.24 0 0);
+  --success: oklch(0.52 0.12 155);
+  --success-soft: oklch(0.94 0.045 155);
+  --success-line: oklch(0.72 0.09 155);
+  --warning: oklch(0.55 0.12 82);
+  --danger: oklch(0.52 0.18 25);
+  --info: oklch(0.5 0.11 230);
+  --bus: oklch(0.58 0.15 158);
+  --overlay: oklch(0.97 0 0 / 0.92);
+
+  --signal-park: oklch(0.52 0.12 155);
+  --signal-incident: oklch(0.5 0.15 45);
+  --signal-carpark: oklch(0.5 0.13 265);
+  --signal-ev: oklch(0.55 0.11 200);
+  --signal-mall: oklch(0.5 0.16 345);
+  --signal-hawker: oklch(0.55 0.12 70);
+  --signal-gym: oklch(0.5 0.16 300);
+  --signal-community-club: oklch(0.52 0.11 195);
+  --signal-pharmacy: oklch(0.5 0.17 15);
+  --signal-hotel: oklch(0.5 0.11 215);
+  --signal-heritage: oklch(0.55 0.12 100);
+  --signal-healthcare: oklch(0.48 0.18 28);
+  --signal-library: oklch(0.52 0.12 175);
+  --signal-supermarket: oklch(0.5 0.16 330);
+  --signal-school: oklch(0.52 0.15 285);
 }
 
 @theme inline {
@@ -395,6 +441,11 @@ select:focus-visible {
 .maplibregl-ctrl-icon {
   filter: invert(1);
   opacity: 0.8;
+}
+
+/* MapLibre's default icons are already dark-on-light. */
+:root[data-theme="light"] .maplibregl-ctrl-icon {
+  filter: none;
 }
 
 .maplibregl-ctrl-attrib {
