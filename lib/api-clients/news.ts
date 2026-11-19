@@ -14,12 +14,14 @@ const SAFE_URL_RE = /^https?:\/\//i;
 const rssFeeds: ReadonlyArray<{ readonly source: string; readonly url: string }> = [
   {
     source: "The Straits Times",
+    // Returns 503 to Cloudflare Workers egress; CNA carries production.
     url: "https://www.straitstimes.com/news/singapore/rss.xml",
   },
   {
     source: "CNA",
-    // Global feed — Singapore relevance is filtered in getNews by URL path.
-    url: "https://www.channelnewsasia.com/api/v1/rss-outbound-feed?_format=xml",
+    // Singapore section (category 10416). The default outbound feed is
+    // global and rarely survives the Singapore relevance filter.
+    url: "https://www.channelnewsasia.com/api/v1/rss-outbound-feed?_format=xml&category=10416",
   },
 ];
 
@@ -249,5 +251,9 @@ export const getNews = (signal?: AbortSignal): Promise<NewsItem[]> =>
         .sort((a, b) => +new Date(b.publishedAt) - +new Date(a.publishedAt))
         .slice(0, 20);
     },
-    { signal, shared: true },
+    {
+      signal,
+      // Don't pin an empty list for the full window.
+      ttlForValue: (items) => (items.length === 0 ? 60 * 1000 : 15 * 60 * 1000),
+    },
   );
