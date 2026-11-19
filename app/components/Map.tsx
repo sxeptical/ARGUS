@@ -171,6 +171,15 @@ const getMapStyleUrl = (theme: Theme) =>
  */
 const getBusStopOpacity = (theme: Theme) => (theme === "light" ? 0.5 : 0.88);
 
+/** The user's camera, captured on unmount; the next mount restores it. */
+type MapCamera = {
+  center: [number, number];
+  zoom: number;
+  bearing: number;
+  pitch: number;
+};
+let carriedCamera: MapCamera | null = null;
+
 const NO_AMENITY_FILTERS: AmenityFilters = {};
 
 /**
@@ -959,8 +968,11 @@ function useMapController({
       map = new maplibregl.Map({
         container: containerRef.current,
         style: getMapStyleUrl(theme),
-        center: [103.8198, 1.3521],
-        zoom: 10.8,
+        // page.tsx remounts this component on a theme toggle (`key={theme}`)
+        // so the other basemap can load; carrying the camera means the
+        // switch does not reset the user's pan and zoom. A full page load
+        // starts fresh, as before.
+        ...(carriedCamera ?? { center: [103.8198, 1.3521], zoom: 10.8 }),
       });
 
       map.addControl(new maplibregl.NavigationControl(), "top-right");
@@ -2100,6 +2112,12 @@ function useMapController({
       }
       hoverPopupRef.current?.remove();
       hoverPopupRef.current = null;
+      carriedCamera = {
+        center: [map.getCenter().lng, map.getCenter().lat],
+        zoom: map.getZoom(),
+        bearing: map.getBearing(),
+        pitch: map.getPitch(),
+      };
       map.remove();
       mapRef.current = null;
     };
