@@ -1,6 +1,7 @@
 /**
  * LTA DataMall clients: bus stops, bus arrivals, traffic cameras, train
- * service alerts, carpark availability, and EV charging points.
+ * service alerts, platform crowd density, carpark availability, and EV
+ * charging points.
  */
 import { createHash } from "node:crypto";
 import type { z } from "zod";
@@ -12,11 +13,13 @@ import {
   LtaCarparkAvailabilityResponseSchema,
   LtaEvBatchFileSchema,
   LtaEvcBatchResponseSchema,
+  LtaPlatformCrowdResponseSchema,
   LtaTrafficImagesResponseSchema,
   LtaTrafficIncidentsResponseSchema,
   LtaTrainServiceAlertsResponseSchema,
 } from "@/types/schemas";
 import type {
+  LtaPlatformCrowdResponse,
   LtaTrainServiceAlert,
   RawCarparkAvailability,
   RawEvLocation,
@@ -31,10 +34,17 @@ import type {
   EvChargingLocation,
   TrafficCamera,
   TrafficIncident,
+  TrainCrowds,
   TrainServiceAlert,
 } from "@/types";
 import { DEFAULT_TIMEOUT_MS, httpGetJson, withTimeout } from "./http";
 import { LTA_LINE_CODE_TO_DISPLAY_NAME } from "@/lib/mrt-network";
+import {
+  mergeStationCrowds,
+  parseCrowdLevel,
+  PCD_TRAIN_LINES,
+  type PlatformCrowdRow,
+} from "@/lib/train-crowds";
 
 const LTA_BASE_URL = "https://datamall2.mytransport.sg/ltaodataservice";
 const BUS_STOPS_TIMEOUT_MS = 35_000;
@@ -321,6 +331,62 @@ export const getTrainServiceAlerts = (
         await ltaGet("/TrainServiceAlerts", LtaTrainServiceAlertsResponseSchema),
       ),
     { signal },
+  );
+
+// LTA publishes platform crowd density in 10-minute windows.
+const TRAIN_CROWDS_CACHE_TTL_MS = 5 * 60 * 1000;
+const TRAIN_CROWDS_PARTIAL_TTL_MS = 60 * 1000;
+
+/** Merge per-line PCDRealTime payloads; a null payload is a failed line. */
+export const normalizeTrainCrowds = (
+  payloads: ReadonlyArray<{ readonly line: string; readonly payload: LtaPlatformCrowdResponse | null }>,
+): TrainCrowds => {
+  const rows: PlatformCrowdRow[] = [];
+  let updatedAt: string | null = null;
+  for (const { line, payload } of payloads) {
+    for (const row of payload?.value ?? []) {
+      const level = parseCrowdLevel(row.CrowdLevel);
+      if (!level || !row.Station.trim()) continue;
+      rows.push({ line, code: row.Station.trim().toUpperCase(), level });
+      const start = row.StartTime?.trim();
+      if (start && (!updatedAt || Date.parse(start) > Date.parse(updatedAt))) updatedAt = start;
+    }
+  }
+  return {
+    updatedAt,
+    stations: mergeStationCrowds(rows),
+    missingLines: payloads.filter((entry) => entry.payload === null).map((entry) => entry.line),
+  };
+};
+
+export const getTrainCrowds = (signal?: AbortSignal): Promise<TrainCrowds> =>
+  cache.get(
+    "train-crowds",
+    TRAIN_CROWDS_CACHE_TTL_MS,
+    async () => {
+      const lines = Object.entries(PCD_TRAIN_LINES);
+      const results = await Promise.allSettled(
+        lines.map(([code]) =>
+          ltaGet(`/PCDRealTime?TrainLine=${code}`, LtaPlatformCrowdResponseSchema),
+        ),
+      );
+      // One line down still leaves a useful map; every line down is an outage.
+      const firstFailure = results.find((result) => result.status === "rejected");
+      if (firstFailure && results.every((result) => result.status === "rejected")) {
+        throw firstFailure.reason;
+      }
+      return normalizeTrainCrowds(
+        results.map((result, index) => ({
+          line: lines[index][1],
+          payload: result.status === "fulfilled" ? result.value : null,
+        })),
+      );
+    },
+    {
+      signal,
+      ttlForValue: (value) =>
+        value.missingLines.length > 0 ? TRAIN_CROWDS_PARTIAL_TTL_MS : TRAIN_CROWDS_CACHE_TTL_MS,
+    },
   );
 
 // LTA refreshes carpark availability every minute.

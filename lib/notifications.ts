@@ -12,6 +12,7 @@ export const DEFAULT_NOTIFICATION_PREFS: NotificationPrefs = {
   // Road alerts cover accidents only; other incidents are too frequent.
   road: true,
   weather: true,
+  storm: true,
   browser: false,
 };
 
@@ -22,18 +23,19 @@ export type SeenSignals = Partial<Record<SignalCategory, readonly string[]>>;
 export type SignalsLoaded = Readonly<Record<SignalCategory, boolean>>;
 
 /** In priority order: this is the order new signals are shown in. */
-const SIGNAL_CATEGORIES: readonly SignalCategory[] = ["rail", "weather", "road"];
+export const SIGNAL_CATEGORIES: readonly SignalCategory[] = ["rail", "storm", "weather", "road"];
 
 const SIGNAL_TITLES: Readonly<Record<SignalCategory, string>> = {
   rail: "Rail disruption",
   road: "Road accident",
   weather: "Unhealthy air quality",
+  storm: "Storm",
 };
 
 const MAX_INDIVIDUAL_BROWSER_NOTIFICATIONS = 3;
 
-export function signalTitle(category: SignalCategory): string {
-  return SIGNAL_TITLES[category];
+export function signalTitle(signal: Pick<SignalRow, "category" | "title">): string {
+  return signal.title ?? SIGNAL_TITLES[signal.category];
 }
 
 /**
@@ -145,7 +147,7 @@ export function buildBrowserNotifications(
   }
   return signals.map((signal) => ({
     tag: signal.id,
-    title: signalTitle(signal.category),
+    title: signalTitle(signal),
     body: signal.text,
   }));
 }

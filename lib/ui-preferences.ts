@@ -11,9 +11,9 @@ import { isRouteableMrtStation } from "@/lib/mrt-routing";
 import {
   DEFAULT_NOTIFICATION_PREFS,
   type NotificationPrefs,
+  SIGNAL_CATEGORIES,
   type SeenSignals,
 } from "@/lib/notifications";
-import type { SignalCategory } from "@/lib/signals";
 
 export const SENSOR_VISIBILITY_KEY = "argus.prefs.sensors.v1";
 export const AMENITY_FILTERS_KEY = "argus.prefs.amenity-filters.v1";
@@ -98,7 +98,7 @@ export function parseSeenSignals(stored: unknown): SeenSignals | undefined {
   }
   const entries = stored as Partial<Record<string, unknown>>;
   const seen: SeenSignals = {};
-  for (const category of ["rail", "road", "weather"] satisfies SignalCategory[]) {
+  for (const category of SIGNAL_CATEGORIES) {
     const ids = entries[category];
     if (Array.isArray(ids) && ids.every((id) => typeof id === "string")) {
       seen[category] = ids as string[];

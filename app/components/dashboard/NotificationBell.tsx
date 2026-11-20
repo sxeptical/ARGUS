@@ -17,6 +17,7 @@ const BUTTON_CLASS =
 const CATEGORY_ROWS = [
   { key: "rail", label: "Rail disruptions" },
   { key: "road", label: "Road accidents" },
+  { key: "storm", label: "Lightning and heavy rain" },
   { key: "weather", label: "Unhealthy air (PSI above 100)" },
 ] as const;
 
@@ -193,7 +194,7 @@ export function NotificationBell({
                 {alerts.map((alert) => (
                   <div key={alert.id} className="border-b border-line px-1 py-1.5 last:border-b-0">
                     <div className="text-[10px] font-semibold uppercase tracking-[0.1em] text-danger">
-                      {signalTitle(alert.category)}
+                      {signalTitle(alert)}
                     </div>
                     <div className="mt-0.5 break-words text-[11px] leading-relaxed text-muted">
                       {alert.text}

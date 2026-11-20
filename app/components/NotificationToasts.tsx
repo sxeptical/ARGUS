@@ -29,7 +29,7 @@ function NotificationToast({
     <div className="pointer-events-auto flex items-start justify-between gap-3 border border-danger/40 bg-surface-raised p-3 text-ink">
       <div className="min-w-0">
         <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-danger">
-          {signalTitle(toast.category)}
+          {signalTitle(toast)}
         </div>
         <div className="mt-1 break-words text-[11px] leading-relaxed text-muted">
           {toast.text}
@@ -38,7 +38,7 @@ function NotificationToast({
       <button
         type="button"
         className="action-button shrink-0"
-        aria-label={`Dismiss ${signalTitle(toast.category)} notification`}
+        aria-label={`Dismiss ${signalTitle(toast)} notification`}
         onClick={() => onDismiss(toast.id)}
       >
         Dismiss

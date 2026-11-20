@@ -449,6 +449,7 @@ export function useDashboardState() {
     selectedStop: busRoute.selectedStop,
     disruptedMrtLines,
     trainAlerts: data.trainAlerts,
+    trainCrowds: data.trainCrowds,
     sensorRows: visibleSensorRows,
     sensorStatsRows: visibleSensorStatsRows,
     sensorVisibility,
@@ -467,6 +468,7 @@ export function useDashboardState() {
     systemStatus,
     visibleSensorCount,
     weather: data.weather,
+    weatherAlerts: data.weatherAlerts,
     weatherHistory,
   };
 }
