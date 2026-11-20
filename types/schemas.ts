@@ -229,6 +229,7 @@ export const DataGovForecastResponseSchema = z.object({
     .array(
       z.object({
         ...timestamps,
+        valid_period: z.object({ start: z.string(), end: z.string() }).optional(),
         forecasts: z
           .array(z.object({ area: z.string(), forecast: z.string() }))
           .optional(),
@@ -282,6 +283,85 @@ export const DataGovPm25ResponseSchema = z.object({
         readings: z.object({
           pm25_one_hourly: RegionalReadingSchema.optional(),
         }),
+      }),
+    ),
+  }),
+});
+
+const coordinate = z.union([z.number(), z.string()]).transform(Number);
+
+/** v2 `weather?api=lightning`: two-minute records, newest first. */
+export const DataGovLightningResponseSchema = z.object({
+  data: z.object({
+    records: z.array(
+      z.object({
+        datetime: z.string(),
+        item: z.object({
+          readings: z
+            .array(
+              z.object({
+                location: z.object({
+                  latitude: coordinate,
+                  // NEA spells it both ways across its feeds.
+                  longitude: coordinate.optional(),
+                  longtitude: coordinate.optional(),
+                }),
+                type: z.string().nullish(),
+                datetime: z.string().nullish(),
+              }),
+            )
+            .nullish(),
+        }),
+      }),
+    ),
+  }),
+});
+export type DataGovLightningResponse = z.infer<typeof DataGovLightningResponseSchema>;
+
+/** v2 `rainfall`: five-minute gauge totals, newest first. */
+export const DataGovRainfallResponseSchema = z.object({
+  data: z.object({
+    stations: z.array(
+      z.object({
+        id: z.string(),
+        location: z.object({ latitude: z.number(), longitude: z.number() }).optional(),
+        labelLocation: z.object({ latitude: z.number(), longitude: z.number() }).optional(),
+      }),
+    ),
+    readings: z.array(
+      z.object({
+        timestamp: z.string(),
+        data: z.array(z.object({ stationId: z.string(), value: z.number() })),
+      }),
+    ),
+  }),
+});
+export type DataGovRainfallResponse = z.infer<typeof DataGovRainfallResponseSchema>;
+
+/** v2 `twenty-four-hr-forecast`: worded forecasts per region and period. */
+export const DataGovTwentyFourHourResponseSchema = z.object({
+  data: z.object({
+    records: z.array(
+      z.object({
+        periods: z.array(
+          z.object({
+            timePeriod: z.object({ start: z.string(), end: z.string(), text: z.string() }),
+            regions: z.record(z.string(), z.object({ text: z.string() })),
+          }),
+        ),
+      }),
+    ),
+  }),
+});
+export type DataGovTwentyFourHourResponse = z.infer<typeof DataGovTwentyFourHourResponseSchema>;
+
+/** v2 `two-hr-forecast` area labels, used to name where weather is. */
+export const DataGovForecastAreasResponseSchema = z.object({
+  data: z.object({
+    area_metadata: z.array(
+      z.object({
+        name: z.string(),
+        label_location: z.object({ latitude: z.number(), longitude: z.number() }),
       }),
     ),
   }),

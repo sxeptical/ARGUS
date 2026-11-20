@@ -1,21 +1,34 @@
 /**
  * Aggregates Data.gov.sg weather feeds, including NEA's 24-hr PSI and 1-hr
- * PM2.5 readings.
+ * PM2.5 readings, plus lightning and heavy-rain alerts.
  * Endpoints fail independently; the source fails only when all feeds fail.
  */
 import type { z } from "zod";
 import { cache } from "@/lib/cache";
 import { ExternalApiError } from "@/lib/errors";
 import {
+  DataGovForecastAreasResponseSchema,
   DataGovForecastResponseSchema,
   DataGovFourDayResponseSchema,
+  DataGovLightningResponseSchema,
   DataGovPm25ResponseSchema,
   DataGovPsiResponseSchema,
+  DataGovRainfallResponseSchema,
   DataGovStationReadingsResponseSchema,
+  DataGovTwentyFourHourResponseSchema,
   DataGovUvResponseSchema,
 } from "@/types/schemas";
-import type { AirRegionKey, RegionalAirReadings, WeatherData } from "@/types";
+import type { AirRegionKey, RegionalAirReadings, WeatherAlerts, WeatherData } from "@/types";
 import { getPm25Band, getPsiStatus } from "@/lib/air-quality";
+import { buildNextTwoHours, buildRainPeriods } from "@/lib/rain-outlook";
+import {
+  LIGHTNING_WINDOW_MS,
+  RAIN_WINDOW_MS,
+  singaporeDate,
+  summarizeRain,
+  summarizeLightning,
+  type ForecastArea,
+} from "@/lib/weather-alerts";
 import { DEFAULT_TIMEOUT_MS, httpGetJson } from "./http";
 
 const DATA_GOV_BASE_URL = "https://api.data.gov.sg/v1/environment";
@@ -148,6 +161,7 @@ export const getWeather = (signal?: AbortSignal): Promise<WeatherData> =>
           uvResponse,
           pm25Response,
           fourDayResponse,
+          twentyFourHourResponse,
         ] = await Promise.all([
           dataGovGet("/2-hour-weather-forecast", DataGovForecastResponseSchema),
           dataGovGet("/psi", DataGovPsiResponseSchema),
@@ -160,6 +174,11 @@ export const getWeather = (signal?: AbortSignal): Promise<WeatherData> =>
             DataGovFourDayResponseSchema,
             DATA_GOV_V2_BASE_URL,
           ),
+          dataGovGet(
+            "/twenty-four-hr-forecast",
+            DataGovTwentyFourHourResponseSchema,
+            DATA_GOV_V2_BASE_URL,
+          ),
         ]);
 
         const feeds = [
@@ -170,6 +189,7 @@ export const getWeather = (signal?: AbortSignal): Promise<WeatherData> =>
           uvResponse,
           pm25Response,
           fourDayResponse,
+          twentyFourHourResponse,
         ];
         if (feeds.every((feed) => feed === null)) {
           throw new ExternalApiError({
@@ -252,6 +272,10 @@ export const getWeather = (signal?: AbortSignal): Promise<WeatherData> =>
           uvStatus: getUvStatus(uvValue),
           fourDay,
           forecast: forecastText,
+          rainOutlook: {
+            nextTwoHours: buildNextTwoHours(forecast?.items?.[0]),
+            periods: buildRainPeriods(twentyFourHourResponse, Date.now()),
+          },
           lastUpdated: latestIsoTimestamp([
             forecast?.items?.[0]?.update_timestamp,
             forecast?.items?.[0]?.timestamp,
@@ -278,3 +302,87 @@ export const getWeather = (signal?: AbortSignal): Promise<WeatherData> =>
       },
     )
     .then((snapshot) => snapshot.data);
+
+// ---------- Lightning and heavy-rain alerts ----------
+
+// Lightning arrives in two-minute records; poll near that pace.
+const WEATHER_ALERTS_CACHE_TTL_MS = 2 * 60 * 1000;
+const FORECAST_AREAS_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+
+const getForecastAreas = (): Promise<ForecastArea[]> =>
+  cache.get("forecast-areas", FORECAST_AREAS_CACHE_TTL_MS, async () => {
+    const response = await httpGetJson(
+      "data.gov.sg",
+      `${DATA_GOV_V2_BASE_URL}/two-hr-forecast`,
+      { Accept: "application/json" },
+      DataGovForecastAreasResponseSchema,
+      DEFAULT_TIMEOUT_MS,
+    );
+    return response.data.area_metadata.map((area) => ({
+      name: area.name,
+      lat: area.label_location.latitude,
+      lng: area.label_location.longitude,
+    }));
+  });
+
+/**
+ * `date=<today>` returns the newest page of the day, newest first. Just after
+ * midnight the window also reaches into yesterday, so fetch both then.
+ */
+const datesCovering = (now: number, windowMs: number): string[] => [
+  ...new Set([singaporeDate(now), singaporeDate(now - windowMs)]),
+];
+
+/** Every page fetched, or null when any one fails (a gap could hide a storm). */
+const dataGovDays = async <A>(
+  endpoint: string,
+  dates: string[],
+  schema: z.ZodType<A>,
+): Promise<A[] | null> => {
+  const separator = endpoint.includes("?") ? "&" : "?";
+  const pages = await Promise.all(
+    dates.map((date) => dataGovGet(`${endpoint}${separator}date=${date}`, schema, DATA_GOV_V2_BASE_URL)),
+  );
+  return pages.every((page) => page !== null) ? (pages as A[]) : null;
+};
+
+export const getWeatherAlerts = (signal?: AbortSignal): Promise<WeatherAlerts> =>
+  cache.get(
+    "weather-alerts",
+    WEATHER_ALERTS_CACHE_TTL_MS,
+    async () => {
+      const now = Date.now();
+      const [areas, lightningPages, rainPages] = await Promise.all([
+        getForecastAreas(),
+        dataGovDays("/weather?api=lightning", datesCovering(now, LIGHTNING_WINDOW_MS), DataGovLightningResponseSchema),
+        dataGovDays("/rainfall", datesCovering(now, RAIN_WINDOW_MS), DataGovRainfallResponseSchema),
+      ]);
+      if (!lightningPages && !rainPages) {
+        throw new ExternalApiError({
+          service: "data.gov.sg",
+          status: 502,
+          message: "Lightning and rainfall endpoints failed",
+        });
+      }
+      const lightning = lightningPages
+        ? summarizeLightning(
+            { data: { records: lightningPages.flatMap((page) => page.data.records) } },
+            areas,
+            now,
+          )
+        : null;
+      const rain = rainPages
+        ? summarizeRain(
+            {
+              data: {
+                stations: rainPages.flatMap((page) => page.data.stations),
+                readings: rainPages.flatMap((page) => page.data.readings),
+              },
+            },
+            areas,
+          )
+        : null;
+      return { lightning, rain };
+    },
+    { signal },
+  );

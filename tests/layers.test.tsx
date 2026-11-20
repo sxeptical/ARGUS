@@ -69,6 +69,7 @@ const weather: WeatherData = {
   uvStatus: "High",
   fourDay: [],
   forecast: "Partly cloudy",
+  rainOutlook: { nextTwoHours: null, periods: [] },
   lastUpdated: "2026-10-22T00:00:00.000Z",
 };
 
@@ -195,6 +196,7 @@ describe("layer surfaces render", () => {
         visibleSensorCount={4}
         weatherStatus="ok"
         weather={weather}
+        weatherAlerts={{ lightning: null, rain: null }}
         weatherHistory={[]}
       />,
     );

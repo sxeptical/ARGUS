@@ -37,14 +37,14 @@ export function useNotifications({
   const [alerts, setAlerts] = useState<readonly SignalRow[]>([]);
   const [unreadIds, setUnreadIds] = useState<ReadonlySet<string>>(new Set());
   const seenRef = useRef<SeenSignals | null>(null);
-  const { rail, road, weather } = loaded;
+  const { rail, road, weather, storm } = loaded;
 
   useEffect(() => {
-    if (!rail && !road && !weather) return;
+    if (!rail && !road && !weather && !storm) return;
     const timer = window.setTimeout(() => {
       const previous =
         seenRef.current ?? parseSeenSignals(readStoredJson(SEEN_SIGNALS_KEY)) ?? {};
-      const { fresh, seen } = diffSignals(previous, signals, { rail, road, weather });
+      const { fresh, seen } = diffSignals(previous, signals, { rail, road, weather, storm });
       seenRef.current = seen;
       if (JSON.stringify(seen) !== JSON.stringify(previous)) {
         writeStoredJson(SEEN_SIGNALS_KEY, seen);
@@ -69,7 +69,7 @@ export function useNotifications({
       }
     }, 0);
     return () => window.clearTimeout(timer);
-  }, [signals, scopedSignals, rail, road, weather, prefs]);
+  }, [signals, scopedSignals, rail, road, weather, storm, prefs]);
 
   // Timing out only removes the toast; the alert stays unread in the bell.
   const expireToast = useCallback((id: string) => {

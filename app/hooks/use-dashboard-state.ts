@@ -468,6 +468,7 @@ export function useDashboardState() {
     systemStatus,
     visibleSensorCount,
     weather: data.weather,
+    weatherAlerts: data.weatherAlerts,
     weatherHistory,
   };
 }

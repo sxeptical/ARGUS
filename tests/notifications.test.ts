@@ -14,7 +14,7 @@ const signal = (
   tone: SignalRow["tone"] = "danger",
 ): SignalRow => ({ id, category, tone, text: `text ${id}` });
 
-const ALL_LOADED = { rail: true, road: true, weather: true };
+const ALL_LOADED = { rail: true, road: true, weather: true, storm: true };
 
 describe("diffSignals", () => {
   test("records a baseline on a category's first load without alerting", () => {
@@ -44,7 +44,7 @@ describe("diffSignals", () => {
     const whileFailing = diffSignals(
       { rail: ["r"] },
       [],
-      { rail: true, road: false, weather: false },
+      { rail: true, road: false, weather: false, storm: false },
     );
     expect(whileFailing.seen.road).toBeUndefined();
     expect(whileFailing.seen.weather).toBeUndefined();
@@ -58,7 +58,7 @@ describe("diffSignals", () => {
     const failing = diffSignals(
       { road: ["a"] },
       [],
-      { rail: true, road: false, weather: true },
+      { rail: true, road: false, weather: true, storm: true },
     );
     expect(failing.seen.road).toEqual(["a"]);
     expect(diffSignals(failing.seen, [signal("a")], ALL_LOADED).fresh).toEqual([]);

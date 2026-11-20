@@ -11,6 +11,8 @@ import {
   psiTone,
 } from "@/lib/air-quality";
 import { formatSgDateTime, formatSgTime } from "@/lib/formatters";
+import { isThunderyForecast } from "@/lib/rain-outlook";
+import { HEAVY_RAIN_MM, LIGHTNING_NEAR_M } from "@/lib/weather-alerts";
 import {
   AIR_SECTION_PINNED_KEY,
   parseStoredBoolean,
@@ -20,9 +22,14 @@ import type {
   AirQualityOverlay,
   AirQualityTone,
   AirRegionKey,
+  LightningStats,
   Pm25Band,
   PsiStatus,
+  RainForecast,
+  RainOutlook,
+  RainStats,
   RegionalAirReadings,
+  WeatherAlerts,
   WeatherData,
   WeatherHistoryPoint,
 } from "@/types";
@@ -35,6 +42,8 @@ function formatMetric(value: number | null, unit: string): string {
 type WeatherPanelProps = {
   feedStatus: SourceStatus;
   weather: WeatherData;
+  /** Lightning and rainfall over the last half hour, from their own feed. */
+  storms: WeatherAlerts;
   history: WeatherHistoryPoint[];
   onAirQualityOverlayChange?: (overlay: AirQualityOverlay | null) => void;
   /** Extra classes on the panel section (e.g. a max height + internal
@@ -99,6 +108,7 @@ const REGION_STRIP_ORDER: ReadonlyArray<{
 export default function WeatherPanel({
   feedStatus,
   weather,
+  storms,
   history,
   onAirQualityOverlayChange,
   className,
@@ -147,6 +157,7 @@ export default function WeatherPanel({
         : weather.uvStatus === "High" || weather.uvStatus === "Very High"
           ? "text-danger"
           : "text-muted";
+  const rainSummary = summarizeRainRow(storms, weather.rainOutlook);
   const uvValue =
     weather.uv === null ? "—" : `${weather.uv} (${weather.uvStatus})`;
 
@@ -170,6 +181,13 @@ export default function WeatherPanel({
           value={formatMetric(weather.humidity, "%")}
         >
           <HumidityDetail current={weather.humidity} history={history} />
+        </ExpandableRow>
+
+        <ExpandableRow label="Rain" value={rainSummary.text} valueClass={TONE_CLASSES[rainSummary.tone]}>
+          <RainNowDetail rain={storms.rain} />
+          <LightningDetail lightning={storms.lightning} />
+          <NextTwoHoursDetail outlook={weather.rainOutlook.nextTwoHours} />
+          <RainPeriodsDetail periods={weather.rainOutlook.periods} />
         </ExpandableRow>
 
         <ExpandableRow
@@ -513,6 +531,187 @@ function UvDetail({
         <MetricBadge label="Extreme" range="11+" active={status === "Extreme"} color="danger" />
       </div>
     </div>
+  );
+}
+
+/**
+ * One line for the Rain row: what is happening now (rain, lightning) beats
+ * what is forecast, and the worst of them sets the colour.
+ */
+function summarizeRainRow(
+  storms: WeatherAlerts,
+  outlook: RainOutlook,
+): { text: string; tone: AirQualityTone } {
+  const { rain, lightning } = storms;
+  const parts: string[] = [];
+  let tone: AirQualityTone = "muted";
+  if (rain && rain.heavyAreas.length > 0) {
+    parts.push(`heavy rain · ${rain.maxMm} mm`);
+    tone = "warning";
+  } else if (rain && rain.rainingStations > 0) {
+    parts.push(`raining in ${plural(rain.rainingAreas.length, "area")}`);
+  }
+  if (lightning && lightning.strikes > 0) {
+    parts.push("lightning");
+    tone = lightning.groundStrikes > 0 ? "danger" : "warning";
+  }
+  if (parts.length > 0) {
+    const text = parts.join(" · ");
+    return { text: text.charAt(0).toUpperCase() + text.slice(1), tone };
+  }
+  const next = outlook.nextTwoHours;
+  if (next && next.rain.length > 0) {
+    return {
+      text: `Likely in ${next.rain.length}/${next.areaCount} areas`,
+      tone: next.rain.some((entry) => isThunderyForecast(entry.forecast)) ? "warning" : "muted",
+    };
+  }
+  if (next) return { text: rain ? "Dry · none expected" : "None expected", tone: "muted" };
+  return { text: rain ? "Dry" : "—", tone: "muted" };
+}
+
+const plural = (count: number, one: string) => `${count} ${one}${count === 1 ? "" : "s"}`;
+
+function DetailSection({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <div className="space-y-1 text-[11px]">
+      <div className="data-label">{title}</div>
+      {children}
+    </div>
+  );
+}
+
+function DetailLine({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="flex gap-2">
+      <span className="w-20 shrink-0 text-muted">{label}</span>
+      <span className="min-w-0 flex-1">{children}</span>
+    </div>
+  );
+}
+
+/** "Thundery Showers: Bedok, Changi" lines, one per wording, thundery first. */
+function ForecastGroups({ rain }: { rain: ReadonlyArray<RainForecast> }) {
+  const groups = new Map<string, string[]>();
+  for (const entry of rain) groups.set(entry.forecast, [...(groups.get(entry.forecast) ?? []), entry.place]);
+  const ordered = [...groups.entries()].sort(
+    ([a], [b]) => Number(isThunderyForecast(b)) - Number(isThunderyForecast(a)) || a.localeCompare(b),
+  );
+  return (
+    <>
+      {ordered.map(([forecast, places]) => (
+        <div key={forecast}>
+          <span className={isThunderyForecast(forecast) ? "text-warning" : "text-info"}>{forecast}</span>
+          <span className="text-muted">: {places.join(", ")}</span>
+        </div>
+      ))}
+    </>
+  );
+}
+
+function RainNowDetail({ rain }: { rain: RainStats | null }) {
+  return (
+    <DetailSection title="Now">
+      {!rain ? (
+        <div className="text-muted">Rainfall data is currently unavailable.</div>
+      ) : rain.rainingStations === 0 ? (
+        <div className="text-muted">No rain gauge has recorded rain in the last 15 minutes.</div>
+      ) : (
+        <>
+          <DetailLine label="Wettest">up to {rain.maxMm} mm in 15 min</DetailLine>
+          {rain.heavyAreas.length > 0 ? (
+            <DetailLine label="Heavy">
+              <span className="text-warning">{rain.heavyAreas.join(", ")}</span>
+            </DetailLine>
+          ) : null}
+          <DetailLine label="Raining">{rain.rainingAreas.join(", ")}</DetailLine>
+          <DetailLine label="Gauges">
+            {rain.rainingStations} of {rain.stationCount} reporting rain
+          </DetailLine>
+        </>
+      )}
+      {rain ? (
+        <div className="text-muted" suppressHydrationWarning>
+          NEA rain gauges · heavy is {HEAVY_RAIN_MM} mm or more in 15 min
+          {rain.observedAt ? ` · as of ${formatSgTime(rain.observedAt)}` : ""}
+        </div>
+      ) : null}
+    </DetailSection>
+  );
+}
+
+function LightningDetail({ lightning }: { lightning: LightningStats | null }) {
+  return (
+    <DetailSection title="Lightning">
+      {!lightning ? (
+        <div className="text-muted">Lightning data is currently unavailable.</div>
+      ) : lightning.strikes === 0 ? (
+        <div className="text-muted">
+          No strikes within {LIGHTNING_NEAR_M / 1000} km of Singapore in the last 30 minutes.
+        </div>
+      ) : (
+        <>
+          <DetailLine label="Near">{lightning.areas.join(", ")}</DetailLine>
+          <DetailLine label="Strikes">
+            {lightning.strikes} in 30 min ·{" "}
+            <span className={lightning.groundStrikes > 0 ? "text-danger" : ""}>
+              {lightning.groundStrikes} to ground
+            </span>
+          </DetailLine>
+          {lightning.lastStrikeAt ? (
+            <DetailLine label="Last strike">
+              <span suppressHydrationWarning>{formatSgTime(lightning.lastStrikeAt)}</span>
+            </DetailLine>
+          ) : null}
+        </>
+      )}
+    </DetailSection>
+  );
+}
+
+function NextTwoHoursDetail({ outlook }: { outlook: RainOutlook["nextTwoHours"] }) {
+  return (
+    <DetailSection title="Next 2 hours">
+      {!outlook ? (
+        <div className="text-muted">The 2-hour forecast is currently unavailable.</div>
+      ) : outlook.rain.length === 0 ? (
+        <div className="text-muted">No rain expected in any of the {outlook.areaCount} areas.</div>
+      ) : (
+        <>
+          <div>
+            Rain expected in {outlook.rain.length} of {outlook.areaCount} areas
+          </div>
+          <ForecastGroups rain={outlook.rain} />
+        </>
+      )}
+      {outlook?.validFrom && outlook.validTo ? (
+        <div className="text-muted" suppressHydrationWarning>
+          NEA 2-hour forecast · {formatSgTime(outlook.validFrom)}–{formatSgTime(outlook.validTo)}
+        </div>
+      ) : null}
+    </DetailSection>
+  );
+}
+
+function RainPeriodsDetail({ periods }: { periods: RainOutlook["periods"] }) {
+  return (
+    <DetailSection title="Next 24 hours">
+      {periods.length === 0 ? (
+        <div className="text-muted">The 24-hour forecast is currently unavailable.</div>
+      ) : (
+        periods.map((period) => (
+          <div key={period.start}>
+            <div className="text-muted">{period.label}</div>
+            {period.rain.length === 0 ? (
+              <div>No rain expected</div>
+            ) : (
+              <ForecastGroups rain={period.rain} />
+            )}
+          </div>
+        ))
+      )}
+      <div className="text-muted">NEA 24-hour forecast by region · NEA gives no percentages</div>
+    </DetailSection>
   );
 }
 
