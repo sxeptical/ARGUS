@@ -538,4 +538,8 @@ export interface MapSearchResult {
   lng: number;
   zoom: number;
   keywords: string[];
+  /** Secondary line under the name, e.g. an address. */
+  detail?: string;
+  /** Coloured pills in place of the detail line, e.g. the MRT lines a station serves. */
+  badges?: { label: string; color: string }[];
 }

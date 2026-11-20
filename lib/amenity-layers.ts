@@ -455,6 +455,7 @@ export const AMENITY_SEARCH_RESULTS: MapSearchResult[] = AMENITY_LAYERS.flatMap(
     lng: place.lng,
     zoom: 16,
     keywords: [...amenity.keywords(place), ...(place.address ? [place.address] : [])],
+    detail: place.address ?? undefined,
   })),
 );
 

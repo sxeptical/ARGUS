@@ -33,7 +33,7 @@ import { AMENITY_LAYER_BY_TYPE, AMENITY_SEARCH_RESULTS } from "@/lib/amenity-lay
 import { buildParkSearchResults } from "@/lib/parks";
 import { PARKS_GEOJSON } from "@/lib/data/parks";
 import { formatRadius, withinRadius } from "@/lib/geo-filter";
-import { buildBusStopSearchResults, MRT_STATION_SEARCH_RESULTS } from "@/lib/map-search";
+import { buildBusStopSearchResults, isSearchResultShown, MRT_STATION_SEARCH_RESULTS } from "@/lib/map-search";
 import { LAYER_BY_KEY } from "@/lib/layers";
 import { MRT_STATION_NAMES } from "@/lib/mrt-routing";
 import { buildSignalDigest } from "@/lib/signals";
@@ -143,13 +143,15 @@ export default function Home() {
       ]),
     [geoFilter],
   );
+  // Search only what the map is drawing: hidden layers and unchecked sub-filters drop out.
   const mapSearchResults = useMemo(
-    () => [
-      ...mrtStationsInRadius,
-      ...withinRadius(PLACE_SEARCH_RESULTS, geoFilter, (result) => [result.lng, result.lat]),
-      ...buildBusStopSearchResults(busStops),
-    ],
-    [busStops, geoFilter, mrtStationsInRadius],
+    () =>
+      [
+        ...mrtStationsInRadius,
+        ...withinRadius(PLACE_SEARCH_RESULTS, geoFilter, (result) => [result.lng, result.lat]),
+        ...buildBusStopSearchResults(busStops),
+      ].filter((result) => isSearchResultShown(result, sensorVisibility, amenityFilters)),
+    [amenityFilters, busStops, geoFilter, mrtStationsInRadius, sensorVisibility],
   );
   const mrtRouterStations = useMemo(() => {
     if (!geoFilter) return MRT_STATION_NAMES;

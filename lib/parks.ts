@@ -185,6 +185,7 @@ export function buildParkSearchResults(parks: ParksGeoJson): MapSearchResult[] {
       lng: centre[0],
       zoom: large ? 13.5 : 16,
       keywords: ["park", "nparks", "garden"],
+      detail: (feature.properties.areaHa ?? 0) >= 1 ? `${Math.round(feature.properties.areaHa!)} ha` : undefined,
     }];
   });
 }
