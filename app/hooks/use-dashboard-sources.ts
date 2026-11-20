@@ -11,6 +11,7 @@ import type {
   NewsItem,
   TrafficCamera,
   TrafficIncident,
+  TrainCrowds,
   TrainServiceAlert,
   WeatherData,
 } from "@/types";
@@ -88,9 +89,18 @@ const TRAIN_ALERTS: SourceDefinition = {
   refreshMs: 60 * 1000,
 };
 
+const TRAIN_CROWDS: SourceDefinition = {
+  key: "train crowds",
+  label: "Train Platform Crowds",
+  url: "/api/train-crowds",
+  // LTA publishes 10-minute windows; the server caches for five minutes.
+  refreshMs: 5 * 60 * 1000,
+};
+
 // Stable fallbacks: a fresh [] every render would re-run consumers' effects
 // (the map source sync) even when no data arrived.
 const EMPTY: never[] = [];
+const EMPTY_TRAIN_CROWDS: TrainCrowds = { updatedAt: null, stations: [], missingLines: [] };
 
 const EMPTY_REGIONAL_AIR = {
   north: null,
@@ -163,6 +173,7 @@ export function useDashboardSources(
   const news = useSource<NewsItem[]>(NEWS);
   const flights = useSource<FlightState[]>(FLIGHTS_ENABLED ? FLIGHTS : null);
   const trainAlerts = useSource<TrainServiceAlert[]>(TRAIN_ALERTS, pollSignalsWhenHidden);
+  const trainCrowds = useSource<TrainCrowds>(TRAIN_CROWDS);
   const carparks = useSource<CarparkAvailability[]>(
     onDemand.carparks ? CARPARKS : null,
   );
@@ -177,6 +188,7 @@ export function useDashboardSources(
     weather: toSourceState(WEATHER, weather),
     news: toSourceState(NEWS, news),
     trainAlerts: toSourceState(TRAIN_ALERTS, trainAlerts),
+    trainCrowds: toSourceState(TRAIN_CROWDS, trainCrowds),
   };
   const activeSources = [
     ...Object.values(feeds),
@@ -196,6 +208,7 @@ export function useDashboardSources(
     news: news.data ?? EMPTY,
     flights: flights.data ?? EMPTY,
     trainAlerts: trainAlerts.data ?? EMPTY,
+    trainCrowds: trainCrowds.data ?? EMPTY_TRAIN_CROWDS,
     carparks: carparks.data ?? EMPTY,
     evChargers: evChargers.data ?? EMPTY,
     signalsLoaded: {

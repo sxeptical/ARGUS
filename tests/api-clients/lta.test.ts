@@ -10,6 +10,7 @@ import {
   getEvChargingLocations,
   getTrafficCameras,
   getTrafficIncidents,
+  getTrainCrowds,
   normalizeCarparkAvailability,
   normalizeEvChargingLocations,
   normalizeTrafficIncidents,
@@ -413,5 +414,51 @@ describe("normalizeTrainServiceAlerts", () => {
     });
 
     expect(alerts[0].affectedStations).toEqual(["EW21", "EW22", "EW23", "CC22"]);
+  });
+});
+
+describe("getTrainCrowds", () => {
+  test("merges every line and lists the lines that failed", async () => {
+    const lines: string[] = [];
+    const crowds = await withFetch(
+      async (input) => {
+        const line = new URL(String(input)).searchParams.get("TrainLine") ?? "";
+        lines.push(line);
+        if (line === "DTL") return new Response("down", { status: 500 });
+        const value =
+          line === "EWL"
+            ? [
+                { Station: "EW13", StartTime: "2026-11-20T08:30:00+08:00", EndTime: "2026-11-20T08:40:00+08:00", CrowdLevel: "h" },
+                { Station: "EW12", StartTime: "2026-11-20T08:30:00+08:00", EndTime: "2026-11-20T08:40:00+08:00", CrowdLevel: "NA" },
+              ]
+            : line === "NSL"
+              ? [{ Station: "NS25", StartTime: "2026-11-20T08:20:00+08:00", EndTime: "2026-11-20T08:30:00+08:00", CrowdLevel: "l" }]
+              : [];
+        return Response.json({ value });
+      },
+      () => getTrainCrowds(),
+    );
+
+    expect(lines).toHaveLength(11);
+    expect(crowds.updatedAt).toBe("2026-11-20T08:30:00+08:00");
+    expect(crowds.missingLines).toEqual(["Downtown Line"]);
+    expect(crowds.stations).toEqual([
+      {
+        station: "City Hall",
+        level: "high",
+        lines: [
+          { code: "NS25", line: "North South Line", level: "low" },
+          { code: "EW13", line: "East West Line", level: "high" },
+        ],
+      },
+    ]);
+  });
+
+  test("fails when every line fails", async () => {
+    const error = await withFetch(
+      async () => new Response("down", { status: 503 }),
+      () => rejection(getTrainCrowds()),
+    );
+    expect(error).toBeInstanceOf(ExternalApiError);
   });
 });

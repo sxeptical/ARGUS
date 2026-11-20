@@ -202,6 +202,21 @@ export type LtaTrainServiceAlertsResponse = z.infer<
   typeof LtaTrainServiceAlertsResponseSchema
 >;
 
+/** PCDRealTime: one row per station code; CrowdLevel is l, m, h or NA. */
+export const LtaPlatformCrowdResponseSchema = z.object({
+  value: z.array(
+    z.object({
+      Station: z.string(),
+      StartTime: z.string().nullish(),
+      EndTime: z.string().nullish(),
+      CrowdLevel: z.string().nullish(),
+    }),
+  ),
+});
+export type LtaPlatformCrowdResponse = z.infer<
+  typeof LtaPlatformCrowdResponseSchema
+>;
+
 // ---------- Data.gov.sg v1 ----------
 
 const timestamps = {

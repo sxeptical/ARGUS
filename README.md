@@ -59,6 +59,7 @@ It is designed as a single-page operations surface: map first, signal panels aro
 - Mall store directories (~8,900 shops in 55 malls, as listed by each mall operator) from the same curioputterings dataset, shown beside the mall details in the focus dialog that opens when a mall is selected: filter by name/unit, category or halal, grouped by floor. Per-mall files in `public/mall-stores/`, fetched when the dialog opens and rebuilt with `bun scripts/fetch-mall-stores.ts` (run it after `fetch-amenities.mjs`).
 - Park photos from Wikimedia Commons, credited per file, in `public/park-photos.json`, rebuilt with `bun scripts/fetch-park-photos.mjs`.
 - LTA train service alerts, with disrupted MRT lines highlighted on the map.
+- Train crowds in the MRT router: LTA platform crowd density (low, moderate or high per 10-minute window) for the picked start and end stations, plus the boarding platform and busiest stop on each ride of a planned route.
 - Intelligence panel live signals digest combining disrupted rail, road incidents, and unhealthy PSI alerts.
 - Notifications for new rail disruptions, road accidents, and unhealthy PSI, as in-app toasts plus optional browser alerts while the tab is in the background. Nothing is delivered once the tab is closed.
 - Data.gov.sg weather, PSI, and air temperature.
@@ -103,7 +104,7 @@ ARGUS can run with partial data, but the best experience needs these keys:
 
 | Key | Required For | Notes |
 | --- | --- | --- |
-| `LTA_API_KEY` | Bus stops, bus arrivals, traffic cameras, road incidents, carparks, EV chargers | Get this from Singapore LTA DataMall. |
+| `LTA_API_KEY` | Bus stops, bus arrivals, traffic cameras, road incidents, carparks, EV chargers, train crowds | Get this from Singapore LTA DataMall. |
 | `AVIATIONSTACK_API_KEY` | Primary flight feed | Used for live flights around Changi/Seletar. |
 | `DATABASE_URL` | Feedback form (shown to visitors in Singapore) | Neon Postgres connection string. Create the table with `psql "$DATABASE_URL" -f scripts/sql/feedback.sql`. Set `ARGUS_DEV_COUNTRY=SG` to see the form locally. |
 
@@ -122,7 +123,7 @@ Weather and news currently use public endpoints and do not require keys.
 
 | Source | Used For |
 | --- | --- |
-| LTA DataMall | Bus stops, bus arrivals, traffic cameras |
+| LTA DataMall | Bus stops, bus arrivals, traffic cameras, platform crowd density |
 | Data.gov.sg | Weather forecast, PSI, temperature |
 | Aviationstack | Live commercial flight data |
 | OpenSky Network | Flight fallback when Aviationstack is unavailable |

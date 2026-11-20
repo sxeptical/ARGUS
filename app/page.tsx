@@ -104,6 +104,7 @@ export default function Home() {
     signalsLoaded,
     systemStatus,
     trainAlerts,
+    trainCrowds,
     visibleSensorCount,
     weather,
     weatherHistory,
@@ -350,6 +351,7 @@ export default function Home() {
                 onReset={resetMrtRoute}
                 stations={mrtRouterStations}
                 stationScope={searchScope}
+                trainCrowds={trainCrowds}
               />
             </div>
             <div className="max-h-[60dvh] min-h-0 overflow-auto xl:max-h-none">

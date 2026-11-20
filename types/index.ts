@@ -133,6 +133,33 @@ export interface TrainServiceAlert {
   endTime: string | null;
 }
 
+export type CrowdLevel = "low" | "moderate" | "high";
+
+/** One station code's platform crowd level, as LTA reports it per line. */
+export interface StationLineCrowd {
+  code: string;
+  line: string;
+  level: CrowdLevel;
+}
+
+/**
+ * LTA platform crowd density for one station, merged across its line codes;
+ * `level` is the busiest of them. Codes LTA has no reading for are omitted.
+ */
+export interface StationCrowd {
+  station: string;
+  level: CrowdLevel;
+  lines: StationLineCrowd[];
+}
+
+export interface TrainCrowds {
+  /** Start of LTA's 10-minute reading window, ISO with offset. */
+  updatedAt: string | null;
+  stations: StationCrowd[];
+  /** Line display names whose feed failed this round. */
+  missingLines: string[];
+}
+
 export type FlightDirection = "inbound" | "outbound" | "transit";
 
 export interface FlightState {

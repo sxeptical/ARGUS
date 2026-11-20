@@ -5,6 +5,7 @@ export {
   getEvChargingLocations,
   getTrafficCameras,
   getTrafficIncidents,
+  getTrainCrowds,
   getTrainServiceAlerts,
 } from "./lta";
 export { getBusRoute } from "./bus-routes";
