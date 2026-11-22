@@ -36,7 +36,7 @@ import { formatRadius, withinRadius } from "@/lib/geo-filter";
 import { buildBusStopSearchResults, isSearchResultShown, MRT_STATION_SEARCH_RESULTS } from "@/lib/map-search";
 import { LAYER_BY_KEY } from "@/lib/layers";
 import { MRT_STATION_NAMES } from "@/lib/mrt-routing";
-import { buildSignalDigest } from "@/lib/signals";
+import { buildSignalDigest, unknownSignalIds } from "@/lib/signals";
 import type { AirQualityOverlay, AmenityType } from "@/types";
 
 const PLACE_SEARCH_RESULTS = [
@@ -104,19 +104,22 @@ export default function Home() {
     signalsLoaded,
     systemStatus,
     trainAlerts,
+    trainCrowds,
     visibleSensorCount,
     weather,
+    weatherAlerts,
     weatherHistory,
   } = useDashboardState();
 
   const signalDigest = useMemo(
-    () => buildSignalDigest({ trainAlerts, incidents, weather }),
-    [trainAlerts, incidents, weather],
+    () => buildSignalDigest({ trainAlerts, incidents, weather, weatherAlerts }),
+    [trainAlerts, incidents, weather, weatherAlerts],
   );
   const allSignals = useMemo(
-    () => buildSignalDigest({ trainAlerts, incidents: allIncidents, weather }),
-    [trainAlerts, allIncidents, weather],
+    () => buildSignalDigest({ trainAlerts, incidents: allIncidents, weather, weatherAlerts }),
+    [trainAlerts, allIncidents, weather, weatherAlerts],
   );
+  const unknownIds = useMemo(() => unknownSignalIds(weatherAlerts), [weatherAlerts]);
   const {
     alerts,
     dismissToast,
@@ -128,6 +131,7 @@ export default function Home() {
     signals: allSignals,
     scopedSignals: signalDigest,
     loaded: signalsLoaded,
+    unknownIds,
     prefs: notificationPrefs,
   });
   const [searchTarget, setSearchTarget] = useState<MapSearchTarget | null>(null);
@@ -175,7 +179,7 @@ export default function Home() {
     />
   );
 
-  const signalFeeds = [feeds.trainAlerts, feeds.incidents, feeds.weather];
+  const signalFeeds = [feeds.trainAlerts, feeds.incidents, feeds.weather, feeds.weatherAlerts];
   const signalsPending = signalFeeds.some((feed) => feed.status === "loading");
   const signalsIncomplete = signalFeeds.some((feed) => feed.status === "error" || feed.status === "stale");
 
@@ -227,6 +231,7 @@ export default function Home() {
           visibleSensorCount={visibleSensorCount}
           weatherStatus={feeds.weather.status}
           weather={weather}
+          weatherAlerts={weatherAlerts}
           weatherHistory={weatherHistory}
           onAirQualityOverlayChange={setAirQualityOverlay}
         />
@@ -350,6 +355,7 @@ export default function Home() {
                 onReset={resetMrtRoute}
                 stations={mrtRouterStations}
                 stationScope={searchScope}
+                trainCrowds={trainCrowds}
               />
             </div>
             <div className="max-h-[60dvh] min-h-0 overflow-auto xl:max-h-none">
@@ -387,9 +393,9 @@ export default function Home() {
                 {incidents.length > 8 ? <div className="font-mono text-[9px] uppercase tracking-[0.1em] text-muted">+{incidents.length - 8} MORE ROAD INCIDENTS</div> : null}
               </div>
             ) : <div className="text-xs leading-relaxed text-muted">
-              {signalsPending ? "Checking rail, road and weather feeds…" :
+              {signalsPending ? "Checking rail, road, weather and storm feeds…" :
                 signalsIncomplete ? "No active signals in the available data. Some feeds could not refresh." :
-                <>NO ACTIVE SIGNALS<br />Rail, road and weather feeds nominal.</>}
+                <>NO ACTIVE SIGNALS<br />Rail, road, weather and storm feeds nominal.</>}
             </div>}
           </IntelPanel>
 

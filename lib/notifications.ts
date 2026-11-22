@@ -12,6 +12,7 @@ export const DEFAULT_NOTIFICATION_PREFS: NotificationPrefs = {
   // Road alerts cover accidents only; other incidents are too frequent.
   road: true,
   weather: true,
+  storm: true,
   browser: false,
 };
 
@@ -22,29 +23,33 @@ export type SeenSignals = Partial<Record<SignalCategory, readonly string[]>>;
 export type SignalsLoaded = Readonly<Record<SignalCategory, boolean>>;
 
 /** In priority order: this is the order new signals are shown in. */
-const SIGNAL_CATEGORIES: readonly SignalCategory[] = ["rail", "weather", "road"];
+export const SIGNAL_CATEGORIES: readonly SignalCategory[] = ["rail", "storm", "weather", "road"];
 
 const SIGNAL_TITLES: Readonly<Record<SignalCategory, string>> = {
   rail: "Rail disruption",
   road: "Road accident",
   weather: "Unhealthy air quality",
+  storm: "Storm",
 };
 
 const MAX_INDIVIDUAL_BROWSER_NOTIFICATIONS = 3;
 
-export function signalTitle(category: SignalCategory): string {
-  return SIGNAL_TITLES[category];
+export function signalTitle(signal: Pick<SignalRow, "category" | "title">): string {
+  return signal.title ?? SIGNAL_TITLES[signal.category];
 }
 
 /**
  * Compare the current signals with the last seen ids. A category's first load
  * only records a baseline, and a category that hasn't loaded is left alone, so
  * a feed recovering from a failed first request doesn't alert on everything.
+ * `unknownIds` does the same for single signals whose part of a feed failed:
+ * a seen one stays seen until its data says it has cleared.
  */
 export function diffSignals(
   seen: SeenSignals,
   signals: readonly SignalRow[],
   loaded: SignalsLoaded,
+  unknownIds: ReadonlySet<string> = new Set(),
 ): { fresh: SignalRow[]; seen: SeenSignals } {
   const fresh: SignalRow[] = [];
   const nextSeen: SeenSignals = { ...seen };
@@ -62,7 +67,8 @@ export function diffSignals(
         if (!known.has(id)) fresh.push(signal);
       }
     }
-    nextSeen[category] = [...rows.keys()];
+    const held = (previous ?? []).filter((id) => unknownIds.has(id) && !rows.has(id));
+    nextSeen[category] = [...rows.keys(), ...held];
   }
   return { fresh, seen: nextSeen };
 }
@@ -91,17 +97,23 @@ export function selectNotifiable(
  * higher PSI — without becoming a new signal. Retained rows keep their
  * position and id, so toasts, keys and unread bookkeeping are untouched.
  * Returns `current` when nothing changed so React can skip the re-render.
+ * Rows in `unknownIds` are kept as they are: their feed can't say they cleared.
  */
 export function mergeActiveSignals(
   current: readonly SignalRow[],
   fresh: readonly SignalRow[],
   active: readonly SignalRow[],
+  unknownIds: ReadonlySet<string> = new Set(),
 ): readonly SignalRow[] {
   const latest = new Map(active.map((signal) => [signal.id, signal]));
   const kept: SignalRow[] = [];
   let changed = false;
   for (const signal of current) {
     const next = latest.get(signal.id);
+    if (!next && unknownIds.has(signal.id)) {
+      kept.push(signal);
+      continue;
+    }
     if (!next) {
       changed = true;
       continue;
@@ -145,7 +157,7 @@ export function buildBrowserNotifications(
   }
   return signals.map((signal) => ({
     tag: signal.id,
-    title: signalTitle(signal.category),
+    title: signalTitle(signal),
     body: signal.text,
   }));
 }

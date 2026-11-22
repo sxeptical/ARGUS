@@ -1,8 +1,16 @@
+import { useMemo } from "react";
 import TerminalPanel from "@/app/components/TerminalPanel";
 import {
   MRT_STATION_NAMES,
   type MrtRoutePlan,
 } from "@/lib/mrt-routing";
+import {
+  busiestOnLine,
+  CROWD_LEVEL_LABEL,
+  CROWD_LEVEL_TONE,
+  crowdOnLine,
+} from "@/lib/train-crowds";
+import type { CrowdLevel, StationCrowd, TrainCrowds } from "@/types";
 
 type MrtRoutePanelProps = {
   route: MrtRoutePlan | null;
@@ -17,7 +25,34 @@ type MrtRoutePanelProps = {
   stations?: ReadonlyArray<string>;
   /** Set while a radius filter limits `stations`, e.g. "2.5 km radius". */
   stationScope?: string;
+  /** LTA platform crowd levels for the picked stations and the route. */
+  trainCrowds?: TrainCrowds;
 };
+
+const TONE_TEXT = {
+  success: "text-success",
+  warning: "text-warning",
+  danger: "text-danger",
+} as const;
+
+function CrowdText({ level }: { level: CrowdLevel }) {
+  return <span className={TONE_TEXT[CROWD_LEVEL_TONE[level]]}>{CROWD_LEVEL_LABEL[level]}</span>;
+}
+
+/** Platform crowd for a picked station; interchanges list each line on hover. */
+function StationCrowdLine({ crowd }: { crowd: StationCrowd | undefined }) {
+  if (!crowd) return <span className="text-muted">Crowd: no reading</span>;
+  const perLine = crowd.lines.length > 1
+    ? crowd.lines.map((line) => `${line.code} ${CROWD_LEVEL_LABEL[line.level]}`).join(", ")
+    : undefined;
+  return (
+    <span title={perLine}>
+      <span className="text-muted">Crowd: </span>
+      <CrowdText level={crowd.level} />
+      {perLine ? <span className="text-muted"> · {crowd.lines.length} lines</span> : null}
+    </span>
+  );
+}
 
 /** Keep selected stations listed even when outside the current scope. */
 function stationOptions(
@@ -42,7 +77,15 @@ export default function MrtRoutePanel({
   onReset,
   stations = MRT_STATION_NAMES,
   stationScope,
+  trainCrowds,
 }: MrtRoutePanelProps) {
+  const crowds = useMemo(
+    () => new Map((trainCrowds?.stations ?? []).map((crowd) => [crowd.station, crowd])),
+    [trainCrowds],
+  );
+  const hasCrowds = crowds.size > 0;
+  // Only worth saying while a route or picked station could be affected.
+  const missingCrowdLines = startStation || endStation ? (trainCrowds?.missingLines ?? []) : [];
   const canSwap = startStation !== endStation;
   const placeholder =
     stationScope && stations.length === 0 ? "No stations in radius" : "Select station";
@@ -65,6 +108,11 @@ export default function MrtRoutePanel({
                 </option>
               ))}
             </select>
+            {startStation && hasCrowds ? (
+              <span className="block font-mono text-[10px] normal-case tracking-normal">
+                <StationCrowdLine crowd={crowds.get(startStation)} />
+              </span>
+            ) : null}
           </label>
           <label className="data-label space-y-1">
             <span>End</span>
@@ -80,6 +128,11 @@ export default function MrtRoutePanel({
                 </option>
               ))}
             </select>
+            {endStation && hasCrowds ? (
+              <span className="block font-mono text-[10px] normal-case tracking-normal">
+                <StationCrowdLine crowd={crowds.get(endStation)} />
+              </span>
+            ) : null}
           </label>
         </div>
 
@@ -88,6 +141,12 @@ export default function MrtRoutePanel({
             {stations.length === 0
               ? `No MRT stations within the ${stationScope}. Widen or clear the radius filter to plan a route.`
               : `${stations.length} station${stations.length === 1 ? "" : "s"} within the ${stationScope}.`}
+          </div>
+        ) : null}
+
+        {hasCrowds && missingCrowdLines.length > 0 ? (
+          <div className="text-[11px] text-muted">
+            No crowd readings for the {missingCrowdLines.join(", ")} right now.
           </div>
         ) : null}
 
@@ -174,22 +233,38 @@ export default function MrtRoutePanel({
 
             <div className="space-y-1">
               {route.segments.length > 0 ? (
-                route.segments.map((segment) => (
-                  <div
-                    key={`${segment.line}-${segment.from}-${segment.to}`}
-                    className="border border-line bg-surface px-2.5 py-2"
-                  >
-                    <div className="data-label text-success">
-                      {segment.line}
+                route.segments.map((segment) => {
+                  const boarding = crowdOnLine(crowds.get(segment.from), segment.line);
+                  // Stops after boarding; the alighting platform counts too.
+                  const busiest = busiestOnLine(segment.stations.slice(1), segment.line, crowds);
+                  return (
+                    <div
+                      key={`${segment.line}-${segment.from}-${segment.to}`}
+                      className="border border-line bg-surface px-2.5 py-2"
+                    >
+                      <div className="data-label text-success">
+                        {segment.line}
+                      </div>
+                      <div className="text-[12px] text-ink">
+                        {segment.from} → {segment.to}
+                      </div>
+                      <div className="text-[11px] text-muted">
+                        {segment.stops} stops
+                      </div>
+                      {hasCrowds ? (
+                        <div className="mt-1 font-mono text-[10px] text-muted">
+                          Board: {boarding ? <CrowdText level={boarding} /> : "no reading"}
+                          {busiest && busiest.level !== "low" ? (
+                            <>
+                              {" · Busiest: "}
+                              {busiest.station} <CrowdText level={busiest.level} />
+                            </>
+                          ) : null}
+                        </div>
+                      ) : null}
                     </div>
-                    <div className="text-[12px] text-ink">
-                      {segment.from} → {segment.to}
-                    </div>
-                    <div className="text-[11px] text-muted">
-                      {segment.stops} stops
-                    </div>
-                  </div>
-                ))
+                  );
+                })
               ) : (
                 <div className="border border-line bg-surface px-2.5 py-2 text-[12px] text-ink">
                   You are already at {route.start}.

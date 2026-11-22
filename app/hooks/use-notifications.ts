@@ -19,17 +19,20 @@ import { parseSeenSignals, SEEN_SIGNALS_KEY } from "@/lib/ui-preferences";
  * Turns polled signals into toasts, the bell's alert list and, while the tab is
  * hidden, browser notifications. `signals` must cover the whole feed so that
  * moving the radius filter can't make existing signals look new; `scopedSignals`
- * is the filtered subset that is allowed to alert.
+ * is the filtered subset that is allowed to alert. `unknownIds` are signals
+ * whose part of a feed failed, kept until their data says they cleared.
  */
 export function useNotifications({
   signals,
   scopedSignals,
   loaded,
+  unknownIds,
   prefs,
 }: {
   signals: readonly SignalRow[];
   scopedSignals: readonly SignalRow[];
   loaded: SignalsLoaded;
+  unknownIds: ReadonlySet<string>;
   prefs: NotificationPrefs;
 }) {
   const [toasts, setToasts] = useState<readonly SignalRow[]>([]);
@@ -37,14 +40,19 @@ export function useNotifications({
   const [alerts, setAlerts] = useState<readonly SignalRow[]>([]);
   const [unreadIds, setUnreadIds] = useState<ReadonlySet<string>>(new Set());
   const seenRef = useRef<SeenSignals | null>(null);
-  const { rail, road, weather } = loaded;
+  const { rail, road, weather, storm } = loaded;
 
   useEffect(() => {
-    if (!rail && !road && !weather) return;
+    if (!rail && !road && !weather && !storm) return;
     const timer = window.setTimeout(() => {
       const previous =
         seenRef.current ?? parseSeenSignals(readStoredJson(SEEN_SIGNALS_KEY)) ?? {};
-      const { fresh, seen } = diffSignals(previous, signals, { rail, road, weather });
+      const { fresh, seen } = diffSignals(
+        previous,
+        signals,
+        { rail, road, weather, storm },
+        unknownIds,
+      );
       seenRef.current = seen;
       if (JSON.stringify(seen) !== JSON.stringify(previous)) {
         writeStoredJson(SEEN_SIGNALS_KEY, seen);
@@ -58,8 +66,8 @@ export function useNotifications({
       // `signals` is also the source for refreshing retained rows, so a rail
       // reword or higher PSI updates existing toasts instead of waiting for
       // the signal to clear.
-      setToasts((current) => mergeActiveSignals(current, notifiable, signals));
-      setAlerts((current) => mergeActiveSignals(current, notifiable, signals));
+      setToasts((current) => mergeActiveSignals(current, notifiable, signals, unknownIds));
+      setAlerts((current) => mergeActiveSignals(current, notifiable, signals, unknownIds));
       if (notifiable.length > 0) {
         setUnreadIds((current) => new Set([...current, ...notifiable.map((signal) => signal.id)]));
       }
@@ -69,7 +77,7 @@ export function useNotifications({
       }
     }, 0);
     return () => window.clearTimeout(timer);
-  }, [signals, scopedSignals, rail, road, weather, prefs]);
+  }, [signals, scopedSignals, rail, road, weather, storm, unknownIds, prefs]);
 
   // Timing out only removes the toast; the alert stays unread in the bell.
   const expireToast = useCallback((id: string) => {

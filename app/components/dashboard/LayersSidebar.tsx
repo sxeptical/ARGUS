@@ -21,6 +21,7 @@ import { FLIGHTS_ENABLED } from "@/lib/features";
 import type {
   FlightState,
   AirQualityOverlay,
+  WeatherAlerts,
   WeatherData,
   WeatherHistoryPoint,
 } from "@/types";
@@ -35,6 +36,7 @@ export function LayersSidebar({
   setSensorVisibility,
   visibleSensorCount,
   weather,
+  weatherAlerts,
   weatherHistory,
   weatherStatus,
   onAirQualityOverlayChange,
@@ -48,6 +50,7 @@ export function LayersSidebar({
   setSensorVisibility: Dispatch<SetStateAction<Record<SensorKey, boolean>>>;
   visibleSensorCount: number;
   weather: WeatherData;
+  weatherAlerts: WeatherAlerts;
   weatherStatus: SourceStatus;
   weatherHistory: WeatherHistoryPoint[];
   onAirQualityOverlayChange?: (overlay: AirQualityOverlay | null) => void;
@@ -177,6 +180,7 @@ export function LayersSidebar({
       <WeatherPanel
         feedStatus={weatherStatus}
         weather={weather}
+        storms={weatherAlerts}
         history={weatherHistory}
         onAirQualityOverlayChange={onAirQualityOverlayChange}
         className="xl:max-h-[38%] xl:min-h-0 xl:shrink-0"

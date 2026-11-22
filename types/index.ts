@@ -57,7 +57,37 @@ export interface WeatherData {
     tempHigh: number;
   }>;
   forecast: string;
+  rainOutlook: RainOutlook;
   lastUpdated: string;
+}
+
+/** A place NEA expects rain, in NEA's own words ("Thundery Showers"). */
+export interface RainForecast {
+  place: string;
+  forecast: string;
+}
+
+/**
+ * NEA's chance of rain, as worded forecasts: NEA publishes no percentages.
+ * `nextTwoHours` is the 47-area forecast; `periods` the 24-hour forecast by
+ * region (north, south, east, west, central).
+ */
+export interface RainOutlook {
+  nextTwoHours: {
+    validFrom: string | null;
+    validTo: string | null;
+    areaCount: number;
+    /** Only the areas expecting rain. */
+    rain: RainForecast[];
+  } | null;
+  periods: Array<{
+    label: string;
+    start: string;
+    end: string;
+    regionCount: number;
+    /** Only the regions expecting rain. */
+    rain: RainForecast[];
+  }>;
 }
 
 export interface WeatherHistoryPoint {
@@ -131,6 +161,67 @@ export interface TrainServiceAlert {
   affectedStations: string[];
   startTime: string | null;
   endTime: string | null;
+}
+
+export type CrowdLevel = "low" | "moderate" | "high";
+
+/** One station code's platform crowd level, as LTA reports it per line. */
+export interface StationLineCrowd {
+  code: string;
+  line: string;
+  level: CrowdLevel;
+}
+
+/**
+ * LTA platform crowd density for one station, merged across its line codes;
+ * `level` is the busiest of them. Codes LTA has no reading for are omitted.
+ */
+export interface StationCrowd {
+  station: string;
+  level: CrowdLevel;
+  lines: StationLineCrowd[];
+}
+
+export interface TrainCrowds {
+  /** Start of LTA's 10-minute reading window, ISO with offset. */
+  updatedAt: string | null;
+  stations: StationCrowd[];
+  /** Line display names whose feed failed this round. */
+  missingLines: string[];
+}
+
+/** Lightning near Singapore over the last 30 minutes (NEA via data.gov.sg). */
+export interface LightningStats {
+  strikes: number;
+  /** Cloud-to-ground strikes, the dangerous kind. */
+  groundStrikes: number;
+  /** Nearest NEA forecast areas, most strikes first. */
+  areas: string[];
+  lastStrikeAt: string | null;
+}
+
+/** Rain gauge totals over the last 15 minutes. */
+export interface RainStats {
+  observedAt: string;
+  stationCount: number;
+  rainingStations: number;
+  /** Highest gauge total over the window, in mm. */
+  maxMm: number;
+  /** Highest 15-minute gauge total in the last 30 minutes, in mm. */
+  peakMm: number;
+  /** Nearest NEA forecast areas with any rain, wettest first. */
+  rainingAreas: string[];
+  /**
+   * Areas whose wettest 15 minutes in the last 30 reached the heavy-rain
+   * threshold, wettest first. The 30 minutes keep a storm one alert.
+   */
+  heavyAreas: string[];
+}
+
+/** Each is null when its feed failed or stalled this round. */
+export interface WeatherAlerts {
+  lightning: LightningStats | null;
+  rain: RainStats | null;
 }
 
 export type FlightDirection = "inbound" | "outbound" | "transit";

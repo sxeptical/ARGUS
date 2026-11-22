@@ -59,8 +59,10 @@ It is designed as a single-page operations surface: map first, signal panels aro
 - Mall store directories (~8,900 shops in 55 malls, as listed by each mall operator) from the same curioputterings dataset, shown beside the mall details in the focus dialog that opens when a mall is selected: filter by name/unit, category or halal, grouped by floor. Per-mall files in `public/mall-stores/`, fetched when the dialog opens and rebuilt with `bun scripts/fetch-mall-stores.ts` (run it after `fetch-amenities.mjs`).
 - Park photos from Wikimedia Commons, credited per file, in `public/park-photos.json`, rebuilt with `bun scripts/fetch-park-photos.mjs`.
 - LTA train service alerts, with disrupted MRT lines highlighted on the map.
-- Intelligence panel live signals digest combining disrupted rail, road incidents, and unhealthy PSI alerts.
-- Notifications for new rail disruptions, road accidents, and unhealthy PSI, as in-app toasts plus optional browser alerts while the tab is in the background. Nothing is delivered once the tab is closed.
+- Train crowds in the MRT router: LTA platform crowd density (low, moderate or high per 10-minute window) for the picked start and end stations, plus the boarding platform and busiest stop on each ride of a planned route.
+- Intelligence panel live signals digest combining disrupted rail, lightning and heavy rain, road incidents, and unhealthy PSI alerts.
+- Lightning and heavy-rain alerts from NEA's real-time feeds: lightning within about 8 km of an NEA forecast area in the last 30 minutes (cloud-to-ground strikes raise it to danger), and any rain gauge totalling 5 mm or more over 15 minutes, held for 30 minutes so a storm easing on and off stays one alert. Both are named by the nearest forecast areas (a bundled copy of NEA's 47 areas stands in when the live list is down), and a feed that stops publishing reads as unavailable rather than calm. The Weather panel's Rain row shows the readings behind them even when nothing is alerting, plus NEA's chance of rain: which of the 47 areas expect rain in the next 2 hours, and the 24-hour forecast by region (NEA words, not percentages).
+- Notifications for new rail disruptions, lightning and heavy rain, road accidents, and unhealthy PSI, as in-app toasts plus optional browser alerts while the tab is in the background. Nothing is delivered once the tab is closed.
 - Data.gov.sg weather, PSI, and air temperature.
 - Aviationstack flights for Singapore airports, with OpenSky fallback.
 - Singapore news feed merge from public RSS sources.
@@ -103,7 +105,7 @@ ARGUS can run with partial data, but the best experience needs these keys:
 
 | Key | Required For | Notes |
 | --- | --- | --- |
-| `LTA_API_KEY` | Bus stops, bus arrivals, traffic cameras, road incidents, carparks, EV chargers | Get this from Singapore LTA DataMall. |
+| `LTA_API_KEY` | Bus stops, bus arrivals, traffic cameras, road incidents, carparks, EV chargers, train crowds | Get this from Singapore LTA DataMall. |
 | `AVIATIONSTACK_API_KEY` | Primary flight feed | Used for live flights around Changi/Seletar. |
 | `DATABASE_URL` | Feedback form (shown to visitors in Singapore) | Neon Postgres connection string. Create the table with `psql "$DATABASE_URL" -f scripts/sql/feedback.sql`. Set `ARGUS_DEV_COUNTRY=SG` to see the form locally. |
 
@@ -122,8 +124,8 @@ Weather and news currently use public endpoints and do not require keys.
 
 | Source | Used For |
 | --- | --- |
-| LTA DataMall | Bus stops, bus arrivals, traffic cameras |
-| Data.gov.sg | Weather forecast, PSI, temperature |
+| LTA DataMall | Bus stops, bus arrivals, traffic cameras, platform crowd density |
+| Data.gov.sg | Weather forecast, PSI, temperature, lightning, rainfall |
 | Aviationstack | Live commercial flight data |
 | OpenSky Network | Flight fallback when Aviationstack is unavailable |
 | The Straits Times RSS | Singapore headlines |
