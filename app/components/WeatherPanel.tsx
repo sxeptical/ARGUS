@@ -546,7 +546,7 @@ function summarizeRainRow(
   const parts: string[] = [];
   let tone: AirQualityTone = "muted";
   if (rain && rain.heavyAreas.length > 0) {
-    parts.push(`heavy rain · ${rain.maxMm} mm`);
+    parts.push(`heavy rain · ${rain.peakMm} mm`);
     tone = "warning";
   } else if (rain && rain.rainingStations > 0) {
     parts.push(`raining in ${plural(rain.rainingAreas.length, "area")}`);
@@ -614,26 +614,32 @@ function RainNowDetail({ rain }: { rain: RainStats | null }) {
     <DetailSection title="Now">
       {!rain ? (
         <div className="text-muted">Rainfall data is currently unavailable.</div>
-      ) : rain.rainingStations === 0 ? (
-        <div className="text-muted">No rain gauge has recorded rain in the last 15 minutes.</div>
       ) : (
         <>
-          <DetailLine label="Wettest">up to {rain.maxMm} mm in 15 min</DetailLine>
+          {rain.rainingStations === 0 ? (
+            <div className="text-muted">No rain gauge has recorded rain in the last 15 minutes.</div>
+          ) : (
+            <>
+              <DetailLine label="Wettest">up to {rain.maxMm} mm in 15 min</DetailLine>
+              <DetailLine label="Raining">{rain.rainingAreas.join(", ")}</DetailLine>
+              <DetailLine label="Gauges">
+                {rain.rainingStations} of {rain.stationCount} reporting rain
+              </DetailLine>
+            </>
+          )}
+          {/* Heavy rain is held for 30 minutes, so it can outlast the rain itself. */}
           {rain.heavyAreas.length > 0 ? (
             <DetailLine label="Heavy">
               <span className="text-warning">{rain.heavyAreas.join(", ")}</span>
+              <span className="text-muted"> · up to {rain.peakMm} mm in 15 min, last 30 min</span>
             </DetailLine>
           ) : null}
-          <DetailLine label="Raining">{rain.rainingAreas.join(", ")}</DetailLine>
-          <DetailLine label="Gauges">
-            {rain.rainingStations} of {rain.stationCount} reporting rain
-          </DetailLine>
         </>
       )}
       {rain ? (
         <div className="text-muted" suppressHydrationWarning>
-          NEA rain gauges · heavy is {HEAVY_RAIN_MM} mm or more in 15 min
-          {rain.observedAt ? ` · as of ${formatSgTime(rain.observedAt)}` : ""}
+          NEA rain gauges · heavy is {HEAVY_RAIN_MM} mm or more in 15 min · as of{" "}
+          {formatSgTime(rain.observedAt)}
         </div>
       ) : null}
     </DetailSection>

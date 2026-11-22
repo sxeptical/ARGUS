@@ -21,9 +21,10 @@ import {
 import type { AirRegionKey, RegionalAirReadings, WeatherAlerts, WeatherData } from "@/types";
 import { getPm25Band, getPsiStatus } from "@/lib/air-quality";
 import { buildNextTwoHours, buildRainPeriods } from "@/lib/rain-outlook";
+import { FALLBACK_FORECAST_AREAS } from "@/lib/data/forecast-areas";
 import {
   LIGHTNING_WINDOW_MS,
-  RAIN_WINDOW_MS,
+  RAIN_LOOKBACK_MS,
   singaporeDate,
   summarizeRain,
   summarizeLightning,
@@ -309,21 +310,25 @@ export const getWeather = (signal?: AbortSignal): Promise<WeatherData> =>
 const WEATHER_ALERTS_CACHE_TTL_MS = 2 * 60 * 1000;
 const FORECAST_AREAS_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 
-const getForecastAreas = (): Promise<ForecastArea[]> =>
-  cache.get("forecast-areas", FORECAST_AREAS_CACHE_TTL_MS, async () => {
-    const response = await httpGetJson(
-      "data.gov.sg",
-      `${DATA_GOV_V2_BASE_URL}/two-hr-forecast`,
-      { Accept: "application/json" },
-      DataGovForecastAreasResponseSchema,
-      DEFAULT_TIMEOUT_MS,
-    );
-    return response.data.area_metadata.map((area) => ({
-      name: area.name,
-      lat: area.label_location.latitude,
-      lng: area.label_location.longitude,
-    }));
-  });
+/** Live area labels, or the bundled ones: names alone must not fail the alerts. */
+const getForecastAreas = (): Promise<ReadonlyArray<ForecastArea>> =>
+  cache
+    .get("forecast-areas", FORECAST_AREAS_CACHE_TTL_MS, async () => {
+      const response = await httpGetJson(
+        "data.gov.sg",
+        `${DATA_GOV_V2_BASE_URL}/two-hr-forecast`,
+        { Accept: "application/json" },
+        DataGovForecastAreasResponseSchema,
+        DEFAULT_TIMEOUT_MS,
+      );
+      return response.data.area_metadata.map((area) => ({
+        name: area.name,
+        lat: area.label_location.latitude,
+        lng: area.label_location.longitude,
+      }));
+    })
+    .then((areas) => (areas.length > 0 ? areas : FALLBACK_FORECAST_AREAS))
+    .catch(() => FALLBACK_FORECAST_AREAS);
 
 /**
  * `date=<today>` returns the newest page of the day, newest first. Just after
@@ -333,15 +338,31 @@ const datesCovering = (now: number, windowMs: number): string[] => [
   ...new Set([singaporeDate(now), singaporeDate(now - windowMs)]),
 ];
 
-/** Every page fetched, or null when any one fails (a gap could hide a storm). */
+/**
+ * Every page fetched, or null when any one fails (a gap could hide a storm).
+ * A date with no records yet, as just after midnight, is a 404: an empty page.
+ * The summaries treat a feed with no recent records as stalled, so reading a
+ * misleading 404 as empty cannot pass for calm.
+ */
 const dataGovDays = async <A>(
   endpoint: string,
   dates: string[],
   schema: z.ZodType<A>,
+  empty: A,
 ): Promise<A[] | null> => {
   const separator = endpoint.includes("?") ? "&" : "?";
   const pages = await Promise.all(
-    dates.map((date) => dataGovGet(`${endpoint}${separator}date=${date}`, schema, DATA_GOV_V2_BASE_URL)),
+    dates.map((date) =>
+      httpGetJson(
+        "data.gov.sg",
+        `${DATA_GOV_V2_BASE_URL}${endpoint}${separator}date=${date}`,
+        { Accept: "application/json" },
+        schema,
+        DEFAULT_TIMEOUT_MS,
+      ).catch((error: unknown) =>
+        error instanceof ExternalApiError && error.status === 404 ? empty : null,
+      ),
+    ),
   );
   return pages.every((page) => page !== null) ? (pages as A[]) : null;
 };
@@ -354,8 +375,18 @@ export const getWeatherAlerts = (signal?: AbortSignal): Promise<WeatherAlerts> =
       const now = Date.now();
       const [areas, lightningPages, rainPages] = await Promise.all([
         getForecastAreas(),
-        dataGovDays("/weather?api=lightning", datesCovering(now, LIGHTNING_WINDOW_MS), DataGovLightningResponseSchema),
-        dataGovDays("/rainfall", datesCovering(now, RAIN_WINDOW_MS), DataGovRainfallResponseSchema),
+        dataGovDays(
+          "/weather?api=lightning",
+          datesCovering(now, LIGHTNING_WINDOW_MS),
+          DataGovLightningResponseSchema,
+          { data: { records: [] } },
+        ),
+        dataGovDays(
+          "/rainfall",
+          datesCovering(now, RAIN_LOOKBACK_MS),
+          DataGovRainfallResponseSchema,
+          { data: { stations: [], readings: [] } },
+        ),
       ]);
       if (!lightningPages && !rainPages) {
         throw new ExternalApiError({
@@ -380,6 +411,7 @@ export const getWeatherAlerts = (signal?: AbortSignal): Promise<WeatherAlerts> =
               },
             },
             areas,
+            now,
           )
         : null;
       return { lightning, rain };

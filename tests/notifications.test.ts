@@ -64,6 +64,18 @@ describe("diffSignals", () => {
     expect(diffSignals(failing.seen, [signal("a")], ALL_LOADED).fresh).toEqual([]);
   });
 
+  test("keeps a seen signal whose part of a feed failed, then forgets it once cleared", () => {
+    const lightning = signal("storm:lightning", "storm");
+    const unknown = new Set(["storm:lightning"]);
+    const failing = diffSignals({ storm: ["storm:lightning"] }, [], ALL_LOADED, unknown);
+    expect(failing.seen.storm).toEqual(["storm:lightning"]);
+    expect(diffSignals(failing.seen, [lightning], ALL_LOADED).fresh).toEqual([]);
+
+    // An unknown id that was never seen is not invented.
+    expect(diffSignals({ storm: [] }, [], ALL_LOADED, unknown).seen.storm).toEqual([]);
+    expect(diffSignals(failing.seen, [], ALL_LOADED).seen.storm).toEqual([]);
+  });
+
   test("alerts again when a cleared signal returns", () => {
     const cleared = diffSignals({ weather: ["p"] }, [], ALL_LOADED);
     const returned = diffSignals(
@@ -136,6 +148,12 @@ describe("mergeActiveSignals", () => {
   test("returns the same array when nothing changed", () => {
     const current = [signal("a")];
     expect(mergeActiveSignals(current, [], [signal("a")])).toBe(current);
+  });
+
+  test("keeps a row whose feed can't say it cleared", () => {
+    const current = [signal("storm:lightning", "storm"), signal("a")];
+    expect(mergeActiveSignals(current, [], [signal("a")], new Set(["storm:lightning"]))).toBe(current);
+    expect(mergeActiveSignals(current, [], [signal("a")]).map((row) => row.id)).toEqual(["a"]);
   });
 
   test("refreshes a retained row whose text changed, keeping its position", () => {

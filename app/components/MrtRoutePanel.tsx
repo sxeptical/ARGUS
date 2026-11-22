@@ -84,6 +84,8 @@ export default function MrtRoutePanel({
     [trainCrowds],
   );
   const hasCrowds = crowds.size > 0;
+  // Only worth saying while a route or picked station could be affected.
+  const missingCrowdLines = startStation || endStation ? (trainCrowds?.missingLines ?? []) : [];
   const canSwap = startStation !== endStation;
   const placeholder =
     stationScope && stations.length === 0 ? "No stations in radius" : "Select station";
@@ -139,6 +141,12 @@ export default function MrtRoutePanel({
             {stations.length === 0
               ? `No MRT stations within the ${stationScope}. Widen or clear the radius filter to plan a route.`
               : `${stations.length} station${stations.length === 1 ? "" : "s"} within the ${stationScope}.`}
+          </div>
+        ) : null}
+
+        {hasCrowds && missingCrowdLines.length > 0 ? (
+          <div className="text-[11px] text-muted">
+            No crowd readings for the {missingCrowdLines.join(", ")} right now.
           </div>
         ) : null}
 

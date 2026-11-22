@@ -42,11 +42,14 @@ export function signalTitle(signal: Pick<SignalRow, "category" | "title">): stri
  * Compare the current signals with the last seen ids. A category's first load
  * only records a baseline, and a category that hasn't loaded is left alone, so
  * a feed recovering from a failed first request doesn't alert on everything.
+ * `unknownIds` does the same for single signals whose part of a feed failed:
+ * a seen one stays seen until its data says it has cleared.
  */
 export function diffSignals(
   seen: SeenSignals,
   signals: readonly SignalRow[],
   loaded: SignalsLoaded,
+  unknownIds: ReadonlySet<string> = new Set(),
 ): { fresh: SignalRow[]; seen: SeenSignals } {
   const fresh: SignalRow[] = [];
   const nextSeen: SeenSignals = { ...seen };
@@ -64,7 +67,8 @@ export function diffSignals(
         if (!known.has(id)) fresh.push(signal);
       }
     }
-    nextSeen[category] = [...rows.keys()];
+    const held = (previous ?? []).filter((id) => unknownIds.has(id) && !rows.has(id));
+    nextSeen[category] = [...rows.keys(), ...held];
   }
   return { fresh, seen: nextSeen };
 }
@@ -93,17 +97,23 @@ export function selectNotifiable(
  * higher PSI — without becoming a new signal. Retained rows keep their
  * position and id, so toasts, keys and unread bookkeeping are untouched.
  * Returns `current` when nothing changed so React can skip the re-render.
+ * Rows in `unknownIds` are kept as they are: their feed can't say they cleared.
  */
 export function mergeActiveSignals(
   current: readonly SignalRow[],
   fresh: readonly SignalRow[],
   active: readonly SignalRow[],
+  unknownIds: ReadonlySet<string> = new Set(),
 ): readonly SignalRow[] {
   const latest = new Map(active.map((signal) => [signal.id, signal]));
   const kept: SignalRow[] = [];
   let changed = false;
   for (const signal of current) {
     const next = latest.get(signal.id);
+    if (!next && unknownIds.has(signal.id)) {
+      kept.push(signal);
+      continue;
+    }
     if (!next) {
       changed = true;
       continue;

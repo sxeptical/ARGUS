@@ -20,6 +20,25 @@ export const LIGHTNING_NEAR_M = 8_000;
 export const RAIN_WINDOW_MS = 15 * 60 * 1000;
 /** 5 mm in 15 minutes is a sustained 20 mm/h, well into heavy rain. */
 export const HEAVY_RAIN_MM = 5;
+/**
+ * An area stays heavy this long after its last heavy 15 minutes, so a storm
+ * hovering around the threshold is one alert rather than several.
+ */
+export const HEAVY_RAIN_HOLD_MS = 30 * 60 * 1000;
+/** Readings the rain stats need: the hold, plus one window behind it. */
+export const RAIN_LOOKBACK_MS = HEAVY_RAIN_HOLD_MS + RAIN_WINDOW_MS;
+/**
+ * Both feeds publish every few minutes, even when calm. A newest record older
+ * than this means the feed has stalled, so its stats are unknown, not zero.
+ */
+export const FEED_STALE_MS = 20 * 60 * 1000;
+
+const newestTime = (times: ReadonlyArray<number>): number | null => {
+  const finite = times.filter(Number.isFinite);
+  return finite.length > 0 ? Math.max(...finite) : null;
+};
+
+const roundMm = (mm: number) => Math.round(mm * 10) / 10;
 
 /** The forecast area nearest a point, or null when none is within `maxM`. */
 export function nearestArea(
@@ -39,11 +58,14 @@ export function nearestArea(
 const rankedNames = (counts: ReadonlyMap<string, number>): string[] =>
   [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], "en-SG")).map(([name]) => name);
 
+/** Null when the feed has stalled: no strikes in old data is not calm. */
 export function summarizeLightning(
   response: DataGovLightningResponse,
   areas: ReadonlyArray<ForecastArea>,
   now: number,
-): LightningStats {
+): LightningStats | null {
+  const latest = newestTime(response.data.records.map((record) => Date.parse(record.datetime)));
+  if (latest === null || now - latest > FEED_STALE_MS) return null;
   const byArea = new Map<string, number>();
   let strikes = 0;
   let groundStrikes = 0;
@@ -67,42 +89,69 @@ export function summarizeLightning(
   return { strikes, groundStrikes, areas: rankedNames(byArea), lastStrikeAt };
 }
 
+/**
+ * Current 15-minute gauge totals, plus each gauge's wettest 15 minutes over
+ * the heavy-rain hold. Null when the feed has stalled.
+ */
 export function summarizeRain(
   response: DataGovRainfallResponse,
   areas: ReadonlyArray<ForecastArea>,
-): RainStats {
-  const readings = response.data.readings;
-  const times = readings.map((reading) => Date.parse(reading.timestamp)).filter(Number.isFinite);
-  const latest = times.length > 0 ? Math.max(...times) : null;
-  // Anchored on the newest reading, not the clock, so a late feed still sums
-  // three readings rather than none.
-  const totals = new Map<string, number>();
-  for (const reading of readings) {
-    if (latest === null || latest - Date.parse(reading.timestamp) >= RAIN_WINDOW_MS) continue;
-    for (const { stationId, value } of reading.data) {
-      if (Number.isFinite(value)) totals.set(stationId, (totals.get(stationId) ?? 0) + value);
+  now: number,
+): RainStats | null {
+  const readings = response.data.readings
+    .map((reading) => ({ time: Date.parse(reading.timestamp), data: reading.data }))
+    .filter((reading) => Number.isFinite(reading.time));
+  const latest = newestTime(readings.map((reading) => reading.time));
+  if (latest === null || now - latest > FEED_STALE_MS) return null;
+  // Windows end on readings, not the clock, so a late feed still sums three
+  // readings rather than none.
+  const totalsEndingAt = (end: number): Map<string, number> => {
+    const totals = new Map<string, number>();
+    for (const reading of readings) {
+      if (reading.time > end || end - reading.time >= RAIN_WINDOW_MS) continue;
+      for (const { stationId, value } of reading.data) {
+        if (Number.isFinite(value)) totals.set(stationId, (totals.get(stationId) ?? 0) + value);
+      }
+    }
+    return totals;
+  };
+  const totals = totalsEndingAt(latest);
+  const peaks = new Map<string, number>();
+  const holdEnds = new Set(readings.map((reading) => reading.time).filter((time) => latest - time < HEAVY_RAIN_HOLD_MS));
+  for (const end of holdEnds) {
+    for (const [stationId, total] of totalsEndingAt(end)) {
+      peaks.set(stationId, Math.max(peaks.get(stationId) ?? 0, total));
     }
   }
+
   const stations = new Map(response.data.stations.map((station) => [station.id, station.location ?? station.labelLocation]));
+  const areaOf = (stationId: string): string | null => {
+    const location = stations.get(stationId);
+    return location ? nearestArea(areas, location.latitude, location.longitude) : null;
+  };
   const raining = new Map<string, number>();
-  const heavy = new Map<string, number>();
   let rainingStations = 0;
   let maxMm = 0;
   for (const [stationId, total] of totals) {
     if (total <= 0) continue;
     rainingStations += 1;
     maxMm = Math.max(maxMm, total);
-    const location = stations.get(stationId);
-    const area = location ? nearestArea(areas, location.latitude, location.longitude) : null;
-    if (!area) continue;
-    raining.set(area, Math.max(raining.get(area) ?? 0, total));
-    if (total >= HEAVY_RAIN_MM) heavy.set(area, Math.max(heavy.get(area) ?? 0, total));
+    const area = areaOf(stationId);
+    if (area) raining.set(area, Math.max(raining.get(area) ?? 0, total));
+  }
+  const heavy = new Map<string, number>();
+  let peakMm = 0;
+  for (const [stationId, peak] of peaks) {
+    peakMm = Math.max(peakMm, peak);
+    const area = peak >= HEAVY_RAIN_MM ? areaOf(stationId) : null;
+    if (area) heavy.set(area, Math.max(heavy.get(area) ?? 0, peak));
   }
   return {
-    observedAt: latest === null ? null : new Date(latest).toISOString(),
+    observedAt: new Date(latest).toISOString(),
     stationCount: totals.size,
     rainingStations,
-    maxMm: Math.round(maxMm * 10) / 10,
+    maxMm: roundMm(maxMm),
+    peakMm: roundMm(peakMm),
     rainingAreas: rankedNames(raining),
     heavyAreas: rankedNames(heavy),
   };

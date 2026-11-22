@@ -6,6 +6,7 @@ import {
   extractLatestUv,
   getUvStatus,
   getWeather,
+  getWeatherAlerts,
 } from "@/lib/api-clients/weather";
 import { rejection, withFetch, type FetchStub } from "../helpers/upstream";
 
@@ -243,5 +244,56 @@ describe("getWeather", () => {
     );
 
     expect(error).toBeInstanceOf(ExternalApiError);
+  });
+});
+
+describe("getWeatherAlerts", () => {
+  test("just after midnight, an empty new day and a missing area list still alert", async () => {
+    const realNow = Date.now;
+    Date.now = () => Date.parse("2026-11-21T00:03:00+08:00");
+    try {
+      const alerts = await withFetch(async (input) => {
+        const url = String(input);
+        if (url.includes("/two-hr-forecast")) return new Response("unavailable", { status: 503 });
+        // No records for the new day yet.
+        if (url.includes("date=2026-11-21")) {
+          return Response.json({ code: 17, data: null, errorMsg: "Data not found" }, { status: 404 });
+        }
+        if (url.includes("api=lightning")) {
+          return Response.json({
+            data: {
+              records: [
+                {
+                  datetime: "2026-11-20T23:58:00+08:00",
+                  item: {
+                    readings: [
+                      {
+                        location: { latitude: "1.321", longitude: "103.924" },
+                        type: "G",
+                        datetime: "2026-11-20T23:57:30+08:00",
+                      },
+                    ],
+                  },
+                },
+              ],
+            },
+          });
+        }
+        if (url.includes("/rainfall")) {
+          return Response.json({
+            data: {
+              stations: [{ id: "S1", location: { latitude: 1.32, longitude: 103.92 } }],
+              readings: [{ timestamp: "2026-11-20T23:55:00+08:00", data: [{ stationId: "S1", value: 6 }] }],
+            },
+          });
+        }
+        return new Response("unexpected", { status: 500 });
+      }, getWeatherAlerts);
+
+      expect(alerts.lightning).toMatchObject({ strikes: 1, groundStrikes: 1, areas: ["Bedok"] });
+      expect(alerts.rain).toMatchObject({ heavyAreas: ["Bedok"], peakMm: 6 });
+    } finally {
+      Date.now = realNow;
+    }
   });
 });

@@ -36,7 +36,7 @@ import { formatRadius, withinRadius } from "@/lib/geo-filter";
 import { buildBusStopSearchResults, isSearchResultShown, MRT_STATION_SEARCH_RESULTS } from "@/lib/map-search";
 import { LAYER_BY_KEY } from "@/lib/layers";
 import { MRT_STATION_NAMES } from "@/lib/mrt-routing";
-import { buildSignalDigest } from "@/lib/signals";
+import { buildSignalDigest, unknownSignalIds } from "@/lib/signals";
 import type { AirQualityOverlay, AmenityType } from "@/types";
 
 const PLACE_SEARCH_RESULTS = [
@@ -119,6 +119,7 @@ export default function Home() {
     () => buildSignalDigest({ trainAlerts, incidents: allIncidents, weather, weatherAlerts }),
     [trainAlerts, allIncidents, weather, weatherAlerts],
   );
+  const unknownIds = useMemo(() => unknownSignalIds(weatherAlerts), [weatherAlerts]);
   const {
     alerts,
     dismissToast,
@@ -130,6 +131,7 @@ export default function Home() {
     signals: allSignals,
     scopedSignals: signalDigest,
     loaded: signalsLoaded,
+    unknownIds,
     prefs: notificationPrefs,
   });
   const [searchTarget, setSearchTarget] = useState<MapSearchTarget | null>(null);

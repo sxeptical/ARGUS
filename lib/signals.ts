@@ -22,12 +22,28 @@ const plural = (count: number, one: string) => `${count} ${one}${count === 1 ? "
 
 // Ids are fixed per kind: a storm is one alert while it lasts, and a new one
 // only after it has cleared.
+const LIGHTNING_SIGNAL_ID = "storm:lightning";
+const HEAVY_RAIN_SIGNAL_ID = "storm:heavy-rain";
+
+/**
+ * Signals whose feed failed or stalled this round, so whether they are still
+ * active is unknown. Notifications keep these rather than treating them as
+ * cleared, which would re-alert the same storm once the feed recovers.
+ */
+export function unknownSignalIds(alerts: WeatherAlerts | undefined): ReadonlySet<string> {
+  const ids = new Set<string>();
+  if (!alerts) return ids;
+  if (!alerts.lightning) ids.add(LIGHTNING_SIGNAL_ID);
+  if (!alerts.rain) ids.add(HEAVY_RAIN_SIGNAL_ID);
+  return ids;
+}
+
 function stormSignals(alerts: WeatherAlerts | undefined): SignalRow[] {
   const rows: SignalRow[] = [];
   const lightning = alerts?.lightning;
   if (lightning && lightning.strikes > 0) {
     rows.push({
-      id: "storm:lightning",
+      id: LIGHTNING_SIGNAL_ID,
       category: "storm",
       title: "Lightning",
       // Cloud-to-ground strikes are the ones that hit people outdoors.
@@ -38,14 +54,14 @@ function stormSignals(alerts: WeatherAlerts | undefined): SignalRow[] {
     });
   }
   const rain = alerts?.rain;
-  // The wettest gauge is also the heaviest, so `maxMm` is the heavy total.
+  // The wettest gauge is also the heaviest, so `peakMm` is the heavy total.
   if (rain && rain.heavyAreas.length > 0) {
     rows.push({
-      id: "storm:heavy-rain",
+      id: HEAVY_RAIN_SIGNAL_ID,
       category: "storm",
       title: "Heavy rain",
       tone: "warning",
-      text: `${listAreas(rain.heavyAreas)}: up to ${rain.maxMm} mm in 15 min`,
+      text: `${listAreas(rain.heavyAreas)}: up to ${rain.peakMm} mm in 15 min`,
     });
   }
   return rows;

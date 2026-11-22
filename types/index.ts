@@ -202,18 +202,23 @@ export interface LightningStats {
 
 /** Rain gauge totals over the last 15 minutes. */
 export interface RainStats {
-  observedAt: string | null;
+  observedAt: string;
   stationCount: number;
   rainingStations: number;
   /** Highest gauge total over the window, in mm. */
   maxMm: number;
+  /** Highest 15-minute gauge total in the last 30 minutes, in mm. */
+  peakMm: number;
   /** Nearest NEA forecast areas with any rain, wettest first. */
   rainingAreas: string[];
-  /** Areas at or above the heavy-rain threshold, wettest first. */
+  /**
+   * Areas whose wettest 15 minutes in the last 30 reached the heavy-rain
+   * threshold, wettest first. The 30 minutes keep a storm one alert.
+   */
   heavyAreas: string[];
 }
 
-/** Each is null when its feed failed this round. */
+/** Each is null when its feed failed or stalled this round. */
 export interface WeatherAlerts {
   lightning: LightningStats | null;
   rain: RainStats | null;

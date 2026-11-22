@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { buildSignalDigest } from "@/lib/signals";
+import { buildSignalDigest, unknownSignalIds } from "@/lib/signals";
 import { signalTitle } from "@/lib/notifications";
 import {
   nearestArea,
@@ -76,6 +76,12 @@ describe("summarizeLightning", () => {
       ),
     ).toEqual({ strikes: 0, groundStrikes: 0, areas: [], lastStrikeAt: null });
   });
+
+  test("a stalled or empty feed is unknown, not calm", () => {
+    const stalled = { datetime: "2026-11-20T15:30:00+08:00", item: { readings: [] } };
+    expect(summarizeLightning({ data: { records: [stalled] } }, AREAS, NOW)).toBeNull();
+    expect(summarizeLightning({ data: { records: [] } }, AREAS, NOW)).toBeNull();
+  });
 });
 
 describe("summarizeRain", () => {
@@ -91,6 +97,16 @@ describe("summarizeRain", () => {
     ],
   });
 
+  /** Five-minute readings ending at 15:55, oldest first: [S1, S2] per reading. */
+  const series = (values: ReadonlyArray<readonly [number, number]>) =>
+    values
+      .map(([s1, s2], index) => {
+        const minutesBefore = (values.length - 1 - index) * 5;
+        const at = Date.parse("2026-11-20T15:55:00+08:00") - minutesBefore * 60_000;
+        return reading(new Date(at).toISOString(), s1, s2);
+      })
+      .reverse();
+
   test("sums the last 15 minutes per gauge and flags 5 mm or more as heavy", () => {
     const stats = summarizeRain(
       {
@@ -100,26 +116,54 @@ describe("summarizeRain", () => {
             reading("2026-11-20T15:55:00+08:00", 2.4, 1),
             reading("2026-11-20T15:50:00+08:00", 2, 1),
             reading("2026-11-20T15:45:00+08:00", 1.2, 1),
-            // Outside the window, so S2 stays light.
-            reading("2026-11-20T15:40:00+08:00", 0, 9),
+            // Outside the current window; S2's wettest 15 minutes are 4 mm.
+            reading("2026-11-20T15:40:00+08:00", 0, 2),
           ],
         },
       },
       AREAS,
+      NOW,
     );
     expect(stats).toEqual({
       observedAt: new Date("2026-11-20T15:55:00+08:00").toISOString(),
       stationCount: 2,
       rainingStations: 2,
       maxMm: 5.6,
+      peakMm: 5.6,
       rainingAreas: ["Jurong West", "Bedok"],
       heavyAreas: ["Jurong West"],
     });
   });
 
   test("light rain is raining but not heavy; dry gauges are not raining", () => {
-    const stats = summarizeRain({ data: { stations, readings: [reading("2026-11-20T15:55:00+08:00", 1, 0)] } }, AREAS);
+    const stats = summarizeRain({ data: { stations, readings: [reading("2026-11-20T15:55:00+08:00", 1, 0)] } }, AREAS, NOW);
     expect(stats).toMatchObject({ rainingStations: 1, rainingAreas: ["Jurong West"], heavyAreas: [], maxMm: 1 });
+  });
+
+  test("heavy rain holds for 30 minutes, so a storm easing off stays one alert", () => {
+    // Heavy in the window ending 15:35 (20 minutes ago), light since.
+    const stats = summarizeRain(
+      { data: { stations, readings: series([[3, 0], [3, 0], [0, 0], [0, 0], [0, 0], [0.2, 0]]) } },
+      AREAS,
+      NOW,
+    );
+    expect(stats).toMatchObject({ maxMm: 0.2, peakMm: 6, heavyAreas: ["Jurong West"] });
+  });
+
+  test("heavy rain clears once its wettest 15 minutes leave the hold", () => {
+    // The 6 mm reading at 15:10 is in no window ending after 15:25.
+    const stats = summarizeRain(
+      { data: { stations, readings: series([[6, 0], ...Array.from({ length: 9 }, () => [0, 0] as const)]) } },
+      AREAS,
+      NOW,
+    );
+    expect(stats).toMatchObject({ heavyAreas: [], peakMm: 0 });
+  });
+
+  test("a stalled or empty feed is unknown, not dry", () => {
+    const stalled = [reading("2026-11-20T15:30:00+08:00", 9, 9)];
+    expect(summarizeRain({ data: { stations, readings: stalled } }, AREAS, NOW)).toBeNull();
+    expect(summarizeRain({ data: { stations: [], readings: [] } }, AREAS, NOW)).toBeNull();
   });
 });
 
@@ -137,7 +181,8 @@ describe("storm signals", () => {
           observedAt: "x",
           stationCount: 80,
           rainingStations: 12,
-          maxMm: 7.4,
+          maxMm: 3.1,
+          peakMm: 7.4,
           rainingAreas: ["Jurong West", "Clementi", "Bukit Batok", "Tuas", "Bedok"],
           heavyAreas: ["Jurong West", "Clementi", "Bukit Batok", "Tuas"],
         },
@@ -162,7 +207,7 @@ describe("storm signals", () => {
         weather,
         weatherAlerts: {
           lightning: { strikes: 0, groundStrikes: 0, areas: [], lastStrikeAt: null },
-          rain: { observedAt: "x", stationCount: 80, rainingStations: 3, maxMm: 1.2, rainingAreas: ["Bedok"], heavyAreas: [] },
+          rain: { observedAt: "x", stationCount: 80, rainingStations: 3, maxMm: 1.2, peakMm: 1.2, rainingAreas: ["Bedok"], heavyAreas: [] },
         },
       }),
     ).toEqual([]);
@@ -176,6 +221,13 @@ describe("storm signals", () => {
       weatherAlerts: { lightning: { strikes: 1, groundStrikes: 0, areas: [], lastStrikeAt: "x" }, rain: null },
     });
     expect(row).toMatchObject({ tone: "warning", text: "Near Singapore: 1 strike in 30 min" });
+  });
+
+  test("a failed or stalled part of the feed makes its signal unknown", () => {
+    const lightning = { strikes: 0, groundStrikes: 0, areas: [], lastStrikeAt: null };
+    expect([...unknownSignalIds({ lightning, rain: null })]).toEqual(["storm:heavy-rain"]);
+    expect([...unknownSignalIds({ lightning: null, rain: null })]).toEqual(["storm:lightning", "storm:heavy-rain"]);
+    expect(unknownSignalIds(undefined).size).toBe(0);
   });
 });
 
