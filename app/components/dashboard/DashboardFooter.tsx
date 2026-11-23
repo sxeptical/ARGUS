@@ -1,6 +1,9 @@
-export function DashboardFooter() {
+import type { ReactNode } from "react";
+
+export function DashboardFooter({ left }: { left?: ReactNode }) {
   return (
-    <footer className="flex justify-end px-1">
+    <footer className="flex items-center justify-between gap-2 px-1 sm:justify-end">
+      <div className="sm:contents">{left}</div>
       <a
         href="https://github.com/sxeptical/ARGUS"
         target="_blank"

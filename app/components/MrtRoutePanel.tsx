@@ -99,7 +99,7 @@ export default function MrtRoutePanel({
             <select
               value={startStation}
               onChange={(event) => onStartChange(event.target.value)}
-              className="field-control text-xs normal-case tracking-normal"
+              className="field-control text-base normal-case tracking-normal sm:text-xs"
             >
               <option value="">{placeholder}</option>
               {stationOptions(stations, startStation).map(({ station, outside }) => (
@@ -119,7 +119,7 @@ export default function MrtRoutePanel({
             <select
               value={endStation}
               onChange={(event) => onEndChange(event.target.value)}
-              className="field-control text-xs normal-case tracking-normal"
+              className="field-control text-base normal-case tracking-normal sm:text-xs"
             >
               <option value="">{placeholder}</option>
               {stationOptions(stations, endStation).map(({ station, outside }) => (
@@ -203,7 +203,7 @@ export default function MrtRoutePanel({
             </button>
           </div>
           <div className="mt-2 text-muted">
-            Click an MRT station on the map to set {mapPickTarget.toUpperCase()}.
+            Tap or click an MRT station on the map to set {mapPickTarget.toUpperCase()}.
           </div>
         </div>
 

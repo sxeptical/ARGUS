@@ -240,7 +240,7 @@ export default function MapSearch({ results, onSelect, scope }: MapSearchProps) 
         onClick={() => setIsOpen(true)}
         aria-label="Search map locations"
         title="Search (S)"
-        className="absolute left-2 top-11 z-10 grid h-11 w-11 place-items-center border border-line bg-overlay text-muted transition-colors duration-150 hover:border-line-strong hover:text-ink active:bg-surface-hover sm:h-9 sm:w-9"
+        className="absolute left-2 top-2 z-10 grid h-10 w-10 place-items-center border border-line bg-overlay text-muted transition-colors duration-150 hover:border-line-strong hover:text-ink active:bg-surface-hover sm:top-11 sm:h-9 sm:w-9"
       >
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="h-4 w-4" aria-hidden="true">
           <circle cx="7" cy="7" r="4.5" />

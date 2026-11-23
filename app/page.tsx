@@ -44,6 +44,8 @@ const PLACE_SEARCH_RESULTS = [
   ...buildParkSearchResults(PARKS_GEOJSON),
 ];
 
+type MobileTab = "transit" | "signals" | "cameras" | "tools";
+
 export default function Home() {
   const {
     activeSources,
@@ -138,6 +140,9 @@ export default function Home() {
   const [airQualityOverlay, setAirQualityOverlay] =
     useState<AirQualityOverlay | null>(null);
   const [theme, toggleTheme] = useTheme();
+  const [mobileTab, setMobileTab] = useState<MobileTab>("transit");
+  const [mobileLegendOpen, setMobileLegendOpen] = useState(false);
+  const [mapExpanded, setMapExpanded] = useState(false);
   // Scope station search and pickers to the active radius filter.
   const mrtStationsInRadius = useMemo(
     () =>
@@ -182,11 +187,15 @@ export default function Home() {
   const signalFeeds = [feeds.trainAlerts, feeds.incidents, feeds.weather, feeds.weatherAlerts];
   const signalsPending = signalFeeds.some((feed) => feed.status === "loading");
   const signalsIncomplete = signalFeeds.some((feed) => feed.status === "error" || feed.status === "stale");
+  const legendItems = sensorRows.flatMap((row) => {
+    if (!sensorVisibility[row.key]) return [];
+    const legend = LAYER_BY_KEY.get(row.key)?.legend ?? [];
+    return legend.map((item) => ({ key: `${row.key}-${item.label}`, item }));
+  });
 
   return (
     <div className="flex min-h-dvh flex-col gap-2 bg-paper p-2 pl-[max(0.5rem,env(safe-area-inset-left))] pr-[max(0.5rem,env(safe-area-inset-right))] pb-[max(0.5rem,env(safe-area-inset-bottom))] sm:gap-3 sm:p-3 xl:h-dvh xl:overflow-hidden">
       <UpdateAvailableToast />
-      <FeedbackWidget />
       <NotificationToasts
         toasts={toasts}
         onDismiss={dismissToast}
@@ -234,10 +243,15 @@ export default function Home() {
           weatherAlerts={weatherAlerts}
           weatherHistory={weatherHistory}
           onAirQualityOverlayChange={setAirQualityOverlay}
+          mobileVisible={mobileTab === "signals"}
         />
 
         <section className="contents xl:order-2 xl:grid xl:min-w-0 xl:gap-3 xl:min-h-0 xl:grid-rows-[minmax(0,1fr)_minmax(236px,38%)]">
-          <section className="relative order-1 h-[45dvh] xl:order-none min-h-72 overflow-hidden border border-line bg-surface xl:h-auto xl:min-h-0">
+          <section
+            className={`relative order-1 h-[45dvh] min-h-72 overflow-hidden border border-line bg-surface transition-[height] duration-200 xl:order-none xl:h-auto xl:min-h-0 ${
+              mapExpanded ? "max-sm:h-[75dvh] max-sm:min-h-96" : ""
+            }`}
+          >
             <Map
               key={theme}
               theme={theme}
@@ -251,12 +265,21 @@ export default function Home() {
               airQualityOverlay={airQualityOverlay}
               sensorVisibility={sensorVisibility}
               amenityFilters={amenityFilters}
-              onStopClick={handleSelectStop}
-              onCameraClick={setSelectedCamera}
+              onStopClick={(stop) => {
+                handleSelectStop(stop);
+                setMobileTab("transit");
+              }}
+              onCameraClick={(camera) => {
+                setSelectedCamera(camera);
+                setMobileTab("cameras");
+              }}
               onFlightClick={setSelectedFlight}
               onParkClick={setSelectedPark}
               onAmenityClick={setSelectedAmenity}
-              onMrtStationClick={pickMrtStation}
+              onMrtStationClick={(stationName) => {
+                pickMrtStation(stationName);
+                setMobileTab("transit");
+              }}
               mrtRouteSegments={
                 mrtRoutePlan?.segments ?? EMPTY_MRT_ROUTE_SEGMENTS
               }
@@ -278,7 +301,10 @@ export default function Home() {
                 });
                 if (result.type === "bus-stop") {
                   const stop = busStops.find((item) => item.BusStopCode === result.id);
-                  if (stop) handleSelectStop(stop);
+                  if (stop) {
+                    handleSelectStop(stop);
+                    setMobileTab("transit");
+                  }
                 } else if (AMENITY_LAYER_BY_TYPE.has(result.type as AmenityType)) {
                   // Open it in focus mode, not just on the map, and make sure
                   // the searched place is actually drawn when we get there.
@@ -298,52 +324,149 @@ export default function Home() {
               setSensorVisibility={setSensorVisibility}
               visibleSensorCount={visibleSensorCount}
             />
-            <div className="pointer-events-none absolute left-2 top-2 border border-line bg-overlay px-2.5 py-1.5 text-[10px] uppercase tracking-[0.12em] text-ink">
+            <div className="pointer-events-none absolute left-2 top-2 hidden border border-line bg-overlay px-2.5 py-1.5 text-[10px] uppercase tracking-[0.12em] text-ink sm:block">
               Live map <span className="ml-2 text-muted">Singapore</span>
               {geoFilter ? (
                 <span className="ml-2 text-info">· {formatRadius(geoFilter.radiusM)} radius</span>
               ) : null}
             </div>
+            {geoFilter && !geoFilterPicking ? (
+              <div className="pointer-events-none absolute left-2 top-14 z-10 border border-info/40 bg-overlay px-2 py-1 font-mono text-[10px] uppercase tracking-[0.08em] text-info sm:hidden">
+                {formatRadius(geoFilter.radiusM)} radius
+              </div>
+            ) : null}
             {geoFilterPicking ? (
-              <div className="absolute left-1/2 top-2 z-10 flex -translate-x-1/2 items-center gap-2 border border-info/50 bg-overlay px-2.5 py-1.5 text-[10px] uppercase tracking-[0.1em] text-info">
-                <span className="whitespace-nowrap">Click map to set centre</span>
+              <div className="absolute inset-x-2 top-2 z-20 flex items-center justify-between gap-2 border border-info/50 bg-overlay px-2.5 py-2 text-[10px] uppercase tracking-[0.1em] text-info sm:inset-x-auto sm:left-1/2 sm:-translate-x-1/2 sm:py-1.5">
+                <span className="whitespace-nowrap">
+                  <span className="sm:hidden">Tap map to set centre</span>
+                  <span className="hidden sm:inline">Click map to set centre</span>
+                </span>
                 <button
                   type="button"
                   onClick={() => setGeoFilterPicking(false)}
-                  className="text-muted transition-colors duration-150 hover:text-ink"
+                  className="shrink-0 text-muted transition-colors duration-150 hover:text-ink"
                 >
-                  Esc
+                  <span className="sm:hidden">Cancel</span>
+                  <span className="hidden sm:inline">Esc</span>
                 </button>
               </div>
             ) : null}
-            <div className="absolute bottom-2 left-2 right-2 flex flex-nowrap gap-x-3 gap-y-1 overflow-x-auto whitespace-nowrap sm:pointer-events-none sm:flex-wrap sm:overflow-visible border border-line bg-overlay px-2.5 py-1.5 text-[10px] uppercase tracking-[0.1em] text-muted sm:right-auto sm:max-w-[calc(100%-27rem)] sm:text-[9px]">
-              {/* Legend entries come from the layer registry so a new layer's
-                  legend appears here without further edits. */}
-              {sensorRows.flatMap((row) => {
-                if (!sensorVisibility[row.key]) return [];
-                const legend = LAYER_BY_KEY.get(row.key)?.legend ?? [];
-                return legend.map((item) =>
+            <div className="absolute bottom-2 left-2 z-10 flex items-center gap-1.5 xl:hidden">
+              {legendItems.length > 0 ? (
+                <button
+                  type="button"
+                  onClick={() => setMobileLegendOpen((previous) => !previous)}
+                  aria-expanded={mobileLegendOpen}
+                  className={`inline-flex h-8 items-center gap-1.5 border bg-overlay px-2.5 font-mono text-[10px] uppercase tracking-[0.1em] transition-colors duration-150 sm:hidden ${
+                    mobileLegendOpen
+                      ? "border-line-strong text-ink"
+                      : "border-line text-muted hover:border-line-strong hover:text-ink"
+                  }`}
+                >
+                  <span>Legend</span>
+                  <span aria-hidden="true">{mobileLegendOpen ? "−" : "+"}</span>
+                </button>
+              ) : null}
+              <button
+                type="button"
+                onClick={() => setMapExpanded((previous) => !previous)}
+                aria-pressed={mapExpanded}
+                aria-label={mapExpanded ? "Shrink map" : "Expand map"}
+                className="inline-flex h-8 items-center gap-1.5 border border-line bg-overlay px-2.5 font-mono text-[10px] uppercase tracking-[0.1em] text-muted transition-colors duration-150 hover:border-line-strong hover:text-ink active:bg-surface-hover sm:hidden"
+              >
+                {mapExpanded ? "Compact" : "Expand"}
+              </button>
+            </div>
+            {legendItems.length > 0 ? (
+              <div
+                className={`absolute bottom-12 left-2 right-2 z-10 flex-wrap gap-x-3 gap-y-1 border border-line bg-overlay px-2.5 py-2 text-[10px] uppercase tracking-[0.1em] text-muted sm:pointer-events-none sm:bottom-2 sm:right-auto sm:flex sm:max-w-[calc(100%-27rem)] sm:py-1.5 sm:text-[9px] ${
+                  mobileLegendOpen ? "flex" : "hidden"
+                }`}
+              >
+                {/* Legend entries come from the layer registry so a new layer's
+                    legend appears here without further edits. */}
+                {legendItems.map(({ key, item }) =>
                   item.kind === "dot" ? (
                     <LegendDot
-                      key={`${row.key}-${item.label}`}
+                      key={key}
                       tone={item.tone}
                       label={item.label}
                     />
                   ) : (
                     <LegendSwatch
-                      key={`${row.key}-${item.label}`}
+                      key={key}
                       shape={item.shape}
                       tone={item.tone}
                       label={item.label}
                     />
                   ),
-                );
-              })}
-            </div>
+                )}
+              </div>
+            ) : null}
           </section>
 
-          <section className="order-3 grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-2 sm:gap-3 xl:order-none 2xl:grid-cols-4">
-            <div className="max-h-[60dvh] min-h-0 overflow-auto xl:max-h-none">
+          <nav
+            aria-label="Dashboard sections"
+            className="order-2 grid grid-cols-4 gap-1 border border-line bg-surface p-1 xl:hidden"
+          >
+            {(
+              [
+                { id: "transit", label: "Transit" },
+                {
+                  id: "signals",
+                  label: "Signals",
+                  badge: signalDigest.length > 0 ? String(signalDigest.length) : undefined,
+                },
+                { id: "cameras", label: "Cameras" },
+                {
+                  id: "tools",
+                  label: "Tools",
+                  dot: Boolean(geoFilter),
+                },
+              ] as ReadonlyArray<{
+                id: MobileTab;
+                label: string;
+                badge?: string;
+                dot?: boolean;
+              }>
+            ).map((tab) => {
+              const active = mobileTab === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  type="button"
+                  aria-pressed={active}
+                  onClick={() => setMobileTab(tab.id)}
+                  className={`inline-flex min-h-9 items-center justify-center gap-1.5 rounded-sm border px-2 font-mono text-[10px] font-medium uppercase tracking-[0.1em] transition-colors duration-150 ${
+                    active
+                      ? "border-line-strong bg-surface-raised text-ink"
+                      : "border-transparent text-muted hover:text-ink"
+                  }`}
+                >
+                  <span>{tab.label}</span>
+                  {tab.badge ? (
+                    <span className="rounded-sm bg-danger/15 px-1 py-px text-[9px] leading-none text-danger">
+                      {tab.badge}
+                    </span>
+                  ) : null}
+                  {tab.dot ? (
+                    <span className="h-1.5 w-1.5 rounded-full bg-info" aria-hidden="true" />
+                  ) : null}
+                </button>
+              );
+            })}
+          </nav>
+
+          <section
+            className={`order-5 grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-2 sm:gap-3 xl:order-none xl:grid 2xl:grid-cols-4 ${
+              mobileTab === "tools" ? "max-xl:hidden" : ""
+            }`}
+          >
+            <div
+              className={`min-h-0 xl:overflow-auto ${
+                mobileTab === "transit" ? "" : "max-xl:hidden"
+              }`}
+            >
               <MrtRoutePanel
                 route={mrtRoutePlan}
                 startStation={mrtStartStation}
@@ -358,7 +481,11 @@ export default function Home() {
                 trainCrowds={trainCrowds}
               />
             </div>
-            <div className="max-h-[60dvh] min-h-0 overflow-auto xl:max-h-none">
+            <div
+              className={`min-h-0 xl:overflow-auto ${
+                mobileTab === "transit" ? "" : "max-xl:hidden"
+              }`}
+            >
               <BusPanel
                 feedStatus={feeds.busStops.status}
                 busStops={busStops}
@@ -371,54 +498,70 @@ export default function Home() {
                 onSelectRouteDirection={selectBusRouteDirection}
               />
             </div>
-            <div className="max-h-[60dvh] min-h-0 overflow-auto xl:max-h-none">
+            <div
+              className={`min-h-0 xl:overflow-auto ${
+                mobileTab === "signals" ? "sm:col-span-2 xl:col-span-1" : "max-xl:hidden"
+              }`}
+            >
               <NewsPanel feedStatus={feeds.news.status} news={news} />
             </div>
-            <div className="max-h-[60dvh] min-h-0 overflow-auto sm:col-span-2 xl:max-h-none 2xl:col-span-1">
+            <div
+              className={`min-h-0 sm:col-span-2 xl:overflow-auto 2xl:col-span-1 ${
+                mobileTab === "cameras" ? "" : "max-xl:hidden"
+              }`}
+            >
               <CameraPanel feedStatus={feeds.cameras.status} cameras={cameras} selectedCamera={selectedCamera} />
             </div>
           </section>
         </section>
 
-        <aside className="order-2 flex min-w-0 flex-col gap-2 sm:gap-3 xl:order-3 xl:min-h-0 xl:overflow-y-auto xl:pr-1">
-          <IntelPanel title="Intelligence" badge={signalsPending ? "Updating" : signalsIncomplete ? "Partial" : `${signalDigest.length} signals`}>
-            {signalDigest.length > 0 ? (
-              <div className="space-y-1">
-                {signalDigest.filter((signal, index) => signal.category !== "road" || signalDigest.slice(0, index).filter((item) => item.category === "road").length < 8).map((signal, index) => (
-                  <div key={`${signal.category}-${index}`} className="flex min-w-0 items-center gap-2 font-mono text-[11px] sm:text-[10px]">
-                    <span className={`shrink-0 text-[10px] uppercase tracking-[0.1em] sm:text-[9px] ${signalToneClass(signal.tone)}`}>{signal.category}</span>
-                    <span className="truncate text-muted" title={signal.text}>{signal.text}</span>
-                  </div>
+        <aside
+          className={`order-3 flex min-w-0 flex-col gap-2 sm:gap-3 xl:order-3 xl:flex xl:min-h-0 xl:overflow-y-auto xl:pr-1 ${
+            mobileTab === "signals" || mobileTab === "tools" ? "" : "max-xl:hidden"
+          }`}
+        >
+          <div className={mobileTab === "signals" ? "" : "max-xl:hidden"}>
+            <IntelPanel title="Intelligence" badge={signalsPending ? "Updating" : signalsIncomplete ? "Partial" : `${signalDigest.length} signals`}>
+              {signalDigest.length > 0 ? (
+                <div className="space-y-1">
+                  {signalDigest.filter((signal, index) => signal.category !== "road" || signalDigest.slice(0, index).filter((item) => item.category === "road").length < 8).map((signal, index) => (
+                    <div key={`${signal.category}-${index}`} className="flex min-w-0 items-center gap-2 font-mono text-[11px] sm:text-[10px]">
+                      <span className={`shrink-0 text-[10px] uppercase tracking-[0.1em] sm:text-[9px] ${signalToneClass(signal.tone)}`}>{signal.category}</span>
+                      <span className="truncate text-muted" title={signal.text}>{signal.text}</span>
+                    </div>
+                  ))}
+                  {incidents.length > 8 ? <div className="font-mono text-[9px] uppercase tracking-[0.1em] text-muted">+{incidents.length - 8} MORE ROAD INCIDENTS</div> : null}
+                </div>
+              ) : <div className="text-xs leading-relaxed text-muted">
+                {signalsPending ? "Checking rail, road, weather and storm feeds…" :
+                  signalsIncomplete ? "No active signals in the available data. Some feeds could not refresh." :
+                  <>NO ACTIVE SIGNALS<br />Rail, road, weather and storm feeds nominal.</>}
+              </div>}
+            </IntelPanel>
+          </div>
+
+          <div className={`flex flex-col gap-2 sm:gap-3 ${mobileTab === "tools" ? "" : "max-xl:hidden"}`}>
+            {radiusFilterPanel}
+
+            <IntelPanel
+              title="Source Health"
+              badge={`${onlineSourceCount}/${activeSources.length}`}
+            >
+              <div className="space-y-2">
+                {activeSources.map((item) => (
+                  <SignalBar
+                    key={item.label}
+                    label={item.label}
+                    status={item.status}
+                  />
                 ))}
-                {incidents.length > 8 ? <div className="font-mono text-[9px] uppercase tracking-[0.1em] text-muted">+{incidents.length - 8} MORE ROAD INCIDENTS</div> : null}
               </div>
-            ) : <div className="text-xs leading-relaxed text-muted">
-              {signalsPending ? "Checking rail, road, weather and storm feeds…" :
-                signalsIncomplete ? "No active signals in the available data. Some feeds could not refresh." :
-                <>NO ACTIVE SIGNALS<br />Rail, road, weather and storm feeds nominal.</>}
-            </div>}
-          </IntelPanel>
-
-          <IntelPanel
-            title="Source Health"
-            badge={`${onlineSourceCount}/${activeSources.length}`}
-          >
-            <div className="space-y-2">
-              {activeSources.map((item) => (
-                <SignalBar
-                  key={item.label}
-                  label={item.label}
-                  status={item.status}
-                />
-              ))}
-            </div>
-          </IntelPanel>
-
-          {radiusFilterPanel}
+            </IntelPanel>
+          </div>
         </aside>
       </main>
 
-      <DashboardFooter />
+      <DashboardFooter left={<FeedbackWidget />} />
 
       <FocusDialog
         key={selectedFlight?.id ?? selectedPark?.name ?? (selectedAmenity ? `${selectedAmenity.type}:${selectedAmenity.place.id}` : "none")}

@@ -74,14 +74,18 @@ export function DashboardHeader({
             </div>
           </div>
         </div>
-        <div className="flex flex-wrap items-center justify-end gap-x-3 gap-y-1 text-[10px] sm:gap-x-4 sm:gap-y-2 uppercase tracking-[0.1em]">
-          <HeaderClock />
-          <HeaderChip
-            label="Sources"
-            value={`${onlineSourceCount}/${activeSourceCount}`}
-          />
+        <div className="flex items-center justify-end gap-x-1.5 text-[10px] uppercase tracking-[0.1em] sm:flex-wrap sm:gap-x-4 sm:gap-y-2">
+          <span className="hidden sm:inline">
+            <HeaderClock />
+          </span>
+          <span className="hidden sm:inline">
+            <HeaderChip
+              label="Sources"
+              value={`${onlineSourceCount}/${activeSourceCount}`}
+            />
+          </span>
           <span
-            className={`inline-flex items-center gap-2 whitespace-nowrap font-semibold ${
+            className={`mr-1 inline-flex items-center gap-1.5 whitespace-nowrap font-semibold sm:mr-0 sm:gap-2 ${
               systemStatus === "Live" ? "text-success" : "text-warning"
             }`}
           >
@@ -93,7 +97,7 @@ export function DashboardHeader({
             onClick={onToggleTheme}
             title={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
             aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
-            className="inline-flex h-7 w-7 items-center justify-center text-muted transition-colors duration-150 hover:text-ink"
+            className="inline-flex h-9 w-9 items-center justify-center rounded-sm text-muted transition-colors duration-150 hover:text-ink active:bg-surface-hover sm:h-7 sm:w-7"
           >
             {/* Shows the mode the click switches to: sun in dark, moon in light. */}
             {theme === "dark" ? (
