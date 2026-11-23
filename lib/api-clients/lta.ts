@@ -38,6 +38,7 @@ import type {
   TrainServiceAlert,
 } from "@/types";
 import { DEFAULT_TIMEOUT_MS, httpGetJson, withTimeout } from "./http";
+import { cameraLocationLabel } from "@/lib/cameras";
 import { LTA_LINE_CODE_TO_DISPLAY_NAME } from "@/lib/mrt-network";
 import {
   mergeStationCrowds,
@@ -230,7 +231,7 @@ export const getTrafficCameras = (
         )
         .map((camera) => ({
           ...camera,
-          location: `Camera ${camera.CameraID}`,
+          location: cameraLocationLabel(camera.CameraID),
         }));
     },
     { signal },

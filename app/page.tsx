@@ -388,7 +388,12 @@ export default function Home() {
               <NewsPanel feedStatus={feeds.news.status} news={news} />
             </div>
             <div className="max-h-[60dvh] min-h-0 overflow-auto sm:col-span-2 xl:max-h-none 2xl:col-span-1">
-              <CameraPanel feedStatus={feeds.cameras.status} cameras={cameras} selectedCamera={selectedCamera} />
+              <CameraPanel
+                feedStatus={feeds.cameras.status}
+                cameras={cameras}
+                incidents={incidents}
+                selectedCamera={selectedCamera}
+              />
             </div>
           </section>
         </section>
