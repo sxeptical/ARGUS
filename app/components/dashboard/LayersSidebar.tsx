@@ -16,11 +16,13 @@ import type {
   SensorRow,
   SensorStatsRow,
 } from "@/app/hooks/use-dashboard-state";
+import type { GeoFilter } from "@/lib/geo-filter";
 import type { SensorKey } from "@/lib/layers";
 import { FLIGHTS_ENABLED } from "@/lib/features";
 import type {
   FlightState,
   AirQualityOverlay,
+  RainOverlay,
   WeatherAlerts,
   WeatherData,
   WeatherHistoryPoint,
@@ -39,7 +41,10 @@ export function LayersSidebar({
   weatherAlerts,
   weatherHistory,
   weatherStatus,
+  geoFilter,
   onAirQualityOverlayChange,
+  onRainOverlayChange,
+  onFocusLocation,
 }: {
   flights: FlightState[];
   selectedFlight: FlightState | null;
@@ -53,7 +58,10 @@ export function LayersSidebar({
   weatherAlerts: WeatherAlerts;
   weatherStatus: SourceStatus;
   weatherHistory: WeatherHistoryPoint[];
+  geoFilter?: GeoFilter | null;
   onAirQualityOverlayChange?: (overlay: AirQualityOverlay | null) => void;
+  onRainOverlayChange?: (overlay: RainOverlay | null) => void;
+  onFocusLocation?: (target: { lat: number; lng: number; zoom: number }) => void;
 }) {
   const {
     groups,
@@ -182,7 +190,10 @@ export function LayersSidebar({
         weather={weather}
         storms={weatherAlerts}
         history={weatherHistory}
+        geoFilter={geoFilter}
         onAirQualityOverlayChange={onAirQualityOverlayChange}
+        onRainOverlayChange={onRainOverlayChange}
+        onFocusLocation={onFocusLocation}
         className="xl:max-h-[38%] xl:min-h-0 xl:shrink-0"
       />
       {FLIGHTS_ENABLED ? (

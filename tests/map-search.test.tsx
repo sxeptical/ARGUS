@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { isTypingTarget } from "./MapSearch";
+import { isTypingTarget } from "@/app/components/MapSearch";
 
 const element = (tagName: string, extra: Record<string, unknown> = {}) =>
   ({ tagName, ...extra }) as unknown as EventTarget;

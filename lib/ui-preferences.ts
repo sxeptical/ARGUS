@@ -139,6 +139,7 @@ export function parseLayerOptionSelection<K extends string>(
 // ---------- Boolean flags and derived keys ----------
 
 export const AIR_SECTION_PINNED_KEY = "argus.prefs.air.section.pinned.v1";
+export const RAIN_SECTION_PINNED_KEY = "argus.prefs.rain.section.pinned.v1";
 
 export function parseStoredBoolean(stored: unknown): boolean | undefined {
   return typeof stored === "boolean" ? stored : undefined;

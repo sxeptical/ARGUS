@@ -37,7 +37,7 @@ import { buildBusStopSearchResults, isSearchResultShown, MRT_STATION_SEARCH_RESU
 import { LAYER_BY_KEY } from "@/lib/layers";
 import { MRT_STATION_NAMES } from "@/lib/mrt-routing";
 import { buildSignalDigest, unknownSignalIds } from "@/lib/signals";
-import type { AirQualityOverlay, AmenityType } from "@/types";
+import type { AirQualityOverlay, AmenityType, RainOverlay } from "@/types";
 
 const PLACE_SEARCH_RESULTS = [
   ...AMENITY_SEARCH_RESULTS,
@@ -143,6 +143,7 @@ export default function Home() {
   const [searchTarget, setSearchTarget] = useState<MapSearchTarget | null>(null);
   const [airQualityOverlay, setAirQualityOverlay] =
     useState<AirQualityOverlay | null>(null);
+  const [rainOverlay, setRainOverlay] = useState<RainOverlay | null>(null);
   const [theme, toggleTheme] = useTheme();
   // Scope station search and pickers to the active radius filter.
   const mrtStationsInRadius = useMemo(
@@ -239,7 +240,10 @@ export default function Home() {
           weather={weather}
           weatherAlerts={weatherAlerts}
           weatherHistory={weatherHistory}
+          geoFilter={geoFilter}
           onAirQualityOverlayChange={setAirQualityOverlay}
+          onRainOverlayChange={setRainOverlay}
+          onFocusLocation={setSearchTarget}
         />
 
         <section className="contents xl:order-2 xl:grid xl:min-w-0 xl:gap-3 xl:min-h-0 xl:grid-rows-[minmax(0,1fr)_minmax(236px,38%)]">
@@ -255,6 +259,7 @@ export default function Home() {
               carparks={carparks}
               evChargers={evChargers}
               airQualityOverlay={airQualityOverlay}
+              rainOverlay={rainOverlay}
               sensorVisibility={sensorVisibility}
               amenityFilters={amenityFilters}
               onStopClick={handleSelectStop}
