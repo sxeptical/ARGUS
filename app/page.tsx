@@ -69,8 +69,12 @@ export default function Home() {
     amenityFilters,
     incidents,
     handleSelectStop,
+    mrtAvoidDisruptions,
+    mrtDetourAvailable,
     mrtEndStation,
     mrtMapPickTarget,
+    mrtPlansByMode,
+    mrtRouteMode,
     mrtRoutePlan,
     mrtStartStation,
     news,
@@ -91,8 +95,10 @@ export default function Home() {
     sensorVisibility,
     setGeoFilterPicking,
     setGeoFilterRadiusM,
+    setMrtAvoidDisruptions,
     setMrtEndStation,
     setMrtMapPickTarget,
+    setMrtRouteMode,
     setMrtStartStation,
     setNotificationPrefs,
     setSelectedCamera,
@@ -346,6 +352,13 @@ export default function Home() {
             <div className="max-h-[60dvh] min-h-0 overflow-auto xl:max-h-none">
               <MrtRoutePanel
                 route={mrtRoutePlan}
+                plansByMode={mrtPlansByMode}
+                routeMode={mrtRouteMode}
+                onRouteModeChange={setMrtRouteMode}
+                avoidDisruptions={mrtAvoidDisruptions}
+                onAvoidDisruptionsChange={setMrtAvoidDisruptions}
+                detourAvailable={mrtDetourAvailable}
+                disruptedLines={disruptedMrtLines}
                 startStation={mrtStartStation}
                 endStation={mrtEndStation}
                 onStartChange={setMrtStartStation}

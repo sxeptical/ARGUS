@@ -3,7 +3,7 @@
 import { useCallback, useMemo, useState } from "react";
 import { useBusRoute } from "@/app/hooks/use-bus-route";
 import { useDashboardSources } from "@/app/hooks/use-dashboard-sources";
-import { useMrtPlanner } from "@/app/hooks/use-mrt-planner";
+import { useMrtRoutePlans, useMrtSelection } from "@/app/hooks/use-mrt-planner";
 import { usePersistentState } from "@/app/hooks/use-persistent-state";
 import { useWeatherHistory } from "@/app/hooks/use-weather-history";
 import { FLIGHTS_ENABLED } from "@/lib/features";
@@ -103,15 +103,24 @@ export function useDashboardState() {
     NO_AMENITY_FILTERS,
     parseAmenityFilters,
   );
+  // Declared before the sources: train crowds only load once a station is picked.
+  const mrtSelection = useMrtSelection();
   const data = useDashboardSources(
     {
       carparks: sensorVisibility.carparks,
       evChargers: sensorVisibility.evChargers,
+      trainCrowds: mrtSelection.hasSelection,
     },
     notificationPrefs.browser,
   );
   const busRoute = useBusRoute();
-  const mrt = useMrtPlanner();
+  const mrt = {
+    ...mrtSelection,
+    ...useMrtRoutePlans(mrtSelection, {
+      trainAlerts: data.trainAlerts,
+      trainCrowds: data.trainCrowds,
+    }),
+  };
   const weatherHistory = useWeatherHistory(data.weather);
   const [selectedCameraId, setSelectedCameraId] = useState<string | null>(null);
   const [selectedFlightId, setSelectedFlightId] = useState<string | null>(null);
@@ -430,8 +439,12 @@ export function useDashboardState() {
     setGeoFilterPicking,
     setGeoFilterRadiusM,
     handleSelectStop: busRoute.selectStop,
+    mrtAvoidDisruptions: mrt.avoidDisruptions,
+    mrtDetourAvailable: mrt.detourAvailable,
     mrtEndStation: mrt.end,
     mrtMapPickTarget: mrt.mapPickTarget,
+    mrtPlansByMode: mrt.plansByMode,
+    mrtRouteMode: mrt.routeMode,
     mrtRoutePlan: mrt.plan,
     mrtStartStation: mrt.start,
     news: data.news,
@@ -453,8 +466,10 @@ export function useDashboardState() {
     sensorRows: visibleSensorRows,
     sensorStatsRows: visibleSensorStatsRows,
     sensorVisibility,
+    setMrtAvoidDisruptions: mrt.setAvoidDisruptions,
     setMrtEndStation: mrt.setEnd,
     setMrtMapPickTarget: mrt.setMapPickTarget,
+    setMrtRouteMode: mrt.setRouteMode,
     setMrtStartStation: mrt.setStart,
     setNotificationPrefs,
     setSelectedCamera: selectCamera,

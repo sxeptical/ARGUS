@@ -1796,7 +1796,12 @@ function useMapController({
             "line-join": "round",
           },
           paint: {
-            "line-color": MAP_COLORS.ink,
+            "line-color": [
+              "case",
+              ["boolean", ["get", "disrupted"], false],
+              MAP_COLORS.danger,
+              MAP_COLORS.ink,
+            ],
             "line-width": 7.2,
             "line-opacity": 0.45,
           },
@@ -1812,7 +1817,12 @@ function useMapController({
             "line-join": "round",
           },
           paint: {
-            "line-color": ["get", "color"],
+            "line-color": [
+              "case",
+              ["boolean", ["get", "disrupted"], false],
+              MAP_COLORS.danger,
+              ["get", "color"],
+            ],
             "line-width": 4.8,
             "line-opacity": 1,
           },

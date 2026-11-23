@@ -238,6 +238,25 @@ describe("buildRouteGeoJson", () => {
     // Ranggung (index 5) → Sengkang (closing vertex) → Compassvale (index 1).
     expect(route.features[0].geometry.coordinates).toEqual([coords[5], coords[6], coords[1]]);
   });
+
+  test("propagates disrupted flag on affected MRT route segments", () => {
+    const mrtLines = mrtLinesData as MRTGeoJson;
+    const route = buildRouteGeoJson(
+      mrtLines,
+      [
+        {
+          line: "East West Line",
+          from: "Bugis",
+          to: "City Hall",
+          stops: 1,
+          stations: ["Bugis", "City Hall"],
+          disrupted: true,
+        },
+      ],
+      MRT_DISPLAY_LINE_STATIONS,
+    );
+    expect(route.features[0]?.properties.disrupted).toBe(true);
+  });
 });
 
 describe("routeStationKeys", () => {

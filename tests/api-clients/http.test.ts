@@ -48,6 +48,25 @@ describe("httpGetJson", () => {
     }
   });
 
+  test("normalizes Apigee 500 QuotaViolation faults to a 429 ExternalApiError", async () => {
+    const error = await rejection(
+      getWith(
+        async () =>
+          new Response(
+            JSON.stringify({
+              fault: {
+                faultstring: "Rate limit quota violation. Quota limit exceeded.",
+                detail: { errorcode: "policies.ratelimit.QuotaViolation" },
+              },
+            }),
+            { status: 500 },
+          ),
+      ),
+    );
+    expect(error).toBeInstanceOf(ExternalApiError);
+    expect((error as ExternalApiError).status).toBe(429);
+  });
+
   test("a network failure becomes a 502 ExternalApiError", async () => {
     const error = await rejection(
       getWith(async () => {
