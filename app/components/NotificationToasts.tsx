@@ -11,10 +11,12 @@ function NotificationToast({
   toast,
   onDismiss,
   onExpire,
+  className,
 }: {
   toast: SignalRow;
   onDismiss: (id: string) => void;
   onExpire: (id: string) => void;
+  className?: string;
 }) {
   // Rail and air quality toasts stay until dismissed or the signal clears.
   const autoDismiss = toast.category === "road";
@@ -26,7 +28,7 @@ function NotificationToast({
   }, [autoDismiss, onExpire, toast.id]);
 
   return (
-    <div className="pointer-events-auto flex items-start justify-between gap-3 border border-danger/40 bg-surface-raised p-3 text-ink">
+    <div className={`pointer-events-auto flex items-start justify-between gap-3 border border-danger/40 bg-surface-raised p-3 text-ink ${className ?? ""}`}>
       <div className="min-w-0">
         <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-danger">
           {signalTitle(toast)}
@@ -58,23 +60,40 @@ export default function NotificationToasts({
   onDismissAll: () => void;
   onExpire: (id: string) => void;
 }) {
-  const hiddenCount = toasts.length - MAX_VISIBLE_TOASTS;
+  const hiddenDesktopCount = toasts.length - MAX_VISIBLE_TOASTS;
+  const hiddenMobileCount = toasts.length - 1;
 
-  // Top-right so the stack can't cover UpdateAvailableToast at the bottom. The
-  // live region stays mounted while empty so screen readers announce additions.
+  // Top-right so the stack can't cover UpdateAvailableToast at the bottom. On
+  // phones, cap at 1 visible toast so alerts never bury the header and map.
   return (
     <div
       role="status"
       aria-live="polite"
       className="pointer-events-none fixed inset-x-3 top-[calc(env(safe-area-inset-top)+0.75rem)] z-50 space-y-2 sm:left-auto sm:right-4 sm:top-16 sm:w-[360px]"
     >
-      {toasts.slice(0, MAX_VISIBLE_TOASTS).map((toast) => (
-        <NotificationToast key={toast.id} toast={toast} onDismiss={onDismiss} onExpire={onExpire} />
+      {toasts.slice(0, MAX_VISIBLE_TOASTS).map((toast, index) => (
+        <NotificationToast
+          key={toast.id}
+          toast={toast}
+          onDismiss={onDismiss}
+          onExpire={onExpire}
+          className={index > 0 ? "hidden sm:flex" : undefined}
+        />
       ))}
-      {hiddenCount > 0 ? (
-        <div className="pointer-events-auto flex items-center justify-between gap-3 border border-line-strong bg-surface-raised px-3 py-2">
+      {hiddenMobileCount > 0 ? (
+        <div className="pointer-events-auto flex items-center justify-between gap-3 border border-line-strong bg-surface-raised px-3 py-2 sm:hidden">
           <span className="font-mono text-[10px] uppercase tracking-[0.1em] text-muted">
-            +{hiddenCount} more
+            +{hiddenMobileCount} more
+          </span>
+          <button type="button" className="action-button shrink-0" onClick={onDismissAll}>
+            Dismiss All
+          </button>
+        </div>
+      ) : null}
+      {hiddenDesktopCount > 0 ? (
+        <div className="pointer-events-auto hidden items-center justify-between gap-3 border border-line-strong bg-surface-raised px-3 py-2 sm:flex">
+          <span className="font-mono text-[10px] uppercase tracking-[0.1em] text-muted">
+            +{hiddenDesktopCount} more
           </span>
           <button type="button" className="action-button shrink-0" onClick={onDismissAll}>
             Dismiss All

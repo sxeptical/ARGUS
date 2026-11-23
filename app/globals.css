@@ -474,6 +474,12 @@ select:focus-visible {
   .terminal-content {
     padding: var(--space-3);
   }
+
+  /* Pinch-to-zoom and two-finger rotate handle navigation on phones; hide the
+     3-button zoom/compass stack so only Geolocate sits in the top-right. */
+  .maplibregl-ctrl-group:has(.maplibregl-ctrl-zoom-in) {
+    display: none;
+  }
 }
 
 ::-webkit-scrollbar {

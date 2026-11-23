@@ -968,6 +968,7 @@ function useMapController({
       map = new maplibregl.Map({
         container: containerRef.current,
         style: getMapStyleUrl(theme),
+        attributionControl: { compact: true },
         // page.tsx remounts this component on a theme toggle (`key={theme}`)
         // so the other basemap can load; carrying the camera means the
         // switch does not reset the user's pan and zoom. A full page load
@@ -1027,11 +1028,28 @@ function useMapController({
     map.on("error", handleMapError);
 
     const layerListenerCleanups: Array<() => void> = [];
+    const POPUP_TAP_LAYERS = [
+      "incidents-point-layer",
+      "carparks-point-layer",
+      "ev-chargers-point-layer",
+    ];
     // While picking a radius centre, the click belongs to the picker, not to
-    // whatever feature happens to be under the cursor.
+    // whatever feature happens to be under the cursor. Otherwise, tapping empty
+    // map dismisses any touch-opened hover popup.
     const handleMapClick = (event: maplibregl.MapMouseEvent) => {
-      if (!geoFilterPickingRef.current) return;
-      onGeoFilterPickRef.current?.([event.lngLat.lng, event.lngLat.lat]);
+      if (geoFilterPickingRef.current) {
+        onGeoFilterPickRef.current?.([event.lngLat.lng, event.lngLat.lat]);
+        return;
+      }
+      if (!hoverPopupRef.current) return;
+      const activeLayers = POPUP_TAP_LAYERS.filter((id) => map.getLayer(id));
+      if (
+        activeLayers.length === 0 ||
+        map.queryRenderedFeatures(event.point, { layers: activeLayers }).length === 0
+      ) {
+        hoverPopupRef.current.remove();
+        hoverPopupRef.current = null;
+      }
     };
     const handleBusStopClick = (event: maplibregl.MapLayerMouseEvent) => {
       if (geoFilterPickingRef.current) return;
@@ -1355,11 +1373,14 @@ function useMapController({
         id: "bus-stops-layer",
         type: "circle",
         source: "bus-stops",
+        // Gate the ~5,000 stops to neighbourhood zoom so island-wide views
+        // (especially on phones) stay readable.
+        minzoom: 12.5,
         layout: {
           visibility: sensorVisibilityRef.current.busStops ? "visible" : "none",
         },
         paint: {
-          "circle-radius": 3,
+          "circle-radius": ["interpolate", ["linear"], ["zoom"], 12.5, 2, 15, 4],
           "circle-color": MAP_COLORS.bus,
           "circle-opacity": busStopOpacity,
           // A paper ring separates stops on dark tiles; on light tiles it
@@ -1610,11 +1631,11 @@ function useMapController({
           "circle-radius": [
             "step",
             ["get", "point_count"],
-            12,
             10,
-            16,
+            10,
+            13,
             30,
-            20,
+            16,
           ],
           "circle-opacity": 0.9,
           "circle-stroke-width": 1.5,
@@ -1722,7 +1743,7 @@ function useMapController({
           },
           paint: {
             "line-color": MAP_COLORS.paper,
-            "line-width": ["case", isLrtLine, 5.2, 6.8],
+            "line-width": ["interpolate", ["linear"], ["zoom"], 10, ["case", isLrtLine, 2.8, 3.8], 13.5, ["case", isLrtLine, 5.2, 6.8]],
             "line-opacity": 0.84,
           },
         });
@@ -1738,7 +1759,7 @@ function useMapController({
           },
           paint: {
             "line-color": ["get", "color"],
-            "line-width": ["case", isLrtLine, 3, 4.2],
+            "line-width": ["interpolate", ["linear"], ["zoom"], 10, ["case", isLrtLine, 1.6, 2.4], 13.5, ["case", isLrtLine, 3, 4.2]],
             "line-opacity": 0.96,
           },
         });
@@ -1834,7 +1855,7 @@ function useMapController({
             "circle-sort-key": ["case", isLrtStation, 0, 1],
           },
           paint: {
-            "circle-radius": ["case", isLrtStation, 3.5, 4],
+            "circle-radius": ["interpolate", ["linear"], ["zoom"], 10, ["case", isLrtStation, 2, 2.5], 13.5, ["case", isLrtStation, 3.5, 4]],
             "circle-color": ["get", "color"],
             "circle-opacity": ["case", ["get", "routeable"], 1, 0.35],
             "circle-stroke-width": 1,
@@ -1954,10 +1975,18 @@ function useMapController({
           "circle-stroke-color": MAP_COLORS.paper,
           "circle-stroke-width": 1,
         } });
-        layerListenerCleanups.push(registerLayerMouseListener(map, "mouseenter", "incidents-point-layer", handleIncidentEnter), registerLayerMouseListener(map, "mouseleave", "incidents-point-layer", handleHoverPopupLeave), registerLayerMouseListener(map, "mouseenter", "incidents-point-layer", handleInteractiveLayerEnter), registerLayerMouseListener(map, "mouseleave", "incidents-point-layer", handleInteractiveLayerLeave));
+        layerListenerCleanups.push(
+          registerLayerMouseListener(map, "click", "incidents-point-layer", (event) => {
+            if (!geoFilterPickingRef.current) handleIncidentEnter(event);
+          }),
+          registerLayerMouseListener(map, "mouseenter", "incidents-point-layer", handleIncidentEnter),
+          registerLayerMouseListener(map, "mouseleave", "incidents-point-layer", handleHoverPopupLeave),
+          registerLayerMouseListener(map, "mouseenter", "incidents-point-layer", handleInteractiveLayerEnter),
+          registerLayerMouseListener(map, "mouseleave", "incidents-point-layer", handleInteractiveLayerLeave),
+        );
         const availabilityPointPaint = (layerColor: string): maplibregl.CircleLayerSpecification["paint"] => ({
           "circle-color": availabilityColorExpr(layerColor, MAP_COLORS),
-          "circle-radius": ["interpolate", ["linear"], ["zoom"], 10, 2.5, 15, 5.5],
+          "circle-radius": ["interpolate", ["linear"], ["zoom"], 11.5, 2.4, 15, 5.5],
           "circle-stroke-color": MAP_COLORS.paper,
           "circle-stroke-width": 1,
         });
@@ -1969,8 +1998,16 @@ function useMapController({
           ["ev-chargers-data", "ev-chargers-point-layer", evChargersVisible, MAP_COLORS.ev, handleEvChargerEnter, buildEvChargersGeoJson(evChargersRef.current.values(), evChargersVisible)],
         ] as const) {
           map.addSource(sourceId, { type: "geojson", data });
-          map.addLayer({ id: layerId, type: "circle", source: sourceId, layout: { visibility: visible ? "visible" : "none" }, paint: availabilityPointPaint(layerColor) });
-          layerListenerCleanups.push(registerLayerMouseListener(map, "mouseenter", layerId, onEnter), registerLayerMouseListener(map, "mouseleave", layerId, handleHoverPopupLeave), registerLayerMouseListener(map, "mouseenter", layerId, handleInteractiveLayerEnter), registerLayerMouseListener(map, "mouseleave", layerId, handleInteractiveLayerLeave));
+          map.addLayer({ id: layerId, type: "circle", source: sourceId, minzoom: 11.5, layout: { visibility: visible ? "visible" : "none" }, paint: availabilityPointPaint(layerColor) });
+          layerListenerCleanups.push(
+            registerLayerMouseListener(map, "click", layerId, (event) => {
+              if (!geoFilterPickingRef.current) onEnter(event);
+            }),
+            registerLayerMouseListener(map, "mouseenter", layerId, onEnter),
+            registerLayerMouseListener(map, "mouseleave", layerId, handleHoverPopupLeave),
+            registerLayerMouseListener(map, "mouseenter", layerId, handleInteractiveLayerEnter),
+            registerLayerMouseListener(map, "mouseleave", layerId, handleInteractiveLayerLeave),
+          );
         }
         // Amenities are added in registry order, so later entries draw on top.
         for (const amenity of AMENITY_LAYERS) {
@@ -2100,9 +2137,20 @@ function useMapController({
     map.on("click", handleMapClick);
     if (geoFilterPickingRef.current) map.getCanvas().style.cursor = "crosshair";
 
+    // Keep the WebGL canvas in sync when the container height changes (e.g.
+    // mobile Expand / Compact toggle).
+    const resizeObserver =
+      typeof ResizeObserver !== "undefined" && containerRef.current
+        ? new ResizeObserver(() => map.resize())
+        : null;
+    if (resizeObserver && containerRef.current) {
+      resizeObserver.observe(containerRef.current);
+    }
+
     mapRef.current = map;
 
     return () => {
+      resizeObserver?.disconnect();
       removeMapLoadListener();
       window.clearTimeout(loadTimeoutId);
       map.off("error", handleMapError);
