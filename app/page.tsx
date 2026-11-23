@@ -248,8 +248,8 @@ export default function Home() {
 
         <section className="contents xl:order-2 xl:grid xl:min-w-0 xl:gap-3 xl:min-h-0 xl:grid-rows-[minmax(0,1fr)_minmax(236px,38%)]">
           <section
-            className={`relative order-1 overflow-hidden border border-line bg-surface transition-[height] duration-200 xl:order-none xl:h-auto xl:min-h-0 ${
-              mapExpanded ? "h-[75dvh] min-h-96" : "h-[45dvh] min-h-72"
+            className={`relative order-1 h-[45dvh] min-h-72 overflow-hidden border border-line bg-surface transition-[height] duration-200 xl:order-none xl:h-auto xl:min-h-0 ${
+              mapExpanded ? "max-sm:h-[75dvh] max-sm:min-h-96" : ""
             }`}
           >
             <Map
@@ -458,7 +458,7 @@ export default function Home() {
           </nav>
 
           <section
-            className={`order-3 grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-2 sm:gap-3 xl:order-none xl:grid 2xl:grid-cols-4 ${
+            className={`order-5 grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-2 sm:gap-3 xl:order-none xl:grid 2xl:grid-cols-4 ${
               mobileTab === "tools" ? "max-xl:hidden" : ""
             }`}
           >

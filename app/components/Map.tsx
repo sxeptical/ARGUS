@@ -1369,18 +1369,22 @@ function useMapController({
         data: buildBusStopGeoJson(busStopsRef.current.values()),
       });
 
+      const isCompactViewport =
+        typeof window !== "undefined" &&
+        window.matchMedia?.("(max-width: 639px)").matches === true;
+
       map.addLayer({
         id: "bus-stops-layer",
         type: "circle",
         source: "bus-stops",
-        // Gate the ~5,000 stops to neighbourhood zoom so island-wide views
-        // (especially on phones) stay readable.
-        minzoom: 12.5,
+        // Gate the ~5,000 stops to neighbourhood zoom on phones so island-wide
+        // mobile views stay readable while desktop keeps showing all stops.
+        ...(isCompactViewport ? { minzoom: 12.5 } : {}),
         layout: {
           visibility: sensorVisibilityRef.current.busStops ? "visible" : "none",
         },
         paint: {
-          "circle-radius": ["interpolate", ["linear"], ["zoom"], 12.5, 2, 15, 4],
+          "circle-radius": ["interpolate", ["linear"], ["zoom"], 10, 2.2, 12.5, 2.6, 15, 4],
           "circle-color": MAP_COLORS.bus,
           "circle-opacity": busStopOpacity,
           // A paper ring separates stops on dark tiles; on light tiles it
@@ -1986,7 +1990,7 @@ function useMapController({
         );
         const availabilityPointPaint = (layerColor: string): maplibregl.CircleLayerSpecification["paint"] => ({
           "circle-color": availabilityColorExpr(layerColor, MAP_COLORS),
-          "circle-radius": ["interpolate", ["linear"], ["zoom"], 11.5, 2.4, 15, 5.5],
+          "circle-radius": ["interpolate", ["linear"], ["zoom"], 10, 2.2, 11.5, 2.6, 15, 5.5],
           "circle-stroke-color": MAP_COLORS.paper,
           "circle-stroke-width": 1,
         });
@@ -1998,7 +2002,7 @@ function useMapController({
           ["ev-chargers-data", "ev-chargers-point-layer", evChargersVisible, MAP_COLORS.ev, handleEvChargerEnter, buildEvChargersGeoJson(evChargersRef.current.values(), evChargersVisible)],
         ] as const) {
           map.addSource(sourceId, { type: "geojson", data });
-          map.addLayer({ id: layerId, type: "circle", source: sourceId, minzoom: 11.5, layout: { visibility: visible ? "visible" : "none" }, paint: availabilityPointPaint(layerColor) });
+          map.addLayer({ id: layerId, type: "circle", source: sourceId, ...(isCompactViewport ? { minzoom: 11.5 } : {}), layout: { visibility: visible ? "visible" : "none" }, paint: availabilityPointPaint(layerColor) });
           layerListenerCleanups.push(
             registerLayerMouseListener(map, "click", layerId, (event) => {
               if (!geoFilterPickingRef.current) onEnter(event);
@@ -2137,20 +2141,30 @@ function useMapController({
     map.on("click", handleMapClick);
     if (geoFilterPickingRef.current) map.getCanvas().style.cursor = "crosshair";
 
-    // Keep the WebGL canvas in sync when the container height changes (e.g.
-    // mobile Expand / Compact toggle).
-    const resizeObserver =
-      typeof ResizeObserver !== "undefined" && containerRef.current
-        ? new ResizeObserver(() => map.resize())
+    // Sync mobile-only zoom gating when crossing the 640px breakpoint (e.g.
+    // phone rotation or responsive resize).
+    const compactMedia =
+      typeof window !== "undefined" && window.matchMedia
+        ? window.matchMedia("(max-width: 639px)")
         : null;
-    if (resizeObserver && containerRef.current) {
-      resizeObserver.observe(containerRef.current);
-    }
+    const syncCompactZoomRanges = () => {
+      if (!mapLoadedRef.current || !compactMedia) return;
+      const compact = compactMedia.matches;
+      if (map.getLayer("bus-stops-layer")) {
+        map.setLayerZoomRange("bus-stops-layer", compact ? 12.5 : 0, 24);
+      }
+      for (const id of ["carparks-point-layer", "ev-chargers-point-layer"]) {
+        if (map.getLayer(id)) {
+          map.setLayerZoomRange(id, compact ? 11.5 : 0, 24);
+        }
+      }
+    };
+    compactMedia?.addEventListener("change", syncCompactZoomRanges);
 
     mapRef.current = map;
 
     return () => {
-      resizeObserver?.disconnect();
+      compactMedia?.removeEventListener("change", syncCompactZoomRanges);
       removeMapLoadListener();
       window.clearTimeout(loadTimeoutId);
       map.off("error", handleMapError);

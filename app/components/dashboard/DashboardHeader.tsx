@@ -78,11 +78,12 @@ export function DashboardHeader({
           <span className="hidden sm:inline">
             <HeaderClock />
           </span>
-          <HeaderChip
-            label="Sources"
-            value={`${onlineSourceCount}/${activeSourceCount}`}
-            className="hidden sm:inline-flex"
-          />
+          <span className="hidden sm:inline">
+            <HeaderChip
+              label="Sources"
+              value={`${onlineSourceCount}/${activeSourceCount}`}
+            />
+          </span>
           <span
             className={`mr-1 inline-flex items-center gap-1.5 whitespace-nowrap font-semibold sm:mr-0 sm:gap-2 ${
               systemStatus === "Live" ? "text-success" : "text-warning"
