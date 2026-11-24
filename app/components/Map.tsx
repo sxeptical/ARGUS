@@ -524,7 +524,7 @@ function fitMapToBusRoute(
   });
 }
 
-function buildPlaneIcon(size = 64): ImageData {
+function buildPlaneIcon(size = 128): ImageData {
   const canvas = document.createElement("canvas");
   canvas.width = size;
   canvas.height = size;
@@ -539,17 +539,40 @@ function buildPlaneIcon(size = 64): ImageData {
   // the alpha mask; the rendered colour comes from icon-color paint props.
   context.fillStyle = DARK_MAP_COLORS.ink;
 
+  const r = size * 0.44;
+  const px = (x: number) => x * r;
+  const py = (y: number) => y * r;
+
+  // Sleek top-down jetliner silhouette pointing north (-y = 0° track).
   context.beginPath();
-  context.moveTo(0, -size * 0.34); // nose
-  context.lineTo(size * 0.08, -size * 0.1);
-  context.lineTo(size * 0.3, -size * 0.02); // right wing tip
-  context.lineTo(size * 0.12, size * 0.02);
-  context.lineTo(size * 0.12, size * 0.3); // tail fin
-  context.lineTo(0, size * 0.24);
-  context.lineTo(-size * 0.12, size * 0.3);
-  context.lineTo(-size * 0.12, size * 0.02);
-  context.lineTo(-size * 0.3, -size * 0.02); // left wing tip
-  context.lineTo(-size * 0.08, -size * 0.1);
+  context.moveTo(px(0), py(-0.96)); // nose tip
+  // Right nose curve -> forward fuselage
+  context.quadraticCurveTo(px(0.11), py(-0.82), px(0.11), py(-0.58));
+  context.lineTo(px(0.11), py(-0.24)); // right wing root leading edge
+  // Right swept main wing
+  context.lineTo(px(0.94), py(0.16)); // wingtip leading edge
+  context.lineTo(px(0.94), py(0.28)); // wingtip trailing edge
+  context.lineTo(px(0.11), py(0.08)); // wing root trailing edge
+  // Aft fuselage -> right horizontal stabilizer
+  context.lineTo(px(0.085), py(0.56));
+  context.lineTo(px(0.4), py(0.78)); // tailplane tip leading edge
+  context.lineTo(px(0.4), py(0.88)); // tailplane tip trailing edge
+  context.lineTo(px(0.055), py(0.77)); // tail root
+  // Tail cone
+  context.lineTo(px(0), py(0.94));
+  // Left horizontal stabilizer -> aft fuselage
+  context.lineTo(px(-0.055), py(0.77));
+  context.lineTo(px(-0.4), py(0.88));
+  context.lineTo(px(-0.4), py(0.78));
+  context.lineTo(px(-0.085), py(0.56));
+  // Left swept main wing
+  context.lineTo(px(-0.11), py(0.08));
+  context.lineTo(px(-0.94), py(0.28));
+  context.lineTo(px(-0.94), py(0.16));
+  context.lineTo(px(-0.11), py(-0.24));
+  // Left forward fuselage -> nose tip
+  context.lineTo(px(-0.11), py(-0.58));
+  context.quadraticCurveTo(px(-0.11), py(-0.82), px(0), py(-0.96));
   context.closePath();
   context.fill();
 
@@ -1683,7 +1706,10 @@ function useMapController({
       });
 
       if (!map.hasImage("plane-icon")) {
-        map.addImage("plane-icon", buildPlaneIcon(), { sdf: true });
+        map.addImage("plane-icon", buildPlaneIcon(128), {
+          sdf: true,
+          pixelRatio: 2,
+        });
       }
 
       map.addLayer({
@@ -1693,7 +1719,17 @@ function useMapController({
         layout: {
           visibility: sensorVisibilityRef.current.flights ? "visible" : "none",
           "icon-image": "plane-icon",
-          "icon-size": 0.32,
+          "icon-size": [
+            "interpolate",
+            ["linear"],
+            ["zoom"],
+            9,
+            0.3,
+            12,
+            0.38,
+            15,
+            0.46,
+          ],
           "icon-allow-overlap": true,
           "icon-ignore-placement": true,
           "icon-rotate": ["coalesce", ["get", "track"], 0],
@@ -1710,7 +1746,7 @@ function useMapController({
             MAP_COLORS.info,
           ],
           "icon-halo-color": MAP_COLORS.paper,
-          "icon-halo-width": 1.2,
+          "icon-halo-width": 1.4,
           "icon-opacity": 0.98,
         },
       });
@@ -1725,7 +1761,7 @@ function useMapController({
           "text-font": MAP_FONT, "text-field": ["get", "callsign"],
           "text-size": 10,
           "text-anchor": "left",
-          "text-offset": [0.8, 0],
+          "text-offset": [1.1, 0],
         },
         paint: {
           "text-color": MAP_COLORS.ink,

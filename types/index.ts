@@ -261,6 +261,34 @@ export interface FlightState {
   onGround: boolean;
   direction: FlightDirection;
   lastContact: number | null;
+  registration?: string | null;
+  aircraftType?: string | null;
+  aircraftDesc?: string | null;
+  operator?: string | null;
+  category?: string | null;
+  squawk?: string | null;
+  emergency?: string | null;
+  mach?: number | null;
+  /** Autopilot-selected target altitude in metres. */
+  selectedAltitude?: number | null;
+  departureAirport?: string | null;
+  arrivalAirport?: string | null;
+}
+
+export interface FlightRouteEndpoint {
+  iata: string | null;
+  icao: string | null;
+  name: string | null;
+  city: string | null;
+  country: string | null;
+}
+
+export interface FlightRouteInfo {
+  callsign: string;
+  iataFlight: string | null;
+  airline: string | null;
+  origin: FlightRouteEndpoint | null;
+  destination: FlightRouteEndpoint | null;
 }
 
 export interface MRTGeoJson {

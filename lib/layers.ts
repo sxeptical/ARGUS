@@ -68,7 +68,6 @@ const LAYER_DEFINITIONS = [
     legend: [
       { kind: "dot", tone: "bg-signal-inbound", label: "Inbound" },
       { kind: "dot", tone: "bg-signal-outbound", label: "Outbound" },
-      { kind: "dot", tone: "bg-signal-transit", label: "Transit" },
     ],
   },
   {

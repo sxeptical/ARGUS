@@ -198,13 +198,18 @@ export function LayersSidebar({
         onAirQualityOverlayChange={onAirQualityOverlayChange}
         onRainOverlayChange={onRainOverlayChange}
         onFocusLocation={onFocusLocation}
-        className="xl:max-h-[38%] xl:min-h-0 xl:shrink-0"
+        className={
+          FLIGHTS_ENABLED
+            ? "xl:max-h-[34%] xl:min-h-0 xl:shrink-0"
+            : "xl:max-h-[38%] xl:min-h-0 xl:shrink-0"
+        }
       />
       {FLIGHTS_ENABLED ? (
         <FlightPanel
           flights={flights}
           selectedFlight={selectedFlight}
           onSelectFlight={setSelectedFlight}
+          className="xl:max-h-[28%] xl:min-h-0 xl:shrink-0"
         />
       ) : null}
     </aside>

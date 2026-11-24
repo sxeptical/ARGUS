@@ -10,32 +10,41 @@ type FlightPanelProps = {
   flights: FlightState[];
   selectedFlight: FlightState | null;
   onSelectFlight: (flight: FlightState) => void;
+  className?: string;
 };
 
 export default function FlightPanel({
   flights,
   selectedFlight,
   onSelectFlight,
+  className,
 }: FlightPanelProps) {
-  const { inbound, outbound, transit } = summarizeFlights(flights);
+  const { inbound, outbound } = summarizeFlights(flights);
 
   return (
-    <TerminalPanel title="FLIGHTS (SG AIRSPACE)" contentClassName="min-h-40 sm:min-h-48">
+    <TerminalPanel
+      title="FLIGHTS (SG AIRSPACE)"
+      className={className}
+      contentClassName="min-h-32 sm:min-h-40 xl:min-h-0"
+    >
       <div className="space-y-3">
-        <div className="grid grid-cols-3 gap-2 text-[11px]">
+        <div className="grid grid-cols-2 gap-2 text-[11px]">
           <Stat label="Inbound" value={inbound} tone="text-success" />
           <Stat label="Outbound" value={outbound} tone="text-danger" />
-          <Stat label="Transit" value={transit} tone="text-info" />
         </div>
 
         {flights.length === 0 ? (
           <div className="text-[11px] text-muted">
-            No live aircraft in current Singapore bounds.
+            No inbound or outbound Singapore flights right now.
           </div>
         ) : (
           <div className="space-y-1">
             {flights.slice(0, 8).map((flight) => {
               const isSelected = selectedFlight?.id === flight.id;
+              const routeSummary =
+                flight.departureAirport && flight.arrivalAirport
+                  ? `${flight.departureAirport}→${flight.arrivalAirport}`
+                  : null;
               return (
                 <button
                   key={`${flight.icao24}-${flight.id}`}
@@ -50,6 +59,11 @@ export default function FlightPanel({
                   <div className="flex items-center justify-between gap-2">
                     <span className="font-mono font-medium text-ink">
                       {flight.callsign}
+                      {routeSummary ? (
+                        <span className="ml-1.5 font-normal text-muted">
+                          {routeSummary}
+                        </span>
+                      ) : null}
                     </span>
                     <span className={directionClassName(flight.direction)}>
                       {flight.direction.toUpperCase()}

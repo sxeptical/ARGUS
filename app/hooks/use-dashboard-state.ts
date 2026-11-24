@@ -395,12 +395,6 @@ export function useDashboardState() {
         tone: "text-signal-outbound",
       },
       {
-        label: "Transit Flights",
-        note: "crossing tracks",
-        value: flightSummary.transit,
-        tone: "text-signal-transit",
-      },
-      {
         label: "OSINT Feed",
         note: "news stream",
         value: data.news.length,

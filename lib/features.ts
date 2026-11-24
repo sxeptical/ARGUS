@@ -1,4 +1,4 @@
 /** Feature flags shared by API routes and the dashboard. */
 
-/** Flight data provider is currently unavailable upstream. */
-export const FLIGHTS_ENABLED = false;
+/** Live Singapore airspace tracking via ADS-B (adsb.lol / airplanes.live). */
+export const FLIGHTS_ENABLED = true;

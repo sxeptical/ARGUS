@@ -173,9 +173,11 @@ describe("buildLayerGroups", () => {
   });
 
   test("feature-gated rows never regroup into other sections", () => {
-    // flights dropped upstream must not leak into any group's toggle counts.
-    const groups = buildLayerGroups(panelRows, DEFAULT_SENSOR_VISIBILITY, "");
+    // A row omitted upstream must not leak into any group's toggle counts.
+    const withoutFlights = allRows.filter((row) => row.key !== "flights");
+    const groups = buildLayerGroups(withoutFlights, DEFAULT_SENSOR_VISIBILITY, "");
     expect(groups.flatMap((group) => group.rows.map((row) => row.key))).not.toContain("flights");
+    expect(groups[0].visibleCount).toBe(2); // mrt, busStops
   });
 });
 
@@ -206,7 +208,10 @@ describe("layer surfaces render", () => {
     expect(markup).toContain("Filter layers");
     expect(markup).toContain("Hawker Centres");
     expect(markup).toContain("OSINT Feed");
-    if (!FLIGHTS_ENABLED) {
+    if (FLIGHTS_ENABLED) {
+      expect(markup).toContain("Air Activity");
+      expect(markup).toContain("FLIGHTS (SG AIRSPACE)");
+    } else {
       expect(markup).not.toContain("Air Activity");
     }
   });

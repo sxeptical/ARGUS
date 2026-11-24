@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import useSWR from "swr";
 import { useFocusTrap } from "@/app/hooks/use-focus-trap";
+import { apiFetch } from "@/lib/api-fetch";
 import { KeyProse, KeyValue } from "@/app/components/dashboard/IntelPanel";
 import { displayUrl, ExternalLinkRow, MapLocationLink } from "@/app/components/dashboard/MapLocationLink";
 import { hasStoreDirectory, MallStoreDirectory } from "@/app/components/dashboard/MallDirectory";
@@ -17,10 +19,26 @@ import { HEALTHCARE_KIND_LABEL, HEALTHCARE_SOURCE_HINT } from "@/lib/healthcare"
 import { LIBRARY_SOURCE_HINT } from "@/lib/libraries";
 import { SUPERMARKET_SOURCE_HINT } from "@/lib/supermarkets";
 import { isHigherLearning, SCHOOL_LEVEL_LABEL, schoolSourceHint } from "@/lib/schools";
-import { formatAltitudeFeet, formatSpeedKmh } from "@/lib/formatters";
+import {
+  adsbGlobeUrl,
+  describeAircraftCategory,
+  describeSquawk,
+  formatDistanceFromChangi,
+  formatFlightAltitude,
+  formatFlightSpeed,
+  formatFlightTrack,
+  formatVerticalRate,
+} from "@/lib/flights";
+import { formatSgTime } from "@/lib/formatters";
 import { photosForPark } from "@/lib/park-photos";
 import { PARK_KIND_TITLE } from "@/lib/parks";
-import type { AmenityType, FlightState, ParksGeoJson } from "@/types";
+import type {
+  AmenityType,
+  FlightRouteEndpoint,
+  FlightRouteInfo,
+  FlightState,
+  ParksGeoJson,
+} from "@/types";
 
 type ParkDetails = ParksGeoJson["features"][number]["properties"];
 
@@ -47,16 +65,7 @@ export function FocusDialog({
   onClose: () => void;
 }) {
   if (flight) {
-    return (
-      <FocusShell kind="Flight" title={flight.callsign} subtitle={flight.originCountry} onClose={onClose}>
-        <div className="space-y-1 p-4 text-xs">
-          <KeyValue label="Direction" value={flight.direction.toUpperCase()} />
-          <KeyValue label="Altitude" value={formatAltitudeFeet(flight.altitude)} />
-          <KeyValue label="Speed" value={formatSpeedKmh(flight.velocity)} />
-          <KeyValue label="Track" value={flight.track !== null ? `${Math.round(flight.track)}°` : "N/A"} />
-        </div>
-      </FocusShell>
-    );
+    return <FlightFocus flight={flight} onClose={onClose} />;
   }
 
   if (park) {
@@ -321,6 +330,172 @@ function AmenityFocus({
       ) : (
         details
       )}
+    </FocusShell>
+  );
+}
+
+function formatEndpointCode(endpoint: FlightRouteEndpoint | null): string {
+  if (!endpoint) return "—";
+  return endpoint.iata || endpoint.icao || endpoint.name || "—";
+}
+
+function formatEndpointPlace(endpoint: FlightRouteEndpoint | null): string {
+  if (!endpoint) return "";
+  return endpoint.city || endpoint.name || endpoint.country || "";
+}
+
+function FlightFocus({
+  flight,
+  onClose,
+}: {
+  flight: FlightState;
+  onClose: () => void;
+}) {
+  const callsignKey =
+    flight.callsign && /^[A-Za-z0-9-]{2,12}$/.test(flight.callsign.trim())
+      ? `/api/flight-route?callsign=${encodeURIComponent(flight.callsign.trim())}`
+      : null;
+  const { data: route, isLoading: routeLoading } = useSWR<FlightRouteInfo | null>(
+    callsignKey,
+    apiFetch,
+    { revalidateOnFocus: false, dedupingInterval: 60_000 },
+  );
+
+  const categoryLabel = describeAircraftCategory(flight.category);
+  const aircraftParts = [
+    flight.aircraftType,
+    flight.aircraftDesc,
+    categoryLabel,
+  ].filter(Boolean);
+  const squawkLabel = describeSquawk(flight.squawk);
+  const airlineName = route?.airline || flight.operator || null;
+  const title =
+    route?.iataFlight && route.iataFlight !== flight.callsign
+      ? `${flight.callsign} (${route.iataFlight})`
+      : flight.callsign;
+  const subtitle =
+    airlineName && airlineName !== flight.originCountry
+      ? airlineName
+      : flight.originCountry;
+  const directionTone =
+    flight.direction === "inbound"
+      ? "text-success"
+      : flight.direction === "outbound"
+        ? "text-danger"
+        : "text-info";
+
+  const hasOriginDest = Boolean(route?.origin || route?.destination);
+  const fallbackRouteLabel =
+    flight.departureAirport && flight.arrivalAirport
+      ? `${flight.departureAirport} → ${flight.arrivalAirport}`
+      : flight.departureAirport || flight.arrivalAirport || null;
+
+  return (
+    <FocusShell kind="Flight" title={title} subtitle={subtitle} onClose={onClose}>
+      <div className="space-y-3 p-4 text-xs">
+        {flight.emergency ? (
+          <div className="border border-danger/50 bg-danger/10 px-2.5 py-1.5 text-[11px] font-medium uppercase tracking-[0.08em] text-danger">
+            Emergency status: {flight.emergency}
+          </div>
+        ) : null}
+
+        {hasOriginDest ? (
+          <div className="flex items-center justify-between gap-2 border border-line bg-paper px-3 py-2">
+            <div className="min-w-0">
+              <div className="data-label">From</div>
+              <div className="font-mono text-sm font-semibold text-ink">
+                {formatEndpointCode(route?.origin ?? null)}
+              </div>
+              {formatEndpointPlace(route?.origin ?? null) ? (
+                <div className="truncate text-[11px] text-muted">
+                  {formatEndpointPlace(route?.origin ?? null)}
+                </div>
+              ) : null}
+            </div>
+            <div className="shrink-0 font-mono text-sm text-muted" aria-hidden="true">
+              →
+            </div>
+            <div className="min-w-0 text-right">
+              <div className="data-label">To</div>
+              <div className="font-mono text-sm font-semibold text-ink">
+                {formatEndpointCode(route?.destination ?? null)}
+              </div>
+              {formatEndpointPlace(route?.destination ?? null) ? (
+                <div className="truncate text-[11px] text-muted">
+                  {formatEndpointPlace(route?.destination ?? null)}
+                </div>
+              ) : null}
+            </div>
+          </div>
+        ) : fallbackRouteLabel ? (
+          <div className="border border-line bg-paper px-3 py-2">
+            <div className="data-label">Route</div>
+            <div className="mt-0.5 font-mono text-xs text-ink">{fallbackRouteLabel}</div>
+          </div>
+        ) : routeLoading ? (
+          <div className="border border-line bg-paper px-3 py-2 text-[11px] text-muted">
+            Looking up origin &amp; destination…
+          </div>
+        ) : null}
+
+        <div className="grid grid-cols-2 gap-1.5">
+          <div className="border border-line bg-paper px-2.5 py-1.5">
+            <div className="data-label">Direction</div>
+            <div className={`mt-0.5 font-mono text-xs font-medium ${directionTone}`}>
+              {flight.direction.toUpperCase()}
+            </div>
+          </div>
+          <div className="border border-line bg-paper px-2.5 py-1.5">
+            <div className="data-label">Altitude</div>
+            <div className="mt-0.5 font-mono text-xs font-medium text-ink">
+              {formatFlightAltitude(flight.altitude)}
+            </div>
+          </div>
+          <div className="border border-line bg-paper px-2.5 py-1.5">
+            <div className="data-label">Ground speed</div>
+            <div className="mt-0.5 font-mono text-xs font-medium text-ink">
+              {formatFlightSpeed(flight.velocity, flight.mach)}
+            </div>
+          </div>
+          <div className="border border-line bg-paper px-2.5 py-1.5">
+            <div className="data-label">Track</div>
+            <div className="mt-0.5 font-mono text-xs font-medium text-ink">
+              {formatFlightTrack(flight.track)}
+            </div>
+          </div>
+        </div>
+
+        <div className="space-y-0.5">
+          <KeyValue label="Vertical" value={formatVerticalRate(flight.verticalRate)} />
+          {flight.selectedAltitude !== null && flight.selectedAltitude !== undefined ? (
+            <KeyValue label="Target alt" value={formatFlightAltitude(flight.selectedAltitude)} />
+          ) : null}
+          <KeyValue
+            label="Position"
+            value={formatDistanceFromChangi(flight.latitude, flight.longitude)}
+          />
+          {aircraftParts.length > 0 ? (
+            <KeyValue label="Aircraft" value={aircraftParts.join(" · ")} />
+          ) : null}
+          {flight.registration ? (
+            <KeyValue label="Registration" value={flight.registration} />
+          ) : null}
+          <KeyValue label="ICAO24" value={flight.icao24} />
+          {squawkLabel ? <KeyValue label="Squawk" value={squawkLabel} /> : null}
+          {flight.lastContact !== null ? (
+            <KeyValue
+              label="Last signal"
+              value={formatSgTime(new Date(flight.lastContact * 1000).toISOString())}
+            />
+          ) : null}
+        </div>
+
+        <ExternalLinkRow
+          href={adsbGlobeUrl(flight.icao24)}
+          label="Live radar"
+          text="Track on adsb.lol"
+        />
+      </div>
     </FocusShell>
   );
 }

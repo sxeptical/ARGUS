@@ -481,3 +481,74 @@ const OpenSkyStateSchema = z.tuple([
 export const OpenSkyResponseSchema = z.object({
   states: z.array(OpenSkyStateSchema).nullable(),
 });
+
+// ---------- airplanes.live (ADSBexchange v2) ----------
+
+const AirplanesLiveAircraftSchema = z.object({
+  hex: z.string().nullish(),
+  flight: z.string().nullish(),
+  r: z.string().nullish(),
+  t: z.string().nullish(),
+  desc: z.string().nullish(),
+  ownOp: z.string().nullish(),
+  category: z.string().nullish(),
+  squawk: z.string().nullish(),
+  emergency: z.string().nullish(),
+  lat: z.number().nullish(),
+  lon: z.number().nullish(),
+  alt_baro: z.union([z.number(), z.literal("ground")]).nullish(),
+  alt_geom: z.number().nullish(),
+  nav_altitude_mcp: z.number().nullish(),
+  gs: z.number().nullish(),
+  mach: z.number().nullish(),
+  track: z.number().nullish(),
+  baro_rate: z.number().nullish(),
+  geom_rate: z.number().nullish(),
+  seen: z.number().nullish(),
+});
+export type AirplanesLiveAircraft = z.infer<typeof AirplanesLiveAircraftSchema>;
+
+export const AirplanesLiveResponseSchema = z.object({
+  ac: z.array(AirplanesLiveAircraftSchema).nullish(),
+  now: z.number().nullish(),
+  msg: z.string().nullish(),
+});
+
+// ---------- Flight route lookup (adsbdb.com + hexdb.io) ----------
+
+const AdsbdbAirportSchema = z.object({
+  iata_code: z.string().nullish(),
+  icao_code: z.string().nullish(),
+  name: z.string().nullish(),
+  municipality: z.string().nullish(),
+  country_name: z.string().nullish(),
+  country_iso_name: z.string().nullish(),
+});
+
+export const AdsbdbCallsignResponseSchema = z.object({
+  response: z.union([
+    z.string(),
+    z.object({
+      flightroute: z
+        .object({
+          callsign: z.string().nullish(),
+          callsign_iata: z.string().nullish(),
+          airline: z
+            .object({
+              name: z.string().nullish(),
+              iata: z.string().nullish(),
+              icao: z.string().nullish(),
+            })
+            .nullish(),
+          origin: AdsbdbAirportSchema.nullish(),
+          destination: AdsbdbAirportSchema.nullish(),
+        })
+        .nullish(),
+    }),
+  ]),
+});
+
+export const HexdbRouteResponseSchema = z.object({
+  flight: z.string().nullish(),
+  route: z.string().nullish(),
+});
