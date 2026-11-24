@@ -137,6 +137,17 @@ describe("disruption-aware routing", () => {
     expect(route?.segments[0]?.disrupted).toBe(true);
   });
 
+  test("keeps a station-code disruption on the line the alert names", () => {
+    // CC29 (HarbourFront) is shared with the Circle Line Extension, which
+    // stays clear when only the Circle Line is disrupted.
+    const route = planMrtRoute("HarbourFront", "Keppel", {
+      trainAlerts: [alert(["Circle Line"], ["CC29"])],
+    });
+    expect(route?.segments.map((s) => s.line)).toEqual(["Circle Line Extension"]);
+    expect(route?.detouredForDisruption).toBe(false);
+    expect(route?.disruption.lines).toEqual([]);
+  });
+
   test("falls back with disruptionUnavoidable when start or end is isolated on a disrupted line", () => {
     const route = planMrtRoute("Pasir Ris", "Bugis", {
       trainAlerts: [alert(["East West Line"])],
@@ -191,6 +202,15 @@ describe("crowd-aware and fewest-transfers routing", () => {
       trainAlerts: [{ status: "disrupted", message: "", affectedLines: ["Thomson-East Coast Line"], affectedStations: [], startTime: null, endTime: null }],
     });
     expect(quieter!.estimatedMinutes).toBe(plainNsl!.estimatedMinutes);
+  });
+
+  test("ranks by transfer count before travel time in fewest-transfers mode", () => {
+    // Fastest is NSL → CCL → EWL; NSL → EWL via City Hall is slower but has one transfer.
+    const fastest = planMrtRoute("Admiralty", "Bedok", { mode: "fastest" });
+    const fewest = planMrtRoute("Admiralty", "Bedok", { mode: "fewest-transfers" });
+    expect(fastest!.transfers).toBe(2);
+    expect(fewest!.transfers).toBe(1);
+    expect(fewest!.segments.map((s) => s.line)).toEqual(["North South Line", "East West Line"]);
   });
 
   test("prefers direct routes in fewest-transfers mode", () => {

@@ -142,7 +142,9 @@ const CROWD_TRANSFER_PENALTY: Record<CrowdLevel, number> = {
   moderate: 2,
   high: 6,
 };
-const FEWEST_TRANSFERS_PENALTY = 15;
+// Larger than any whole-network ride, so fewest-transfers mode ranks routes by
+// transfer count first and only uses travel time to break ties.
+const FEWEST_TRANSFERS_PENALTY = 1_000;
 const UNAVOIDABLE_DISRUPTION_PENALTY = 120;
 
 const EMPTY_DISRUPTION: MrtRouteDisruption = { lines: [], stations: [] };
@@ -395,11 +397,16 @@ function buildDisruptionMask(
   for (const alert of alerts) {
     if (alert.status !== "disrupted") continue;
     const linesCoveredByStations = new Set<string>();
+    const alertLines = new Set(alert.affectedLines.flatMap(expandOperationalLines));
 
     for (const code of alert.affectedStations) {
       const resolved = resolveStationCode(code);
       if (!resolved) continue;
-      for (const line of resolved.lines) {
+      // A code such as CC29 resolves to every line sharing its prefix; keep
+      // only the lines this alert names so a shared station does not spread
+      // the disruption onto an unaffected line.
+      const scoped = resolved.lines.filter((line) => alertLines.has(line));
+      for (const line of scoped.length > 0 ? scoped : resolved.lines) {
         const nodeKey = `${resolved.station}::${line}`;
         if (stationLineNodes.has(nodeKey)) {
           nodes.add(nodeKey);
@@ -408,11 +415,9 @@ function buildDisruptionMask(
       }
     }
 
-    for (const rawLine of alert.affectedLines) {
-      for (const line of expandOperationalLines(rawLine)) {
-        if (!linesCoveredByStations.has(line)) {
-          lines.add(line);
-        }
+    for (const line of alertLines) {
+      if (!linesCoveredByStations.has(line)) {
+        lines.add(line);
       }
     }
   }
@@ -570,7 +575,10 @@ function computeRoute(
         );
         if (disrupted && disruptionPolicy === "exclude") continue;
         if (disrupted && disruptionPolicy === "penalize") {
-          stepCost += UNAVOIDABLE_DISRUPTION_PENALTY;
+          // Keep a disrupted hop costlier than a transfer in every mode.
+          stepCost +=
+            UNAVOIDABLE_DISRUPTION_PENALTY +
+            (mode === "fewest-transfers" ? FEWEST_TRANSFERS_PENALTY : 0);
         }
         if (mode === "less-crowded") {
           const level = crowdOnLine(

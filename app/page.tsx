@@ -57,6 +57,7 @@ export default function Home() {
     activeSources,
     allBusStops,
     allIncidents,
+    applySharedView,
     feeds,
     busRouteOverlay,
     busRouteState,
@@ -168,13 +169,7 @@ export default function Home() {
     if (urlHydratedRef.current) return;
     urlHydratedRef.current = true;
     const shared = parseViewLinkParams(window.location.search);
-    if (shared.sensorVisibility) {
-      setSensorVisibility(shared.sensorVisibility);
-    }
-    if (shared.geoFilter) {
-      pickGeoFilterCenter([shared.geoFilter.center[0], shared.geoFilter.center[1]]);
-      setGeoFilterRadiusM(shared.geoFilter.radiusM);
-    }
+    applySharedView(shared);
     if (shared.camera) {
       cameraRef.current = shared.camera;
       queueMicrotask(() => setInitialCamera(shared.camera!));
@@ -182,7 +177,7 @@ export default function Home() {
     if (shared.mapFocus) {
       queueMicrotask(() => setMapFocus(true));
     }
-  }, [pickGeoFilterCenter, setGeoFilterRadiusM, setSensorVisibility]);
+  }, [applySharedView]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {

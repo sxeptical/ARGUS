@@ -85,7 +85,7 @@ const PARK_FEATURES = PARKS_GEOJSON.features.filter(
 export function useDashboardState() {
   // Declared before the sources: carparks and EV chargers only load while
   // their layer is on.
-  const [sensorVisibility, setSensorVisibility] = usePersistentState<
+  const [sensorVisibility, setSensorVisibility, overrideSensorVisibility] = usePersistentState<
     Record<SensorKey, boolean>
   >(
     SENSOR_VISIBILITY_KEY,
@@ -128,10 +128,10 @@ export function useDashboardState() {
   const [selectedAmenityId, setSelectedAmenityId] =
     useState<AmenitySelectionTarget | null>(null);
   // Keep the radius when clearing and re-picking the filter centre.
-  const [geoFilterCenter, setGeoFilterCenter] = usePersistentState<
+  const [geoFilterCenter, setGeoFilterCenter, overrideGeoFilterCenter] = usePersistentState<
     readonly [number, number] | null
   >(GEO_FILTER_CENTER_KEY, null, parseGeoFilterCenter);
-  const [geoFilterRadiusM, setGeoFilterRadiusM] = usePersistentState(
+  const [geoFilterRadiusM, setGeoFilterRadiusM, overrideGeoFilterRadiusM] = usePersistentState(
     GEO_FILTER_RADIUS_KEY,
     GEO_FILTER_DEFAULT_RADIUS_M,
     parseGeoFilterRadius,
@@ -152,6 +152,21 @@ export function useDashboardState() {
     setGeoFilterCenter(null);
     setGeoFilterPicking(false);
   }, [setGeoFilterCenter]);
+  // A shared link applies its layers and radius for this visit only; the
+  // recipient's saved preferences change only once they edit them.
+  const applySharedView = useCallback(
+    (shared: {
+      sensorVisibility?: Record<SensorKey, boolean>;
+      geoFilter?: GeoFilter;
+    }) => {
+      if (shared.sensorVisibility) overrideSensorVisibility(shared.sensorVisibility);
+      if (shared.geoFilter) {
+        overrideGeoFilterCenter(shared.geoFilter.center);
+        overrideGeoFilterRadiusM(shared.geoFilter.radiusM);
+      }
+    },
+    [overrideGeoFilterCenter, overrideGeoFilterRadiusM, overrideSensorVisibility],
+  );
 
   // Display filtered feeds, but keep unfiltered data for search and selection.
   const busStops = useMemo(
@@ -434,6 +449,7 @@ export function useDashboardState() {
     geoFilterPicking,
     geoFilterRadiusM,
     amenityFilters,
+    applySharedView,
     clearGeoFilter,
     pickGeoFilterCenter,
     setGeoFilterPicking,
