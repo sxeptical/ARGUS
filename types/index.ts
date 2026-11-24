@@ -37,6 +37,27 @@ export type AirQualityOverlay = Record<
   { value: number | null; tone: AirQualityTone }
 >;
 
+export type RainMapWindow = "now" | "2h";
+
+export type RainMapTone = "info" | "warning" | "danger";
+
+export interface RainMapAreaPoint {
+  name: string;
+  lat: number;
+  lng: number;
+  tone: RainMapTone;
+  /** Concise status label, e.g. "Raining", "Heavy rain", "Lightning", "Thundery Showers". */
+  label: string;
+  /** True when lightning strikes or thundery showers apply to this area. */
+  lightning: boolean;
+}
+
+/** Active rain/storm areas drawn by the main map's weather overlay. */
+export interface RainOverlay {
+  window: RainMapWindow;
+  areas: RainMapAreaPoint[];
+}
+
 export interface WeatherData {
   temperature: number | null;
   humidity: number | null;

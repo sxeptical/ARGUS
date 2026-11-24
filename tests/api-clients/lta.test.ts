@@ -461,4 +461,27 @@ describe("getTrainCrowds", () => {
     );
     expect(error).toBeInstanceOf(ExternalApiError);
   });
+
+  test("stops remaining batches immediately on a 429 quota violation", async () => {
+    let calls = 0;
+    const error = await withFetch(
+      async () => {
+        calls += 1;
+        return new Response(
+          JSON.stringify({
+            fault: {
+              faultstring: "Rate limit quota violation.",
+              detail: { errorcode: "policies.ratelimit.QuotaViolation" },
+            },
+          }),
+          { status: 500 },
+        );
+      },
+      () => rejection(getTrainCrowds()),
+    );
+    expect(error).toBeInstanceOf(ExternalApiError);
+    expect((error as ExternalApiError).status).toBe(429);
+    // Stops after the first batch (3 lines) instead of burning all 11.
+    expect(calls).toBe(3);
+  });
 });

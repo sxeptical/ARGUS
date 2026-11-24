@@ -1,10 +1,13 @@
 /**
- * URL serializer and parser for shareable dashboard view links: encodes
- * camera lat/lng/zoom, active map layers, radius filter, and map focus mode.
+ * Encode and parse shareable dashboard view URLs: map camera, active layers,
+ * optional radius filter, and map-focus layout mode.
  */
-import { GEO_FILTER_DEFAULT_RADIUS_M, type GeoFilter } from "@/lib/geo-filter";
+import {
+  GEO_FILTER_MAX_RADIUS_M,
+  GEO_FILTER_MIN_RADIUS_M,
+  type GeoFilter,
+} from "@/lib/geo-filter";
 import { LAYER_BY_KEY, LAYERS, type SensorKey } from "@/lib/layers";
-import { parseGeoFilterCenter, parseGeoFilterRadius } from "@/lib/ui-preferences";
 
 export type MapCameraView = {
   readonly lat: number;
@@ -19,117 +22,173 @@ export const DEFAULT_MAP_CAMERA: MapCameraView = {
 };
 
 export type SharedViewState = {
-  camera?: MapCameraView;
-  sensorVisibility?: Record<SensorKey, boolean>;
-  geoFilter?: GeoFilter;
-  mapFocus?: boolean;
+  readonly camera?: MapCameraView | null;
+  readonly sensorVisibility?: Readonly<Record<SensorKey, boolean>>;
+  readonly geoFilter?: GeoFilter | null;
+  readonly mapFocus?: boolean;
 };
 
-function parseFinite(raw: string | null): number | null {
-  if (raw === null || raw.trim() === "") return null;
-  const value = Number(raw);
-  return Number.isFinite(value) ? value : null;
+export type ParsedViewLink = {
+  readonly camera?: MapCameraView;
+  readonly sensorVisibility?: Record<SensorKey, boolean>;
+  readonly geoFilter?: GeoFilter;
+  readonly mapFocus?: boolean;
+};
+
+const MIN_ZOOM = 0;
+const MAX_ZOOM = 22;
+
+function roundTo(value: number, decimals: number): string {
+  const factor = 10 ** decimals;
+  return String(Math.round(value * factor) / factor);
+}
+
+function parseFiniteNumber(raw: string | null): number | undefined {
+  if (raw === null || raw.trim() === "") return undefined;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function isValidLatLng(lat: number, lng: number): boolean {
+  return Math.abs(lat) <= 90 && Math.abs(lng) <= 180;
 }
 
 export function buildViewLinkUrl(
   baseUrl: string,
-  state: {
-    camera: MapCameraView;
-    sensorVisibility: Readonly<Record<SensorKey, boolean>>;
-    geoFilter: GeoFilter | null;
-    mapFocus: boolean;
-  },
+  state: SharedViewState,
 ): string {
-  const url = new URL(baseUrl);
-  url.search = "";
-  url.searchParams.set("lat", state.camera.lat.toFixed(5));
-  url.searchParams.set("lng", state.camera.lng.toFixed(5));
-  url.searchParams.set("z", state.camera.zoom.toFixed(2));
+  const params = new URLSearchParams();
 
-  const enabledLayers = LAYERS.filter(
-    (layer) => state.sensorVisibility[layer.key],
-  ).map((layer) => layer.key);
-  url.searchParams.set(
-    "layers",
-    enabledLayers.length > 0 ? enabledLayers.join(",") : "none",
-  );
-
-  if (state.geoFilter) {
-    url.searchParams.set(
-      "rc",
-      `${state.geoFilter.center[0].toFixed(5)},${state.geoFilter.center[1].toFixed(5)}`,
+  if (
+    state.camera &&
+    Number.isFinite(state.camera.lat) &&
+    Number.isFinite(state.camera.lng) &&
+    Number.isFinite(state.camera.zoom) &&
+    isValidLatLng(state.camera.lat, state.camera.lng)
+  ) {
+    params.set("lat", roundTo(state.camera.lat, 5));
+    params.set("lng", roundTo(state.camera.lng, 5));
+    params.set(
+      "z",
+      roundTo(Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, state.camera.zoom)), 2),
     );
-    url.searchParams.set("r", String(Math.round(state.geoFilter.radiusM)));
+  }
+
+  if (state.sensorVisibility) {
+    const active = LAYERS.filter(
+      (layer) => state.sensorVisibility?.[layer.key] === true,
+    ).map((layer) => layer.key);
+    params.set("layers", active.length > 0 ? active.join(",") : "none");
+  }
+
+  if (
+    state.geoFilter &&
+    Number.isFinite(state.geoFilter.center[0]) &&
+    Number.isFinite(state.geoFilter.center[1]) &&
+    Number.isFinite(state.geoFilter.radiusM) &&
+    isValidLatLng(state.geoFilter.center[1], state.geoFilter.center[0])
+  ) {
+    const clampedRadius = Math.round(
+      Math.min(
+        GEO_FILTER_MAX_RADIUS_M,
+        Math.max(GEO_FILTER_MIN_RADIUS_M, state.geoFilter.radiusM),
+      ),
+    );
+    params.set(
+      "r",
+      `${roundTo(state.geoFilter.center[1], 5)},${roundTo(state.geoFilter.center[0], 5)},${clampedRadius}`,
+    );
   }
 
   if (state.mapFocus) {
-    url.searchParams.set("focus", "1");
+    params.set("focus", "1");
   }
 
-  return url.toString();
+  const query = params.toString();
+  const cleanBase = baseUrl.split(/[?#]/)[0] ?? baseUrl;
+  return query ? `${cleanBase}?${query}` : cleanBase;
 }
 
 export function parseViewLinkParams(
-  search: string | URLSearchParams,
-): SharedViewState {
+  input: string | URLSearchParams,
+): ParsedViewLink {
   const params =
-    typeof search === "string" ? new URLSearchParams(search) : search;
-  const result: SharedViewState = {};
+    typeof input === "string"
+      ? new URLSearchParams(input.startsWith("?") ? input.slice(1) : input)
+      : input;
 
-  const lat = parseFinite(params.get("lat"));
-  const lng = parseFinite(params.get("lng"));
-  const zoom = parseFinite(params.get("z"));
+  const result: {
+    camera?: MapCameraView;
+    sensorVisibility?: Record<SensorKey, boolean>;
+    geoFilter?: GeoFilter;
+    mapFocus?: boolean;
+  } = {};
+
+  const lat = parseFiniteNumber(params.get("lat"));
+  const lng = parseFiniteNumber(params.get("lng"));
+  const zoom = parseFiniteNumber(params.get("z"));
   if (
-    lat !== null &&
-    lng !== null &&
-    zoom !== null &&
-    Math.abs(lat) <= 90 &&
-    Math.abs(lng) <= 180 &&
-    zoom >= 0 &&
-    zoom <= 22
+    lat !== undefined &&
+    lng !== undefined &&
+    zoom !== undefined &&
+    isValidLatLng(lat, lng)
   ) {
-    result.camera = { lat, lng, zoom };
+    result.camera = {
+      lat,
+      lng,
+      zoom: Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, zoom)),
+    };
   }
 
-  if (params.has("layers")) {
-    const visibility = Object.fromEntries(
-      LAYERS.map((layer) => [layer.key, false]),
-    ) as Record<SensorKey, boolean>;
-    const tokens = (params.get("layers") ?? "")
-      .split(",")
-      .map((token) => token.trim())
-      .filter(Boolean);
-    for (const token of tokens) {
-      if (token === "none") continue;
-      if (LAYER_BY_KEY.has(token as SensorKey)) {
-        visibility[token as SensorKey] = true;
-      }
-    }
-    result.sensorVisibility = visibility;
-  }
-
-  if (params.has("rc")) {
-    const parts = (params.get("rc") ?? "").split(",");
-    if (parts.length === 2) {
-      const centerLng = parseFinite(parts[0]);
-      const centerLat = parseFinite(parts[1]);
-      if (centerLng !== null && centerLat !== null) {
-        const validCenter = parseGeoFilterCenter([centerLng, centerLat]);
-        if (validCenter) {
-          const parsedRadius = parseFinite(params.get("r"));
-          const radiusM =
-            parsedRadius !== null
-              ? (parseGeoFilterRadius(parsedRadius) ??
-                GEO_FILTER_DEFAULT_RADIUS_M)
-              : GEO_FILTER_DEFAULT_RADIUS_M;
-          result.geoFilter = { center: validCenter, radiusM };
+  const rawLayers = params.get("layers");
+  if (rawLayers !== null) {
+    const trimmed = rawLayers.trim();
+    if (trimmed === "none") {
+      result.sensorVisibility = Object.fromEntries(
+        LAYERS.map((layer) => [layer.key, false]),
+      ) as Record<SensorKey, boolean>;
+    } else if (trimmed.length > 0) {
+      const requested = new Set<SensorKey>();
+      for (const token of trimmed.split(",")) {
+        const key = token.trim() as SensorKey;
+        if (LAYER_BY_KEY.has(key)) {
+          requested.add(key);
         }
       }
+      if (requested.size > 0) {
+        result.sensorVisibility = Object.fromEntries(
+          LAYERS.map((layer) => [layer.key, requested.has(layer.key)]),
+        ) as Record<SensorKey, boolean>;
+      }
     }
   }
 
-  const focusRaw = params.get("focus");
-  if (focusRaw === "1" || focusRaw === "true") {
+  const rawRadius = params.get("r");
+  if (rawRadius) {
+    const parts = rawRadius.split(",");
+    if (parts.length === 3) {
+      const rLat = parseFiniteNumber(parts[0]);
+      const rLng = parseFiniteNumber(parts[1]);
+      const rMeters = parseFiniteNumber(parts[2]);
+      if (
+        rLat !== undefined &&
+        rLng !== undefined &&
+        rMeters !== undefined &&
+        isValidLatLng(rLat, rLng)
+      ) {
+        result.geoFilter = {
+          center: [rLng, rLat],
+          radiusM: Math.min(
+            GEO_FILTER_MAX_RADIUS_M,
+            Math.max(GEO_FILTER_MIN_RADIUS_M, rMeters),
+          ),
+        };
+      }
+    }
+  }
+
+  const rawFocus = params.get("focus");
+  if (rawFocus === "1" || rawFocus === "true") {
     result.mapFocus = true;
   }
 

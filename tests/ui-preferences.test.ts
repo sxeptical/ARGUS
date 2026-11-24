@@ -8,6 +8,7 @@ import {
   parseGeoFilterCenter,
   parseGeoFilterRadius,
   parseLayerOptionSelection,
+  parseMrtRouteMode,
   parseMrtStation,
   parseNotificationPrefs,
   parseSeenSignals,
@@ -71,6 +72,14 @@ describe("ui preference parsing", () => {
     expect(parseMrtStation("")).toBeUndefined();
     expect(parseMrtStation(null)).toBeUndefined();
     expect(parseMrtStation(42)).toBeUndefined();
+  });
+
+  test("accepts only known MRT route modes", () => {
+    expect(parseMrtRouteMode("fastest")).toBe("fastest");
+    expect(parseMrtRouteMode("less-crowded")).toBe("less-crowded");
+    expect(parseMrtRouteMode("fewest-transfers")).toBe("fewest-transfers");
+    expect(parseMrtRouteMode("scenic")).toBeUndefined();
+    expect(parseMrtRouteMode(null)).toBeUndefined();
   });
 
   test("applies stored notification flags over defaults", () => {

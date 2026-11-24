@@ -101,8 +101,8 @@ const TRAIN_CROWDS: SourceDefinition = {
   key: "train crowds",
   label: "Train Platform Crowds",
   url: "/api/train-crowds",
-  // LTA publishes 10-minute windows; the server caches for five minutes.
-  refreshMs: 5 * 60 * 1000,
+  // LTA publishes 10-minute windows; match the server cache to avoid quota churn.
+  refreshMs: 10 * 60 * 1000,
 };
 
 // Stable fallbacks: a fresh [] every render would re-run consumers' effects
@@ -162,10 +162,11 @@ function toSourceState(
   return { key: source.key, label: source.label, status };
 }
 
-/** Layers whose feeds are only fetched while toggled on. */
+/** Feeds fetched only while their layer or panel feature is active. */
 export type OnDemandLayers = {
   readonly carparks: boolean;
   readonly evChargers: boolean;
+  readonly trainCrowds: boolean;
 };
 
 export function useDashboardSources(
@@ -184,7 +185,9 @@ export function useDashboardSources(
   const news = useSource<NewsItem[]>(NEWS);
   const flights = useSource<FlightState[]>(FLIGHTS_ENABLED ? FLIGHTS : null);
   const trainAlerts = useSource<TrainServiceAlert[]>(TRAIN_ALERTS, pollSignalsWhenHidden);
-  const trainCrowds = useSource<TrainCrowds>(TRAIN_CROWDS);
+  const trainCrowds = useSource<TrainCrowds>(
+    onDemand.trainCrowds ? TRAIN_CROWDS : null,
+  );
   const carparks = useSource<CarparkAvailability[]>(
     onDemand.carparks ? CARPARKS : null,
   );
@@ -200,11 +203,11 @@ export function useDashboardSources(
     weatherAlerts: toSourceState(WEATHER_ALERTS, weatherAlerts),
     news: toSourceState(NEWS, news),
     trainAlerts: toSourceState(TRAIN_ALERTS, trainAlerts),
-    trainCrowds: toSourceState(TRAIN_CROWDS, trainCrowds),
   };
   const activeSources = [
     ...Object.values(feeds),
     ...(FLIGHTS_ENABLED ? [toSourceState(FLIGHTS, flights)] : []),
+    ...(onDemand.trainCrowds ? [toSourceState(TRAIN_CROWDS, trainCrowds)] : []),
     ...(onDemand.carparks ? [toSourceState(CARPARKS, carparks)] : []),
     ...(onDemand.evChargers ? [toSourceState(EV_CHARGERS, evChargers)] : []),
   ];

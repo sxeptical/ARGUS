@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { Theme } from "@/lib/theme";
 
 export function HeaderClock() {
@@ -49,6 +49,7 @@ export function HeaderChip({
 export function DashboardHeader({
   activeSourceCount,
   notificationBell,
+  onCopyViewLink,
   onToggleTheme,
   onlineSourceCount,
   systemStatus,
@@ -56,11 +57,36 @@ export function DashboardHeader({
 }: {
   activeSourceCount: number;
   notificationBell: ReactNode;
+  onCopyViewLink?: () => Promise<boolean> | boolean;
   onToggleTheme: () => void;
   onlineSourceCount: number;
   systemStatus: string;
   theme: Theme;
 }) {
+  const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
+  const copyTimerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (copyTimerRef.current !== null) {
+        window.clearTimeout(copyTimerRef.current);
+      }
+    };
+  }, []);
+
+  const handleCopyClick = async () => {
+    if (!onCopyViewLink) return;
+    const ok = await onCopyViewLink();
+    setCopyState(ok ? "copied" : "failed");
+    if (copyTimerRef.current !== null) {
+      window.clearTimeout(copyTimerRef.current);
+    }
+    copyTimerRef.current = window.setTimeout(() => {
+      setCopyState("idle");
+      copyTimerRef.current = null;
+    }, 2_000);
+  };
+
   return (
     <header className="border border-line bg-surface px-3 py-2 sm:px-4 sm:py-3">
       <div className="flex items-center justify-between gap-3">
@@ -92,6 +118,39 @@ export function DashboardHeader({
             <span className="status-dot" aria-hidden="true" />
             {systemStatus}
           </span>
+          {onCopyViewLink ? (
+            <button
+              type="button"
+              onClick={() => void handleCopyClick()}
+              title="Copy shareable view link"
+              aria-label="Copy shareable view link"
+              className={`inline-flex h-7 items-center gap-1.5 px-1.5 text-[10px] uppercase tracking-[0.1em] transition-colors duration-150 ${
+                copyState === "copied"
+                  ? "text-success"
+                  : copyState === "failed"
+                    ? "text-warning"
+                    : "text-muted hover:text-ink"
+              }`}
+            >
+              {copyState === "copied" ? (
+                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" className="h-3.5 w-3.5" aria-hidden="true">
+                  <path d="M3 8.5 6.5 12 13 4.5" />
+                </svg>
+              ) : (
+                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" className="h-3.5 w-3.5" aria-hidden="true">
+                  <path d="M6.5 9.5a3.5 3.5 0 0 0 5 0l2-2a3.5 3.5 0 0 0-5-5l-1 1" />
+                  <path d="M9.5 6.5a3.5 3.5 0 0 0-5 0l-2 2a3.5 3.5 0 0 0 5 5l1-1" />
+                </svg>
+              )}
+              <span className="hidden md:inline">
+                {copyState === "copied"
+                  ? "Copied"
+                  : copyState === "failed"
+                    ? "Copy failed"
+                    : "Share"}
+              </span>
+            </button>
+          ) : null}
           <button
             type="button"
             onClick={onToggleTheme}

@@ -11,10 +11,20 @@ import {
   psiTone,
 } from "@/lib/air-quality";
 import { formatSgDateTime, formatSgTime } from "@/lib/formatters";
+import { formatRadius, type GeoFilter } from "@/lib/geo-filter";
+import {
+  buildRainMapData,
+  filterAreaNamesByGeoFilter,
+  geoFilterToMinimapEllipse,
+  MINIMAP_HEIGHT,
+  MINIMAP_WIDTH,
+  type MinimapAreaDot,
+} from "@/lib/rain-map";
 import { isThunderyForecast } from "@/lib/rain-outlook";
 import { HEAVY_RAIN_MM, LIGHTNING_NEAR_M } from "@/lib/weather-alerts";
 import {
   AIR_SECTION_PINNED_KEY,
+  RAIN_SECTION_PINNED_KEY,
   parseStoredBoolean,
   prefKey,
 } from "@/lib/ui-preferences";
@@ -22,18 +32,18 @@ import type {
   AirQualityOverlay,
   AirQualityTone,
   AirRegionKey,
-  LightningStats,
   Pm25Band,
   PsiStatus,
-  RainForecast,
+  RainMapTone,
+  RainMapWindow,
   RainOutlook,
-  RainStats,
+  RainOverlay,
   RegionalAirReadings,
   WeatherAlerts,
   WeatherData,
   WeatherHistoryPoint,
 } from "@/types";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 function formatMetric(value: number | null, unit: string): string {
   return value === null ? "—" : `${value}${unit}`;
@@ -45,7 +55,10 @@ type WeatherPanelProps = {
   /** Lightning and rainfall over the last half hour, from their own feed. */
   storms: WeatherAlerts;
   history: WeatherHistoryPoint[];
+  geoFilter?: GeoFilter | null;
   onAirQualityOverlayChange?: (overlay: AirQualityOverlay | null) => void;
+  onRainOverlayChange?: (overlay: RainOverlay | null) => void;
+  onFocusLocation?: (target: { lat: number; lng: number; zoom: number }) => void;
   /** Extra classes on the panel section (e.g. a max height + internal
       scroll in a height-constrained column). */
   className?: string;
@@ -110,7 +123,10 @@ export default function WeatherPanel({
   weather,
   storms,
   history,
+  geoFilter = null,
   onAirQualityOverlayChange,
+  onRainOverlayChange,
+  onFocusLocation,
   className,
 }: WeatherPanelProps) {
   const [airWindow, setAirWindow] = useState<AirWindow>("1h");
@@ -120,6 +136,30 @@ export default function WeatherPanel({
     parseStoredBoolean,
   );
   const [airExpanded, setAirExpanded] = useState(false);
+
+  const [rainWindow, setRainWindow] = useState<RainMapWindow>("now");
+  const [rainPinned, setRainPinned] = usePersistentState(
+    RAIN_SECTION_PINNED_KEY,
+    false,
+    parseStoredBoolean,
+  );
+  const [rainExpanded, setRainExpanded] = useState(false);
+
+  const rainMapData = useMemo(
+    () => buildRainMapData(rainWindow, storms, weather.rainOutlook, geoFilter),
+    [rainWindow, storms, weather.rainOutlook, geoFilter],
+  );
+  const showRainOnMap = rainExpanded || rainPinned;
+
+  useEffect(() => {
+    onRainOverlayChange?.(
+      showRainOnMap ? { window: rainWindow, areas: rainMapData.active } : null,
+    );
+  }, [showRainOnMap, rainWindow, rainMapData.active, onRainOverlayChange]);
+
+  useEffect(() => {
+    return () => onRainOverlayChange?.(null);
+  }, [onRainOverlayChange]);
 
   const isDaily = airWindow === "24h";
   const airTone = isDaily
@@ -157,7 +197,7 @@ export default function WeatherPanel({
         : weather.uvStatus === "High" || weather.uvStatus === "Very High"
           ? "text-danger"
           : "text-muted";
-  const rainSummary = summarizeRainRow(storms, weather.rainOutlook);
+  const rainSummary = summarizeRainRow(storms, weather.rainOutlook, geoFilter);
   const uvValue =
     weather.uv === null ? "—" : `${weather.uv} (${weather.uvStatus})`;
 
@@ -183,11 +223,25 @@ export default function WeatherPanel({
           <HumidityDetail current={weather.humidity} history={history} />
         </ExpandableRow>
 
-        <ExpandableRow label="Rain" value={rainSummary.text} valueClass={TONE_CLASSES[rainSummary.tone]}>
-          <RainNowDetail rain={storms.rain} />
-          <LightningDetail lightning={storms.lightning} />
-          <NextTwoHoursDetail outlook={weather.rainOutlook.nextTwoHours} />
-          <RainPeriodsDetail periods={weather.rainOutlook.periods} />
+        <ExpandableRow
+          label="Rain"
+          value={rainSummary.text}
+          valueClass={TONE_CLASSES[rainSummary.tone]}
+          onExpandedChange={setRainExpanded}
+        >
+          <RainLightningDetail
+            rainWindow={rainWindow}
+            onWindowChange={setRainWindow}
+            storms={storms}
+            outlook={weather.rainOutlook}
+            geoFilter={geoFilter}
+            dots={rainMapData.dots}
+            activeCount={rainMapData.active.length}
+            inRadiusCount={rainMapData.inRadiusCount}
+            pinned={rainPinned}
+            onTogglePin={() => setRainPinned((prev) => !prev)}
+            onFocusLocation={onFocusLocation}
+          />
         </ExpandableRow>
 
         <ExpandableRow
@@ -535,189 +589,552 @@ function UvDetail({
 }
 
 /**
- * One line for the Rain row: what is happening now (rain, lightning) beats
- * what is forecast, and the worst of them sets the colour.
+ * Compact one-line summary for the Rain row: active conditions (rain, lightning)
+ * beat forecast, and the worst of them sets the colour. Respects `geoFilter`.
  */
 function summarizeRainRow(
   storms: WeatherAlerts,
   outlook: RainOutlook,
+  geoFilter?: GeoFilter | null,
 ): { text: string; tone: AirQualityTone } {
   const { rain, lightning } = storms;
+  const heavyAreas = rain ? filterAreaNamesByGeoFilter(rain.heavyAreas, geoFilter) : [];
+  const rainingAreas = rain ? filterAreaNamesByGeoFilter(rain.rainingAreas, geoFilter) : [];
+  const lightningAreas = lightning ? filterAreaNamesByGeoFilter(lightning.areas, geoFilter) : [];
   const parts: string[] = [];
   let tone: AirQualityTone = "muted";
-  if (rain && rain.heavyAreas.length > 0) {
-    parts.push(`heavy rain · ${rain.peakMm} mm`);
+
+  if (heavyAreas.length > 0) {
+    parts.push(geoFilter ? `Heavy · ${plural(heavyAreas.length, "area")}` : `Heavy · ${rain?.peakMm} mm`);
     tone = "warning";
-  } else if (rain && rain.rainingStations > 0) {
-    parts.push(`raining in ${plural(rain.rainingAreas.length, "area")}`);
+  } else if (rainingAreas.length > 0) {
+    parts.push(
+      geoFilter
+        ? `Rain · ${plural(rainingAreas.length, "area")}`
+        : `${rain?.maxMm} mm · ${plural(rainingAreas.length, "area")}`,
+    );
+    tone = "muted";
   }
-  if (lightning && lightning.strikes > 0) {
-    parts.push("lightning");
+  if (lightning && lightning.strikes > 0 && lightningAreas.length > 0) {
+    parts.push(
+      geoFilter
+        ? "Lightning"
+        : parts.length > 0
+          ? "Lightning"
+          : `Lightning · ${lightning.strikes}`,
+    );
     tone = lightning.groundStrikes > 0 ? "danger" : "warning";
   }
   if (parts.length > 0) {
-    const text = parts.join(" · ");
-    return { text: text.charAt(0).toUpperCase() + text.slice(1), tone };
+    return { text: parts.join(" · "), tone };
   }
   const next = outlook.nextTwoHours;
-  if (next && next.rain.length > 0) {
-    return {
-      text: `Likely in ${next.rain.length}/${next.areaCount} areas`,
-      tone: next.rain.some((entry) => isThunderyForecast(entry.forecast)) ? "warning" : "muted",
-    };
+  if (next) {
+    const scopedNext = geoFilter
+      ? next.rain.filter(
+          (entry) => filterAreaNamesByGeoFilter([entry.place], geoFilter).length > 0,
+        )
+      : next.rain;
+    if (scopedNext.length > 0) {
+      return {
+        text: geoFilter
+          ? `2h · ${plural(scopedNext.length, "area")}`
+          : `2h · ${scopedNext.length}/${next.areaCount} areas`,
+        tone: scopedNext.some((entry) => isThunderyForecast(entry.forecast)) ? "warning" : "muted",
+      };
+    }
+    return { text: "Dry", tone: "muted" };
   }
-  if (next) return { text: rain ? "Dry · none expected" : "None expected", tone: "muted" };
-  return { text: rain ? "Dry" : "—", tone: "muted" };
+  if (rain) return { text: "Dry", tone: "muted" };
+  return { text: "—", tone: "muted" };
 }
 
 const plural = (count: number, one: string) => `${count} ${one}${count === 1 ? "" : "s"}`;
 
-function DetailSection({ title, children }: { title: string; children: ReactNode }) {
-  return (
-    <div className="space-y-1 text-[11px]">
-      <div className="data-label">{title}</div>
-      {children}
-    </div>
-  );
-}
+const REGION_ABBR: Record<string, string> = {
+  north: "N",
+  south: "S",
+  east: "E",
+  west: "W",
+  central: "C",
+};
 
-function DetailLine({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <div className="flex gap-2">
-      <span className="w-20 shrink-0 text-muted">{label}</span>
-      <span className="min-w-0 flex-1">{children}</span>
-    </div>
-  );
-}
+const RAIN_DOT_COLOR: Record<RainMapTone, string> = {
+  info: "var(--color-info)",
+  warning: "var(--color-warning)",
+  danger: "var(--color-danger)",
+};
 
-/** "Thundery Showers: Bedok, Changi" lines, one per wording, thundery first. */
-function ForecastGroups({ rain }: { rain: ReadonlyArray<RainForecast> }) {
-  const groups = new Map<string, string[]>();
-  for (const entry of rain) groups.set(entry.forecast, [...(groups.get(entry.forecast) ?? []), entry.place]);
-  const ordered = [...groups.entries()].sort(
+const RAIN_TEXT_CLASS: Record<RainMapTone, string> = {
+  info: "text-info",
+  warning: "text-warning",
+  danger: "text-danger",
+};
+
+/** Compact 1-line summary for a 24h period (e.g. "Thundery Showers · N, W"). */
+function summarizePeriodRain(period: RainOutlook["periods"][number]): {
+  text: string;
+  tone: AirQualityTone;
+  detail: string;
+} {
+  if (period.rain.length === 0) {
+    return { text: "Dry", tone: "muted", detail: "No rain expected" };
+  }
+  const thundery = period.rain.some((entry) => isThunderyForecast(entry.forecast));
+  const byForecast = new Map<string, string[]>();
+  for (const entry of period.rain) {
+    byForecast.set(entry.forecast, [...(byForecast.get(entry.forecast) ?? []), entry.place]);
+  }
+  const ordered = [...byForecast.entries()].sort(
     ([a], [b]) => Number(isThunderyForecast(b)) - Number(isThunderyForecast(a)) || a.localeCompare(b),
   );
-  return (
-    <>
-      {ordered.map(([forecast, places]) => (
-        <div key={forecast}>
-          <span className={isThunderyForecast(forecast) ? "text-warning" : "text-info"}>{forecast}</span>
-          <span className="text-muted">: {places.join(", ")}</span>
-        </div>
-      ))}
-    </>
-  );
+  const [primaryForecast, primaryPlaces] = ordered[0];
+  const detail = ordered
+    .map(([forecast, places]) => `${forecast}: ${places.join(", ")}`)
+    .join(" · ");
+
+  if (ordered.length === 1 && primaryPlaces.length >= period.regionCount) {
+    return {
+      text: `${primaryForecast} · All`,
+      tone: thundery ? "warning" : "muted",
+      detail,
+    };
+  }
+  const regionCodes = period.rain
+    .map((entry) => REGION_ABBR[entry.place.toLowerCase()] ?? entry.place)
+    .join(",");
+  return {
+    text: `${primaryForecast} · ${regionCodes}`,
+    tone: thundery ? "warning" : "muted",
+    detail,
+  };
 }
 
-function RainNowDetail({ rain }: { rain: RainStats | null }) {
-  return (
-    <DetailSection title="Now">
-      {!rain ? (
-        <div className="text-muted">Rainfall data is currently unavailable.</div>
-      ) : (
-        <>
-          {rain.rainingStations === 0 ? (
-            <div className="text-muted">No rain gauge has recorded rain in the last 15 minutes.</div>
-          ) : (
-            <>
-              <DetailLine label="Wettest">up to {rain.maxMm} mm in 15 min</DetailLine>
-              <DetailLine label="Raining">{rain.rainingAreas.join(", ")}</DetailLine>
-              <DetailLine label="Gauges">
-                {rain.rainingStations} of {rain.stationCount} reporting rain
-              </DetailLine>
-            </>
-          )}
-          {/* Heavy rain is held for 30 minutes, so it can outlast the rain itself. */}
-          {rain.heavyAreas.length > 0 ? (
-            <DetailLine label="Heavy">
-              <span className="text-warning">{rain.heavyAreas.join(", ")}</span>
-              <span className="text-muted"> · up to {rain.peakMm} mm in 15 min, last 30 min</span>
-            </DetailLine>
-          ) : null}
-        </>
-      )}
-      {rain ? (
-        <div className="text-muted" suppressHydrationWarning>
-          NEA rain gauges · heavy is {HEAVY_RAIN_MM} mm or more in 15 min · as of{" "}
-          {formatSgTime(rain.observedAt)}
-        </div>
-      ) : null}
-    </DetailSection>
-  );
-}
+function SingaporeRainMinimap({
+  rainWindow,
+  dots,
+  geoFilter,
+  onFocusLocation,
+}: {
+  rainWindow: RainMapWindow;
+  dots: ReadonlyArray<MinimapAreaDot>;
+  geoFilter?: GeoFilter | null;
+  onFocusLocation?: (target: { lat: number; lng: number; zoom: number }) => void;
+}) {
+  const [hoveredDot, setHoveredDot] = useState<MinimapAreaDot | null>(null);
 
-function LightningDetail({ lightning }: { lightning: LightningStats | null }) {
+  const orderedDots = useMemo(() => {
+    if (!hoveredDot) return dots;
+    return [
+      ...dots.filter((dot) => dot.name !== hoveredDot.name),
+      hoveredDot,
+    ];
+  }, [dots, hoveredDot]);
+
+  const filterEllipse = useMemo(
+    () => (geoFilter ? geoFilterToMinimapEllipse(geoFilter) : null),
+    [geoFilter],
+  );
+
   return (
-    <DetailSection title="Lightning">
-      {!lightning ? (
-        <div className="text-muted">Lightning data is currently unavailable.</div>
-      ) : lightning.strikes === 0 ? (
-        <div className="text-muted">
-          No strikes within {LIGHTNING_NEAR_M / 1000} km of Singapore in the last 30 minutes.
-        </div>
-      ) : (
-        <>
-          <DetailLine label="Near">{lightning.areas.join(", ")}</DetailLine>
-          <DetailLine label="Strikes">
-            {lightning.strikes} in 30 min ·{" "}
-            <span className={lightning.groundStrikes > 0 ? "text-danger" : ""}>
-              {lightning.groundStrikes} to ground
+    <div className="border border-line bg-surface">
+      <svg
+        viewBox={`0 0 ${MINIMAP_WIDTH} ${MINIMAP_HEIGHT}`}
+        className="block h-auto w-full select-none"
+        role="img"
+        aria-label={`Singapore ${rainWindow === "now" ? "live rain and lightning" : "2-hour rain forecast"} minimap`}
+        onMouseLeave={() => setHoveredDot(null)}
+      >
+        {orderedDots.map((dot) => {
+          const isHovered = hoveredDot?.name === dot.name;
+          const color = dot.active ? RAIN_DOT_COLOR[dot.active.tone] : "var(--color-muted)";
+          const label = !dot.inRadius
+            ? `${dot.name}: Outside radius`
+            : dot.active
+              ? `${dot.name}: ${dot.active.label}`
+              : `${dot.name}: Dry`;
+          const fill = dot.active ? color : "var(--color-surface-raised)";
+          const fillOpacity = !dot.inRadius
+            ? 0.35
+            : dot.active
+              ? dot.active.tone === "danger"
+                ? 0.34
+                : 0.26
+              : 1;
+          const stroke = isHovered
+            ? "var(--color-ink)"
+            : dot.active
+              ? color
+              : "var(--color-line)";
+          const strokeOpacity = !dot.inRadius && !isHovered ? 0.35 : 1;
+          const strokeWidth = isHovered
+            ? 1.3
+            : dot.active
+              ? dot.active.lightning
+                ? 1.15
+                : 0.85
+              : 0.65;
+          return (
+            <g
+              key={dot.name}
+              role="button"
+              tabIndex={0}
+              aria-label={label}
+              className={onFocusLocation ? "cursor-pointer outline-none" : "outline-none"}
+              onMouseEnter={() => setHoveredDot(dot)}
+              onFocus={() => setHoveredDot(dot)}
+              onBlur={() => setHoveredDot((cur) => (cur?.name === dot.name ? null : cur))}
+              onClick={() => onFocusLocation?.({ lat: dot.lat, lng: dot.lng, zoom: 13 })}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  onFocusLocation?.({ lat: dot.lat, lng: dot.lng, zoom: 13 });
+                }
+              }}
+            >
+              {dot.svgPath ? (
+                <path
+                  d={dot.svgPath}
+                  fill={fill}
+                  fillOpacity={fillOpacity}
+                  stroke={stroke}
+                  strokeOpacity={strokeOpacity}
+                  strokeWidth={strokeWidth}
+                  strokeLinejoin="round"
+                />
+              ) : (
+                <circle
+                  cx={dot.x}
+                  cy={dot.y}
+                  r={dot.active ? 3.5 : 1.7}
+                  fill={fill}
+                  fillOpacity={fillOpacity}
+                  stroke={stroke}
+                  strokeOpacity={strokeOpacity}
+                  strokeWidth={strokeWidth}
+                />
+              )}
+            </g>
+          );
+        })}
+        {filterEllipse ? (
+          <ellipse
+            cx={filterEllipse.cx}
+            cy={filterEllipse.cy}
+            rx={filterEllipse.rx}
+            ry={filterEllipse.ry}
+            fill="none"
+            stroke="var(--color-info)"
+            strokeWidth={0.9}
+            strokeDasharray="2 1.5"
+            pointerEvents="none"
+          />
+        ) : null}
+      </svg>
+
+      <div className="flex items-center justify-between gap-2 border-t border-line px-2 py-1 text-[10px]">
+        {hoveredDot ? (
+          <div className="min-w-0 truncate">
+            <span className="font-medium text-ink">{hoveredDot.name}</span>
+            <span className="text-muted"> · </span>
+            <span
+              className={
+                !hoveredDot.inRadius
+                  ? "text-muted"
+                  : hoveredDot.active
+                    ? RAIN_TEXT_CLASS[hoveredDot.active.tone]
+                    : "text-muted"
+              }
+            >
+              {!hoveredDot.inRadius
+                ? "Outside radius"
+                : (hoveredDot.active?.label ?? "Dry")}
             </span>
-          </DetailLine>
-          {lightning.lastStrikeAt ? (
-            <DetailLine label="Last strike">
-              <span suppressHydrationWarning>{formatSgTime(lightning.lastStrikeAt)}</span>
-            </DetailLine>
-          ) : null}
-        </>
-      )}
-    </DetailSection>
+          </div>
+        ) : (
+          <>
+            <div className="flex items-center gap-2 text-[9px] uppercase tracking-[0.06em] text-muted">
+              {rainWindow === "now" ? (
+                <>
+                  <span className="inline-flex items-center gap-1">
+                    <span className="h-1.5 w-1.5 rounded-full bg-info" />
+                    Rain
+                  </span>
+                  <span className="inline-flex items-center gap-1">
+                    <span className="h-1.5 w-1.5 rounded-full bg-warning" />
+                    Heavy
+                  </span>
+                  <span className="inline-flex items-center gap-1">
+                    <span className="h-1.5 w-1.5 rounded-full bg-danger" />
+                    Lightning
+                  </span>
+                </>
+              ) : (
+                <>
+                  <span className="inline-flex items-center gap-1">
+                    <span className="h-1.5 w-1.5 rounded-full bg-info" />
+                    Showers
+                  </span>
+                  <span className="inline-flex items-center gap-1">
+                    <span className="h-1.5 w-1.5 rounded-full bg-warning" />
+                    Thundery
+                  </span>
+                </>
+              )}
+            </div>
+            {onFocusLocation ? (
+              <span className="shrink-0 text-[9px] text-faint">Click area to pan</span>
+            ) : null}
+          </>
+        )}
+      </div>
+    </div>
   );
 }
 
-function NextTwoHoursDetail({ outlook }: { outlook: RainOutlook["nextTwoHours"] }) {
+function RainLightningDetail({
+  rainWindow,
+  onWindowChange,
+  storms,
+  outlook,
+  geoFilter,
+  dots,
+  activeCount,
+  inRadiusCount,
+  pinned,
+  onTogglePin,
+  onFocusLocation,
+}: {
+  rainWindow: RainMapWindow;
+  onWindowChange: (window: RainMapWindow) => void;
+  storms: WeatherAlerts;
+  outlook: RainOutlook;
+  geoFilter?: GeoFilter | null;
+  dots: ReadonlyArray<MinimapAreaDot>;
+  activeCount: number;
+  inRadiusCount: number;
+  pinned: boolean;
+  onTogglePin: () => void;
+  onFocusLocation?: (target: { lat: number; lng: number; zoom: number }) => void;
+}) {
+  const { rain, lightning } = storms;
+  const scopedHeavy = rain ? filterAreaNamesByGeoFilter(rain.heavyAreas, geoFilter) : [];
+  const scopedRaining = rain ? filterAreaNamesByGeoFilter(rain.rainingAreas, geoFilter) : [];
+  const scopedLightning = lightning ? filterAreaNamesByGeoFilter(lightning.areas, geoFilter) : [];
+
+  const rainTone: AirQualityTone =
+    scopedHeavy.length > 0
+      ? "warning"
+      : scopedRaining.length > 0
+        ? "success"
+        : "muted";
+  const rainValue = !rain
+    ? "—"
+    : geoFilter
+      ? scopedHeavy.length > 0
+        ? "Heavy"
+        : scopedRaining.length > 0
+          ? "Rain"
+          : "Dry"
+      : scopedHeavy.length > 0
+        ? `${rain.peakMm} mm`
+        : rain.rainingStations > 0
+          ? `${rain.maxMm} mm`
+          : "Dry";
+  const rainAreaCount = new Set([...scopedHeavy, ...scopedRaining]).size;
+  const rainSub = !rain
+    ? "Unavailable"
+    : geoFilter
+      ? rainAreaCount > 0
+        ? `${plural(rainAreaCount, "area")} in radius`
+        : "in radius"
+      : `${rain.rainingStations}/${rain.stationCount} gauges`;
+
+  const hasScopedLightning = Boolean(lightning && lightning.strikes > 0 && scopedLightning.length > 0);
+  const lightningTone: AirQualityTone = hasScopedLightning
+    ? lightning!.groundStrikes > 0
+      ? "danger"
+      : "warning"
+    : "muted";
+  const lightningValue = !lightning
+    ? "—"
+    : geoFilter
+      ? hasScopedLightning
+        ? "Active"
+        : "None"
+      : lightning.strikes > 0
+        ? `${lightning.strikes}`
+        : "None";
+  const lightningSub = !lightning
+    ? "Unavailable"
+    : geoFilter
+      ? hasScopedLightning
+        ? `${plural(scopedLightning.length, "area")} in radius`
+        : "in radius"
+      : lightning.strikes > 0
+        ? `${lightning.groundStrikes} ground${lightning.lastStrikeAt ? ` · ${formatSgTime(lightning.lastStrikeAt)}` : ""}`
+        : `<${LIGHTNING_NEAR_M / 1000} km`;
+
+  const next = outlook.nextTwoHours;
+  const mapSummary = geoFilter
+    ? (rainWindow === "now" && !rain && !lightning) || (rainWindow === "2h" && !next)
+      ? "Unavailable"
+      : activeCount > 0
+        ? `${activeCount}/${inRadiusCount} in ${formatRadius(geoFilter.radiusM)}`
+        : `Clear · ${formatRadius(geoFilter.radiusM)}`
+    : rainWindow === "now"
+      ? !rain && !lightning
+        ? "Unavailable"
+        : activeCount > 0
+          ? `${plural(activeCount, "active area")}`
+          : "All clear"
+      : !next
+        ? "Unavailable"
+        : next.rain.length === 0
+          ? "Dry"
+          : `${next.rain.length}/${next.areaCount} areas`;
+
+  const windowRangeTitle =
+    rainWindow === "2h" && next?.validFrom && next.validTo
+      ? `${formatSgTime(next.validFrom)}–${formatSgTime(next.validTo)}`
+      : undefined;
+
   return (
-    <DetailSection title="Next 2 hours">
-      {!outlook ? (
-        <div className="text-muted">The 2-hour forecast is currently unavailable.</div>
-      ) : outlook.rain.length === 0 ? (
-        <div className="text-muted">No rain expected in any of the {outlook.areaCount} areas.</div>
-      ) : (
-        <>
-          <div>
-            Rain expected in {outlook.rain.length} of {outlook.areaCount} areas
+    <div className="space-y-2 text-[11px]">
+      {/* Live telemetry tiles */}
+      <div className="grid grid-cols-2 gap-1.5">
+        <div
+          className="border border-line px-2 py-1.5 font-mono"
+          title={`NEA rain gauges · heavy ≥ ${HEAVY_RAIN_MM} mm / 15 min`}
+        >
+          <div className="text-[9px] uppercase tracking-[0.08em] text-muted">
+            Rain (15m)
           </div>
-          <ForecastGroups rain={outlook.rain} />
-        </>
-      )}
-      {outlook?.validFrom && outlook.validTo ? (
-        <div className="text-muted" suppressHydrationWarning>
-          NEA 2-hour forecast · {formatSgTime(outlook.validFrom)}–{formatSgTime(outlook.validTo)}
+          <div className={`mt-0.5 text-sm font-semibold ${rainTone === "success" ? "text-info" : TONE_CLASSES[rainTone]}`}>
+            {rainValue}
+          </div>
+          <div className="truncate text-[10px] text-muted">{rainSub}</div>
+        </div>
+
+        <div
+          className="border border-line px-2 py-1.5 font-mono"
+          title={`Lightning within ${LIGHTNING_NEAR_M / 1000} km in the last 30 min`}
+        >
+          <div className="text-[9px] uppercase tracking-[0.08em] text-muted">
+            Lightning (30m)
+          </div>
+          <div className={`mt-0.5 text-sm font-semibold ${TONE_CLASSES[lightningTone]}`}>
+            {lightningValue}
+          </div>
+          <div className="truncate text-[10px] text-muted" suppressHydrationWarning>
+            {lightningSub}
+          </div>
+        </div>
+      </div>
+
+      {/* Mode tabs: live radar-style vs next 2h forecast */}
+      <div
+        role="tablist"
+        aria-label="Rain map timeframe"
+        className="grid grid-cols-2 gap-1 text-[10px]"
+      >
+        {(["now", "2h"] as const).map((tab) => (
+          <button
+            key={tab}
+            id={`rain-tab-${tab}`}
+            type="button"
+            role="tab"
+            aria-selected={rainWindow === tab}
+            aria-controls={`rain-panel-${tab}`}
+            onClick={() => onWindowChange(tab)}
+            className={`border px-2 py-1 uppercase tracking-[0.1em] transition-colors duration-150 ${
+              rainWindow === tab
+                ? "border-info/50 bg-info/8 text-info"
+                : "border-line text-muted hover:bg-surface-hover"
+            }`}
+          >
+            {tab === "now" ? "Now" : "Next 2h"}
+          </button>
+        ))}
+      </div>
+
+      <div
+        id={`rain-panel-${rainWindow}`}
+        role="tabpanel"
+        aria-labelledby={`rain-tab-${rainWindow}`}
+        className="space-y-1.5"
+      >
+        <div className="flex items-center justify-between gap-2 text-[10px] text-muted">
+          <span title={windowRangeTitle}>{mapSummary}</span>
+          <button
+            type="button"
+            onClick={onTogglePin}
+            aria-pressed={pinned}
+            className={`border px-1.5 py-0.5 uppercase tracking-[0.08em] transition-colors duration-150 ${
+              pinned
+                ? "border-info/50 bg-info/8 text-info"
+                : "border-line text-muted hover:bg-surface-hover hover:text-ink"
+            }`}
+            title={
+              pinned
+                ? "Keep rain overlay pinned on map when collapsed"
+                : "Pin rain overlay to map"
+            }
+          >
+            {pinned ? "Pinned" : "Pin map"}
+          </button>
+        </div>
+
+        <SingaporeRainMinimap
+          rainWindow={rainWindow}
+          dots={dots}
+          geoFilter={geoFilter}
+          onFocusLocation={onFocusLocation}
+        />
+      </div>
+
+      {/* Next 24 hours — compact 1-line-per-period table */}
+      {outlook.periods.length > 0 ? (
+        <div className="space-y-1 border-t border-line pt-2">
+          <div className="data-label">Next 24h</div>
+          <div className="space-y-0.5">
+            {outlook.periods.map((period) => {
+              const summary = summarizePeriodRain(period);
+              return (
+                <div
+                  key={period.start}
+                  title={summary.detail}
+                  className="flex items-baseline justify-between gap-2 text-[10px]"
+                >
+                  <span className="shrink-0 text-muted">{period.label}</span>
+                  <span
+                    className={`truncate text-right font-mono ${
+                      summary.tone === "warning"
+                        ? "text-warning"
+                        : summary.text === "Dry"
+                          ? "text-muted"
+                          : "text-info"
+                    }`}
+                  >
+                    {summary.text}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
         </div>
       ) : null}
-    </DetailSection>
-  );
-}
 
-function RainPeriodsDetail({ periods }: { periods: RainOutlook["periods"] }) {
-  return (
-    <DetailSection title="Next 24 hours">
-      {periods.length === 0 ? (
-        <div className="text-muted">The 24-hour forecast is currently unavailable.</div>
-      ) : (
-        periods.map((period) => (
-          <div key={period.start}>
-            <div className="text-muted">{period.label}</div>
-            {period.rain.length === 0 ? (
-              <div>No rain expected</div>
-            ) : (
-              <ForecastGroups rain={period.rain} />
-            )}
-          </div>
-        ))
-      )}
-      <div className="text-muted">NEA 24-hour forecast by region · NEA gives no percentages</div>
-    </DetailSection>
+      {rain ? (
+        <div
+          className="border-t border-line pt-1.5 text-[10px] text-muted"
+          suppressHydrationWarning
+          title={`Heavy rain ≥ ${HEAVY_RAIN_MM} mm in 15 min · Lightning within ${LIGHTNING_NEAR_M / 1000} km`}
+        >
+          NEA gauges · {formatSgTime(rain.observedAt)}
+        </div>
+      ) : null}
+    </div>
   );
 }
 

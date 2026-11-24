@@ -85,6 +85,7 @@ export type MRTRouteGeoJson = {
     properties: {
       line: string;
       color: string;
+      disrupted?: boolean;
     };
     geometry: {
       type: "LineString";
@@ -420,6 +421,7 @@ export function buildRouteGeoJson(
       properties: {
         line: segment.line,
         color: lineFeature.properties.color,
+        ...(segment.disrupted ? { disrupted: true } : {}),
       },
       geometry: {
         type: "LineString",

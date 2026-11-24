@@ -38,6 +38,7 @@ import type {
   TrainServiceAlert,
 } from "@/types";
 import { DEFAULT_TIMEOUT_MS, httpGetJson, withTimeout } from "./http";
+import { cameraLocationLabel } from "@/lib/cameras";
 import { LTA_LINE_CODE_TO_DISPLAY_NAME } from "@/lib/mrt-network";
 import {
   mergeStationCrowds,
@@ -230,7 +231,7 @@ export const getTrafficCameras = (
         )
         .map((camera) => ({
           ...camera,
-          location: `Camera ${camera.CameraID}`,
+          location: cameraLocationLabel(camera.CameraID),
         }));
     },
     { signal },
@@ -334,8 +335,28 @@ export const getTrainServiceAlerts = (
   );
 
 // LTA publishes platform crowd density in 10-minute windows.
-const TRAIN_CROWDS_CACHE_TTL_MS = 5 * 60 * 1000;
-const TRAIN_CROWDS_PARTIAL_TTL_MS = 60 * 1000;
+const TRAIN_CROWDS_CACHE_TTL_MS = 10 * 60 * 1000;
+const TRAIN_CROWDS_PARTIAL_TTL_MS = 2 * 60 * 1000;
+const TRAIN_CROWDS_STALE_FALLBACK_MS = 30 * 60 * 1000;
+const TRAIN_CROWDS_BATCH_SIZE = 3;
+const TRAIN_CROWDS_BATCH_DELAY_MS = 100;
+
+const sleep = (ms: number, signal?: AbortSignal): Promise<void> =>
+  new Promise((resolve) => {
+    if (ms <= 0 || signal?.aborted) {
+      resolve();
+      return;
+    }
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(timer);
+      resolve();
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
 
 /** Merge per-line PCDRealTime payloads; a null payload is a failed line. */
 export const normalizeTrainCrowds = (
@@ -365,22 +386,72 @@ export const getTrainCrowds = (signal?: AbortSignal): Promise<TrainCrowds> =>
     TRAIN_CROWDS_CACHE_TTL_MS,
     async () => {
       const lines = Object.entries(PCD_TRAIN_LINES);
-      const results = await Promise.allSettled(
-        lines.map(([code]) =>
-          ltaGet(`/PCDRealTime?TrainLine=${code}`, LtaPlatformCrowdResponseSchema),
-        ),
-      );
-      // One line down still leaves a useful map; every line down is an outage.
-      const firstFailure = results.find((result) => result.status === "rejected");
-      if (firstFailure && results.every((result) => result.status === "rejected")) {
-        throw firstFailure.reason;
+      const payloads = new globalThis.Map<string, LtaPlatformCrowdResponse | null>();
+      const pending: Array<[string, string]> = [];
+
+      // Reuse lines that already succeeded within the 10-minute publish window
+      // so a partial refresh only fetches the missing lines.
+      for (const [code, displayName] of lines) {
+        const cached = cache.peek<LtaPlatformCrowdResponse>(
+          `train-crowds-line:${code}`,
+          TRAIN_CROWDS_CACHE_TTL_MS,
+        );
+        if (cached) {
+          payloads.set(code, cached);
+        } else {
+          pending.push([code, displayName]);
+        }
       }
-      return normalizeTrainCrowds(
-        results.map((result, index) => ({
-          line: lines[index][1],
-          payload: result.status === "fulfilled" ? result.value : null,
-        })),
-      );
+
+      let firstFailure: unknown = null;
+      let rateLimited = false;
+
+      // Pace requests in small batches instead of bursting all 11 lines at once,
+      // and stop early if LTA's gateway signals a rate-limit quota violation.
+      for (let i = 0; i < pending.length && !rateLimited; i += TRAIN_CROWDS_BATCH_SIZE) {
+        if (i > 0) await sleep(TRAIN_CROWDS_BATCH_DELAY_MS, signal);
+        const batch = pending.slice(i, i + TRAIN_CROWDS_BATCH_SIZE);
+        const settled = await Promise.allSettled(
+          batch.map(([code]) =>
+            ltaGet(`/PCDRealTime?TrainLine=${code}`, LtaPlatformCrowdResponseSchema),
+          ),
+        );
+        for (let j = 0; j < settled.length; j += 1) {
+          const [code] = batch[j];
+          const result = settled[j];
+          if (result.status === "fulfilled") {
+            payloads.set(code, result.value);
+            cache.set(`train-crowds-line:${code}`, result.value);
+          } else {
+            payloads.set(code, null);
+            if (firstFailure === null) firstFailure = result.reason;
+            if (
+              result.reason instanceof ExternalApiError &&
+              result.reason.status === 429
+            ) {
+              rateLimited = true;
+            }
+          }
+        }
+      }
+
+      const entries = lines.map(([code, line]) => ({
+        line,
+        payload: payloads.get(code) ?? null,
+      }));
+      const anySucceeded = entries.some((entry) => entry.payload !== null);
+      if (!anySucceeded) {
+        const lastGood = cache.peek<TrainCrowds>(
+          "train-crowds:last-good",
+          TRAIN_CROWDS_STALE_FALLBACK_MS,
+        );
+        if (lastGood && rateLimited) return lastGood;
+        throw firstFailure;
+      }
+
+      const normalized = normalizeTrainCrowds(entries);
+      cache.set("train-crowds:last-good", normalized);
+      return normalized;
     },
     {
       signal,

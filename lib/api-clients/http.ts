@@ -69,11 +69,25 @@ export const httpGetJson = <A>(
     }
 
     if (!response.ok) {
-      await response.body?.cancel().catch(() => undefined);
+      const errorText =
+        response.status >= 500
+          ? await response.text().catch(() => "")
+          : "";
+      if (response.status < 500) {
+        await response.body?.cancel().catch(() => undefined);
+      }
+      // LTA DataMall's Apigee gateway returns HTTP 500 (not 429) for rate-limit
+      // quota violations; normalize to 429 so caches and routes back off.
+      const isQuotaViolation =
+        response.status >= 500 &&
+        /QuotaViolation|Rate limit quota/i.test(errorText);
+      const status = isQuotaViolation ? 429 : response.status;
       throw new ExternalApiError({
         service,
-        status: response.status,
-        message: `${service} request failed (${response.status})`,
+        status,
+        message: isQuotaViolation
+          ? `${service} rate limit quota exceeded`
+          : `${service} request failed (${response.status})`,
       });
     }
 

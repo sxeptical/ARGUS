@@ -7,7 +7,11 @@ import {
   GEO_FILTER_MAX_RADIUS_M,
   GEO_FILTER_MIN_RADIUS_M,
 } from "@/lib/geo-filter";
-import { isRouteableMrtStation } from "@/lib/mrt-routing";
+import {
+  isRouteableMrtStation,
+  MRT_ROUTE_MODES,
+  type MrtRouteMode,
+} from "@/lib/mrt-routing";
 import {
   DEFAULT_NOTIFICATION_PREFS,
   type NotificationPrefs,
@@ -73,11 +77,20 @@ export function parseGeoFilterRadius(stored: unknown): number | undefined {
 
 export const MRT_START_KEY = "argus.prefs.mrt.start.v1";
 export const MRT_END_KEY = "argus.prefs.mrt.end.v1";
+export const MRT_ROUTE_MODE_KEY = "argus.prefs.mrt.mode.v1";
+export const MRT_AVOID_DISRUPTIONS_KEY = "argus.prefs.mrt.avoid-disruptions.v1";
 
 /** Accept only stations the router knows, so a stale name cannot strand a plan. */
 export function parseMrtStation(stored: unknown): string | undefined {
   if (typeof stored !== "string" || stored.length === 0) return undefined;
   return isRouteableMrtStation(stored) ? stored : undefined;
+}
+
+export function parseMrtRouteMode(stored: unknown): MrtRouteMode | undefined {
+  return typeof stored === "string" &&
+    (MRT_ROUTE_MODES as ReadonlyArray<string>).includes(stored)
+    ? (stored as MrtRouteMode)
+    : undefined;
 }
 
 // ---------- Notifications ----------
@@ -126,6 +139,7 @@ export function parseLayerOptionSelection<K extends string>(
 // ---------- Boolean flags and derived keys ----------
 
 export const AIR_SECTION_PINNED_KEY = "argus.prefs.air.section.pinned.v1";
+export const RAIN_SECTION_PINNED_KEY = "argus.prefs.rain.section.pinned.v1";
 
 export function parseStoredBoolean(stored: unknown): boolean | undefined {
   return typeof stored === "boolean" ? stored : undefined;

@@ -1,8 +1,20 @@
 import { MRT_OPERATIONAL_LINE_STATIONS } from "@/lib/mrt-network";
+import {
+  busierCrowdLevel,
+  crowdOnLine,
+  resolveStationCode,
+} from "@/lib/train-crowds";
+import type {
+  CrowdLevel,
+  StationCrowd,
+  TrainCrowds,
+  TrainServiceAlert,
+} from "@/types";
 
 type GraphEdge = {
   to: string;
   weight: number;
+  kind: "ride" | "transfer";
 };
 
 type StationLineNode = {
@@ -11,6 +23,14 @@ type StationLineNode = {
   line: string;
 };
 
+export type MrtRouteMode = "fastest" | "less-crowded" | "fewest-transfers";
+
+export const MRT_ROUTE_MODES: ReadonlyArray<MrtRouteMode> = [
+  "fastest",
+  "less-crowded",
+  "fewest-transfers",
+];
+
 export type MrtRouteSegment = {
   line: string;
   from: string;
@@ -18,6 +38,26 @@ export type MrtRouteSegment = {
   stops: number;
   /** Stations ridden in order, `from` to `to`; draws loop routes correctly. */
   stations: string[];
+  /** Set only when at least one ridden hop on this segment crosses a live disruption. */
+  disrupted?: true;
+};
+
+export type MrtRouteDisruption = {
+  /** Affected operational line names this route rides through. */
+  lines: string[];
+  /** Affected station names touched on those disrupted lines. */
+  stations: string[];
+};
+
+export type MrtRouteCrowdSummary = {
+  /** Peak platform crowd encountered across ridden stops; null without readings. */
+  peak: CrowdLevel | null;
+  /** Count of ridden station platforms reporting high crowd. */
+  highCount: number;
+  /** Count of ridden station platforms reporting moderate crowd. */
+  moderateCount: number;
+  /** Weighted crowd exposure score used for comparing routes. */
+  score: number;
 };
 
 export type MrtRoutePlan = {
@@ -27,11 +67,35 @@ export type MrtRoutePlan = {
   segments: MrtRouteSegment[];
   transfers: number;
   estimatedMinutes: number;
+  /** Mode used to compute this route. */
+  mode: MrtRouteMode;
+  /** Live disruption impact on this route (empty when clear). */
+  disruption: MrtRouteDisruption;
+  /** Live platform crowd summary along this route. */
+  crowd: MrtRouteCrowdSummary;
+  /** True when the route detoured around an active disruption on the normal path. */
+  detouredForDisruption: boolean;
+  /** Disrupted lines on the normal path that this detour avoided. */
+  avoidedDisruptedLines: string[];
+  /** Extra minutes vs the undisrupted baseline route of the same mode (0 if none). */
+  extraMinutesVsNormal: number;
+  /** True when avoiding disruptions was requested but no clean rail route exists. */
+  disruptionUnavoidable: boolean;
+};
+
+export type PlanMrtRouteOptions = {
+  mode?: MrtRouteMode;
+  /** Avoid disrupted stretches whenever an alternative rail route exists. Defaults to true. */
+  avoidDisruptions?: boolean;
+  trainAlerts?: ReadonlyArray<TrainServiceAlert>;
+  trainCrowds?: TrainCrowds;
 };
 
 export const MRT_ROUTE_DEFAULTS = {
   start: "",
   end: "",
+  mode: "fastest" as MrtRouteMode,
+  avoidDisruptions: true,
 };
 
 const MINUTES_PER_STOP_BY_LINE: Record<string, number> = {
@@ -62,6 +126,34 @@ const MINUTES_PER_TRANSFER_OVERRIDE: Record<string, number> = {
 const MINUTES_PER_TRANSFER_TWO_LINE = 3;
 const MINUTES_PER_TRANSFER_THREE_PLUS_LINE = 5;
 const ENTRY_EXIT_BUFFER_MINUTES = 2;
+
+const CROWD_HOP_PENALTY: Record<CrowdLevel, number> = {
+  low: 0,
+  moderate: 1,
+  high: 3.5,
+};
+const CROWD_BOARDING_PENALTY: Record<CrowdLevel, number> = {
+  low: 0,
+  moderate: 1.5,
+  high: 4.5,
+};
+const CROWD_TRANSFER_PENALTY: Record<CrowdLevel, number> = {
+  low: 0,
+  moderate: 2,
+  high: 6,
+};
+// Larger than any whole-network ride, so fewest-transfers mode ranks routes by
+// transfer count first and only uses travel time to break ties.
+const FEWEST_TRANSFERS_PENALTY = 1_000;
+const UNAVOIDABLE_DISRUPTION_PENALTY = 120;
+
+const EMPTY_DISRUPTION: MrtRouteDisruption = { lines: [], stations: [] };
+const EMPTY_CROWD: MrtRouteCrowdSummary = {
+  peak: null,
+  highCount: 0,
+  moderateCount: 0,
+  score: 0,
+};
 
 function getTransferMinutes(station: string, lineCount: number): number {
   const override = MINUTES_PER_TRANSFER_OVERRIDE[station];
@@ -131,9 +223,14 @@ const stationLineNodes = new Map<string, StationLineNode>();
 const stationToNodeKeys = new Map<string, string[]>();
 const graph = new Map<string, GraphEdge[]>();
 
-function addEdge(from: string, to: string, weight: number): void {
+function addEdge(
+  from: string,
+  to: string,
+  weight: number,
+  kind: GraphEdge["kind"],
+): void {
   const edges = graph.get(from) ?? [];
-  edges.push({ to, weight });
+  edges.push({ to, weight, kind });
   graph.set(from, edges);
 }
 
@@ -156,8 +253,8 @@ for (const [line, stations] of Object.entries(MRT_OPERATIONAL_LINE_STATIONS)) {
     const from = `${stations[index]}::${line}`;
     const to = `${stations[index + 1]}::${line}`;
     const weight = MINUTES_PER_STOP_BY_LINE[line] ?? DEFAULT_MINUTES_PER_STOP;
-    addEdge(from, to, weight);
-    addEdge(to, from, weight);
+    addEdge(from, to, weight, "ride");
+    addEdge(to, from, weight, "ride");
   }
 }
 
@@ -167,8 +264,8 @@ for (const [station, nodeKeys] of stationToNodeKeys.entries()) {
     for (let j = i + 1; j < nodeKeys.length; j += 1) {
       const a = nodeKeys[i];
       const b = nodeKeys[j];
-      addEdge(a, b, transferWeight);
-      addEdge(b, a, transferWeight);
+      addEdge(a, b, transferWeight, "transfer");
+      addEdge(b, a, transferWeight, "transfer");
     }
   }
 }
@@ -253,22 +350,179 @@ function makeRouteSegments(nodes: StationLineNode[]): {
   return { segments, transfers: transferCount, transferStations };
 }
 
-export function planMrtRoute(start: string, end: string): MrtRoutePlan | null {
-  if (!stationToNodeKeys.has(start) || !stationToNodeKeys.has(end)) {
-    return null;
+const OPERATIONAL_LINE_NAMES = Object.keys(MRT_OPERATIONAL_LINE_STATIONS);
+
+type DisruptionMask = {
+  readonly lines: ReadonlySet<string>;
+  readonly nodes: ReadonlySet<string>;
+};
+
+const EMPTY_DISRUPTION_MASK: DisruptionMask = {
+  lines: new Set(),
+  nodes: new Set(),
+};
+
+function expandOperationalLines(rawLine: string): string[] {
+  const trimmed = rawLine.trim();
+  if (!trimmed) return [];
+  if (trimmed in MRT_OPERATIONAL_LINE_STATIONS) return [trimmed];
+  const upper = trimmed.toUpperCase();
+  if (upper === "SLRT") {
+    return OPERATIONAL_LINE_NAMES.filter((name) =>
+      name.startsWith("Sengkang LRT "),
+    );
+  }
+  if (upper === "PLRT") {
+    return OPERATIONAL_LINE_NAMES.filter((name) =>
+      name.startsWith("Punggol LRT "),
+    );
+  }
+  return OPERATIONAL_LINE_NAMES.filter((name) =>
+    name.startsWith(`${trimmed} `),
+  );
+}
+
+/**
+ * Translate active LTA disruption alerts into a routing mask. Station-level
+ * codes narrow the disruption to edges touching those stations on that line;
+ * lines without station-level codes mark the whole line disrupted.
+ */
+function buildDisruptionMask(
+  alerts: ReadonlyArray<TrainServiceAlert> | undefined,
+): DisruptionMask {
+  if (!alerts || alerts.length === 0) return EMPTY_DISRUPTION_MASK;
+  const lines = new Set<string>();
+  const nodes = new Set<string>();
+
+  for (const alert of alerts) {
+    if (alert.status !== "disrupted") continue;
+    const linesCoveredByStations = new Set<string>();
+    const alertLines = new Set(alert.affectedLines.flatMap(expandOperationalLines));
+
+    for (const code of alert.affectedStations) {
+      const resolved = resolveStationCode(code);
+      if (!resolved) continue;
+      // A code such as CC29 resolves to every line sharing its prefix; keep
+      // only the lines this alert names so a shared station does not spread
+      // the disruption onto an unaffected line.
+      const scoped = resolved.lines.filter((line) => alertLines.has(line));
+      for (const line of scoped.length > 0 ? scoped : resolved.lines) {
+        const nodeKey = `${resolved.station}::${line}`;
+        if (stationLineNodes.has(nodeKey)) {
+          nodes.add(nodeKey);
+          linesCoveredByStations.add(line);
+        }
+      }
+    }
+
+    for (const line of alertLines) {
+      if (!linesCoveredByStations.has(line)) {
+        lines.add(line);
+      }
+    }
   }
 
-  if (start === end) {
-    return {
-      start,
-      end,
-      stations: [start],
-      segments: [],
-      transfers: 0,
-      estimatedMinutes: 0,
-    };
+  return lines.size === 0 && nodes.size === 0
+    ? EMPTY_DISRUPTION_MASK
+    : { lines, nodes };
+}
+
+function isRideDisrupted(
+  fromKey: string,
+  toKey: string,
+  line: string,
+  mask: DisruptionMask,
+): boolean {
+  return mask.lines.has(line) || mask.nodes.has(fromKey) || mask.nodes.has(toKey);
+}
+
+function annotateRouteDisruption(
+  segments: MrtRouteSegment[],
+  mask: DisruptionMask,
+): { segments: MrtRouteSegment[]; disruption: MrtRouteDisruption } {
+  if (mask.lines.size === 0 && mask.nodes.size === 0) {
+    return { segments, disruption: EMPTY_DISRUPTION };
+  }
+  const affectedLines = new Set<string>();
+  const affectedStations = new Set<string>();
+
+  const annotated = segments.map((segment) => {
+    let segmentDisrupted = false;
+    for (let index = 0; index < segment.stations.length - 1; index += 1) {
+      const fromStation = segment.stations[index];
+      const toStation = segment.stations[index + 1];
+      const fromKey = `${fromStation}::${segment.line}`;
+      const toKey = `${toStation}::${segment.line}`;
+      if (isRideDisrupted(fromKey, toKey, segment.line, mask)) {
+        segmentDisrupted = true;
+        affectedLines.add(segment.line);
+        if (mask.lines.has(segment.line)) {
+          affectedStations.add(fromStation);
+          affectedStations.add(toStation);
+        } else {
+          if (mask.nodes.has(fromKey)) affectedStations.add(fromStation);
+          if (mask.nodes.has(toKey)) affectedStations.add(toStation);
+        }
+      }
+    }
+    return segmentDisrupted ? { ...segment, disrupted: true as const } : segment;
+  });
+
+  return {
+    segments: annotated,
+    disruption:
+      affectedLines.size === 0
+        ? EMPTY_DISRUPTION
+        : {
+            lines: [...affectedLines],
+            stations: [...affectedStations],
+          },
+  };
+}
+
+function summarizeRouteCrowd(
+  segments: ReadonlyArray<MrtRouteSegment>,
+  crowdsByStation: ReadonlyMap<string, StationCrowd>,
+): MrtRouteCrowdSummary {
+  if (segments.length === 0 || crowdsByStation.size === 0) return EMPTY_CROWD;
+  let peak: CrowdLevel | null = null;
+  let highCount = 0;
+  let moderateCount = 0;
+
+  for (const segment of segments) {
+    for (const station of segment.stations) {
+      const level = crowdOnLine(crowdsByStation.get(station), segment.line);
+      if (!level) continue;
+      peak = peak ? busierCrowdLevel(peak, level) : level;
+      if (level === "high") highCount += 1;
+      else if (level === "moderate") moderateCount += 1;
+    }
   }
 
+  return {
+    peak,
+    highCount,
+    moderateCount,
+    score: highCount * 3 + moderateCount,
+  };
+}
+
+type DisruptionPolicy = "ignore" | "exclude" | "penalize";
+
+function computeRoute(
+  start: string,
+  end: string,
+  mode: MrtRouteMode,
+  crowdsByStation: ReadonlyMap<string, StationCrowd>,
+  mask: DisruptionMask,
+  disruptionPolicy: DisruptionPolicy,
+): Omit<
+  MrtRoutePlan,
+  | "detouredForDisruption"
+  | "avoidedDisruptedLines"
+  | "extraMinutesVsNormal"
+  | "disruptionUnavoidable"
+> | null {
   const startKeys = stationToNodeKeys.get(start) ?? [];
   const endKeys = new Set(stationToNodeKeys.get(end) ?? []);
   if (startKeys.length === 0 || endKeys.size === 0) return null;
@@ -278,9 +532,18 @@ export function planMrtRoute(start: string, end: string): MrtRoutePlan | null {
   const queue = new MinHeap();
 
   for (const key of startKeys) {
-    distances.set(key, 0);
+    const startNode = stationLineNodes.get(key);
+    let initialCost = 0;
+    if (mode === "less-crowded" && startNode) {
+      const level = crowdOnLine(
+        crowdsByStation.get(startNode.station),
+        startNode.line,
+      );
+      if (level) initialCost = CROWD_BOARDING_PENALTY[level];
+    }
+    distances.set(key, initialCost);
     previous.set(key, null);
-    queue.push({ key, distance: 0 });
+    queue.push({ key, distance: initialCost });
   }
 
   let bestEndKey: string | null = null;
@@ -297,8 +560,46 @@ export function planMrtRoute(start: string, end: string): MrtRoutePlan | null {
       break;
     }
 
+    const fromNode = stationLineNodes.get(current.key);
     for (const edge of graph.get(current.key) ?? []) {
-      const nextDistance = current.distance + edge.weight;
+      const toNode = stationLineNodes.get(edge.to);
+      if (!fromNode || !toNode) continue;
+
+      let stepCost = edge.weight;
+      if (edge.kind === "ride") {
+        const disrupted = isRideDisrupted(
+          current.key,
+          edge.to,
+          fromNode.line,
+          mask,
+        );
+        if (disrupted && disruptionPolicy === "exclude") continue;
+        if (disrupted && disruptionPolicy === "penalize") {
+          // Keep a disrupted hop costlier than a transfer in every mode.
+          stepCost +=
+            UNAVOIDABLE_DISRUPTION_PENALTY +
+            (mode === "fewest-transfers" ? FEWEST_TRANSFERS_PENALTY : 0);
+        }
+        if (mode === "less-crowded") {
+          const level = crowdOnLine(
+            crowdsByStation.get(toNode.station),
+            toNode.line,
+          );
+          if (level) stepCost += CROWD_HOP_PENALTY[level];
+        }
+      } else {
+        if (mode === "fewest-transfers") {
+          stepCost += FEWEST_TRANSFERS_PENALTY;
+        } else if (mode === "less-crowded") {
+          const level = crowdOnLine(
+            crowdsByStation.get(toNode.station),
+            toNode.line,
+          );
+          if (level) stepCost += CROWD_TRANSFER_PENALTY[level];
+        }
+      }
+
+      const nextDistance = current.distance + stepCost;
       const knownDistance = distances.get(edge.to);
       if (knownDistance === undefined || nextDistance < knownDistance) {
         distances.set(edge.to, nextDistance);
@@ -333,8 +634,14 @@ export function planMrtRoute(start: string, end: string): MrtRoutePlan | null {
     }
   }
 
-  const { segments, transfers, transferStations } =
-    makeRouteSegments(pathNodes);
+  const {
+    segments: rawSegments,
+    transfers,
+    transferStations,
+  } = makeRouteSegments(pathNodes);
+  const { segments, disruption } = annotateRouteDisruption(rawSegments, mask);
+  const crowd = summarizeRouteCrowd(segments, crowdsByStation);
+
   const travelMinutes = segments.reduce(
     (sum, seg) =>
       sum +
@@ -358,5 +665,143 @@ export function planMrtRoute(start: string, end: string): MrtRoutePlan | null {
     segments,
     transfers,
     estimatedMinutes,
+    mode,
+    disruption,
+    crowd,
+  };
+}
+
+/** True when `candidate` takes a different path and meaningfully lowers crowd exposure. */
+export function isQuieterRoute(
+  candidate: MrtRoutePlan | null,
+  baseline: MrtRoutePlan | null,
+): boolean {
+  if (!candidate || !baseline) return false;
+  if (candidate.crowd.peak === null || baseline.crowd.peak === null) return false;
+  const samePath =
+    candidate.segments.length === baseline.segments.length &&
+    candidate.segments.every(
+      (seg, index) =>
+        seg.line === baseline.segments[index].line &&
+        seg.from === baseline.segments[index].from &&
+        seg.to === baseline.segments[index].to,
+    );
+  if (samePath) return false;
+  return (
+    candidate.crowd.highCount < baseline.crowd.highCount ||
+    (candidate.crowd.highCount === baseline.crowd.highCount &&
+      candidate.crowd.score < baseline.crowd.score)
+  );
+}
+
+export function planMrtRoute(
+  start: string,
+  end: string,
+  options?: PlanMrtRouteOptions,
+): MrtRoutePlan | null {
+  if (!stationToNodeKeys.has(start) || !stationToNodeKeys.has(end)) {
+    return null;
+  }
+
+  const mode = options?.mode ?? MRT_ROUTE_DEFAULTS.mode;
+  const avoidDisruptions =
+    options?.avoidDisruptions ?? MRT_ROUTE_DEFAULTS.avoidDisruptions;
+
+  if (start === end) {
+    return {
+      start,
+      end,
+      stations: [start],
+      segments: [],
+      transfers: 0,
+      estimatedMinutes: 0,
+      mode,
+      disruption: EMPTY_DISRUPTION,
+      crowd: EMPTY_CROWD,
+      detouredForDisruption: false,
+      avoidedDisruptedLines: [],
+      extraMinutesVsNormal: 0,
+      disruptionUnavoidable: false,
+    };
+  }
+
+  const mask = buildDisruptionMask(options?.trainAlerts);
+  const hasDisruptions = mask.lines.size > 0 || mask.nodes.size > 0;
+  const crowdsByStation = new Map(
+    (options?.trainCrowds?.stations ?? []).map((crowd) => [
+      crowd.station,
+      crowd,
+    ]),
+  );
+
+  if (!hasDisruptions || !avoidDisruptions) {
+    const plan = computeRoute(
+      start,
+      end,
+      mode,
+      crowdsByStation,
+      mask,
+      "ignore",
+    );
+    if (!plan) return null;
+    return {
+      ...plan,
+      detouredForDisruption: false,
+      avoidedDisruptedLines: [],
+      extraMinutesVsNormal: 0,
+      disruptionUnavoidable: false,
+    };
+  }
+
+  const normal = computeRoute(
+    start,
+    end,
+    mode,
+    crowdsByStation,
+    mask,
+    "ignore",
+  );
+  // If the normal path is already clear, no need to run a second search.
+  if (normal && normal.disruption.lines.length === 0) {
+    return {
+      ...normal,
+      detouredForDisruption: false,
+      avoidedDisruptedLines: [],
+      extraMinutesVsNormal: 0,
+      disruptionUnavoidable: false,
+    };
+  }
+
+  const clean = computeRoute(
+    start,
+    end,
+    mode,
+    crowdsByStation,
+    mask,
+    "exclude",
+  );
+  if (clean) {
+    const extraMinutesVsNormal = normal
+      ? Math.max(0, clean.estimatedMinutes - normal.estimatedMinutes)
+      : 0;
+    return {
+      ...clean,
+      detouredForDisruption: true,
+      avoidedDisruptedLines: normal?.disruption.lines ?? [],
+      extraMinutesVsNormal,
+      disruptionUnavoidable: false,
+    };
+  }
+
+  // No rail route completely avoids the disruption; minimize time on disrupted tracks.
+  const fallback =
+    computeRoute(start, end, mode, crowdsByStation, mask, "penalize") ?? normal;
+  if (!fallback) return null;
+  return {
+    ...fallback,
+    detouredForDisruption: false,
+    avoidedDisruptedLines: [],
+    extraMinutesVsNormal: 0,
+    disruptionUnavoidable: fallback.disruption.lines.length > 0,
   };
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import BusPanel from "@/app/components/BusPanel";
 import CameraPanel from "@/app/components/CameraPanel";
 import FeedbackWidget from "@/app/components/FeedbackWidget";
@@ -8,7 +8,7 @@ import Map, {
   EMPTY_MRT_ROUTE_SEGMENTS,
   type MapSearchTarget,
 } from "@/app/components/Map";
-import MapSearch from "@/app/components/MapSearch";
+import MapSearch, { isTypingTarget } from "@/app/components/MapSearch";
 import MrtRoutePanel from "@/app/components/MrtRoutePanel";
 import NewsPanel from "@/app/components/NewsPanel";
 import NotificationToasts from "@/app/components/NotificationToasts";
@@ -37,7 +37,13 @@ import { buildBusStopSearchResults, isSearchResultShown, MRT_STATION_SEARCH_RESU
 import { LAYER_BY_KEY } from "@/lib/layers";
 import { MRT_STATION_NAMES } from "@/lib/mrt-routing";
 import { buildSignalDigest, unknownSignalIds } from "@/lib/signals";
-import type { AirQualityOverlay, AmenityType } from "@/types";
+import {
+  buildViewLinkUrl,
+  DEFAULT_MAP_CAMERA,
+  parseViewLinkParams,
+  type MapCameraView,
+} from "@/lib/view-link";
+import type { AirQualityOverlay, AmenityType, RainOverlay } from "@/types";
 
 const PLACE_SEARCH_RESULTS = [
   ...AMENITY_SEARCH_RESULTS,
@@ -51,6 +57,7 @@ export default function Home() {
     activeSources,
     allBusStops,
     allIncidents,
+    applySharedView,
     feeds,
     busRouteOverlay,
     busRouteState,
@@ -71,8 +78,12 @@ export default function Home() {
     amenityFilters,
     incidents,
     handleSelectStop,
+    mrtAvoidDisruptions,
+    mrtDetourAvailable,
     mrtEndStation,
     mrtMapPickTarget,
+    mrtPlansByMode,
+    mrtRouteMode,
     mrtRoutePlan,
     mrtStartStation,
     news,
@@ -93,8 +104,10 @@ export default function Home() {
     sensorVisibility,
     setGeoFilterPicking,
     setGeoFilterRadiusM,
+    setMrtAvoidDisruptions,
     setMrtEndStation,
     setMrtMapPickTarget,
+    setMrtRouteMode,
     setMrtStartStation,
     setNotificationPrefs,
     setSelectedCamera,
@@ -139,7 +152,94 @@ export default function Home() {
   const [searchTarget, setSearchTarget] = useState<MapSearchTarget | null>(null);
   const [airQualityOverlay, setAirQualityOverlay] =
     useState<AirQualityOverlay | null>(null);
+  const [rainOverlay, setRainOverlay] = useState<RainOverlay | null>(null);
+  const [mapFocus, setMapFocus] = useState(false);
+  const [initialCamera, setInitialCamera] = useState<MapCameraView | null>(null);
+  const cameraRef = useRef<MapCameraView>(DEFAULT_MAP_CAMERA);
+  const urlHydratedRef = useRef(false);
   const [theme, toggleTheme] = useTheme();
+
+  const handleCameraChange = useCallback((camera: MapCameraView) => {
+    cameraRef.current = camera;
+  }, []);
+
+  // Hydrate URL view params on initial mount so shared links override stored
+  // preferences without mutating persistent storage unless the user changes them.
+  useEffect(() => {
+    if (urlHydratedRef.current) return;
+    urlHydratedRef.current = true;
+    const shared = parseViewLinkParams(window.location.search);
+    applySharedView(shared);
+    if (shared.camera) {
+      cameraRef.current = shared.camera;
+      queueMicrotask(() => setInitialCamera(shared.camera!));
+    }
+    if (shared.mapFocus) {
+      queueMicrotask(() => setMapFocus(true));
+    }
+  }, [applySharedView]);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      const modalOpen = document.querySelector('[aria-modal="true"]') !== null;
+      if (
+        event.key.toLowerCase() === "f" &&
+        !isTypingTarget(event.target) &&
+        !modalOpen &&
+        !event.altKey &&
+        !event.ctrlKey &&
+        !event.metaKey
+      ) {
+        event.preventDefault();
+        setMapFocus((prev) => !prev);
+      } else if (
+        event.key === "Escape" &&
+        mapFocus &&
+        !event.defaultPrevented &&
+        !geoFilterPicking &&
+        !modalOpen
+      ) {
+        event.preventDefault();
+        setMapFocus(false);
+      }
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [geoFilterPicking, mapFocus]);
+
+  const handleCopyViewLink = useCallback(async () => {
+    const url = buildViewLinkUrl(
+      `${window.location.origin}${window.location.pathname}`,
+      {
+        camera: cameraRef.current,
+        sensorVisibility,
+        geoFilter,
+        mapFocus,
+      },
+    );
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(url);
+        return true;
+      }
+    } catch {
+      // Fallback below when Clipboard API is unavailable or blocked.
+    }
+    try {
+      const textarea = document.createElement("textarea");
+      textarea.value = url;
+      textarea.setAttribute("readonly", "");
+      textarea.style.position = "fixed";
+      textarea.style.opacity = "0";
+      document.body.appendChild(textarea);
+      textarea.select();
+      const copied = document.execCommand("copy");
+      textarea.remove();
+      return copied;
+    } catch {
+      return false;
+    }
+  }, [geoFilter, mapFocus, sensorVisibility]);
   const [mobileTab, setMobileTab] = useState<MobileTab>("transit");
   const [mobileLegendOpen, setMobileLegendOpen] = useState(false);
   const [mapExpanded, setMapExpanded] = useState(false);
@@ -194,7 +294,11 @@ export default function Home() {
   });
 
   return (
-    <div className="flex min-h-dvh flex-col gap-2 bg-paper p-2 pl-[max(0.5rem,env(safe-area-inset-left))] pr-[max(0.5rem,env(safe-area-inset-right))] pb-[max(0.5rem,env(safe-area-inset-bottom))] sm:gap-3 sm:p-3 xl:h-dvh xl:overflow-hidden">
+    <div
+      className={`flex min-h-dvh flex-col gap-2 bg-paper p-2 pl-[max(0.5rem,env(safe-area-inset-left))] pr-[max(0.5rem,env(safe-area-inset-right))] pb-[max(0.5rem,env(safe-area-inset-bottom))] sm:gap-3 sm:p-3 xl:h-dvh xl:overflow-hidden ${
+        mapFocus ? "h-dvh overflow-hidden" : ""
+      }`}
+    >
       <UpdateAvailableToast />
       <NotificationToasts
         toasts={toasts}
@@ -213,6 +317,7 @@ export default function Home() {
             setPrefs={setNotificationPrefs}
           />
         }
+        onCopyViewLink={handleCopyViewLink}
         onToggleTheme={toggleTheme}
         onlineSourceCount={onlineSourceCount}
         systemStatus={systemStatus}
@@ -228,8 +333,15 @@ export default function Home() {
         </div>
       ) : null}
 
-      <main className="grid min-w-0 grid-cols-1 gap-2 sm:gap-3 xl:min-h-0 xl:flex-1 xl:grid-cols-[248px_minmax(0,1fr)_292px]">
+      <main
+        className={
+          mapFocus
+            ? "flex min-h-0 min-w-0 flex-1 flex-col"
+            : "grid min-w-0 grid-cols-1 gap-2 sm:gap-3 xl:min-h-0 xl:flex-1 xl:grid-cols-[248px_minmax(0,1fr)_292px]"
+        }
+      >
         <LayersSidebar
+          className={mapFocus ? "hidden" : undefined}
           flights={flights}
           selectedFlight={selectedFlight}
           sensorRows={sensorRows}
@@ -242,15 +354,28 @@ export default function Home() {
           weather={weather}
           weatherAlerts={weatherAlerts}
           weatherHistory={weatherHistory}
+          geoFilter={geoFilter}
           onAirQualityOverlayChange={setAirQualityOverlay}
+          onRainOverlayChange={setRainOverlay}
+          onFocusLocation={setSearchTarget}
           mobileVisible={mobileTab === "signals"}
         />
 
-        <section className="contents xl:order-2 xl:grid xl:min-w-0 xl:gap-3 xl:min-h-0 xl:grid-rows-[minmax(0,1fr)_minmax(236px,38%)]">
+        <section
+          className={
+            mapFocus
+              ? "flex min-h-0 min-w-0 flex-1 flex-col"
+              : "contents xl:order-2 xl:grid xl:min-w-0 xl:gap-3 xl:min-h-0 xl:grid-rows-[minmax(0,1fr)_minmax(236px,38%)]"
+          }
+        >
           <section
-            className={`relative order-1 h-[45dvh] min-h-72 overflow-hidden border border-line bg-surface transition-[height] duration-200 xl:order-none xl:h-auto xl:min-h-0 ${
-              mapExpanded ? "max-sm:h-[75dvh] max-sm:min-h-96" : ""
-            }`}
+            className={
+              mapFocus
+                ? "relative min-h-0 flex-1 overflow-hidden border border-line bg-surface"
+                : `relative order-1 h-[45dvh] min-h-72 overflow-hidden border border-line bg-surface transition-[height] duration-200 xl:order-none xl:h-auto xl:min-h-0 ${
+                    mapExpanded ? "max-sm:h-[75dvh] max-sm:min-h-96" : ""
+                  }`
+            }
           >
             <Map
               key={theme}
@@ -263,6 +388,7 @@ export default function Home() {
               carparks={carparks}
               evChargers={evChargers}
               airQualityOverlay={airQualityOverlay}
+              rainOverlay={rainOverlay}
               sensorVisibility={sensorVisibility}
               amenityFilters={amenityFilters}
               onStopClick={(stop) => {
@@ -286,6 +412,8 @@ export default function Home() {
               busRouteOverlay={busRouteOverlay}
               disruptedMrtLines={disruptedMrtLines}
               searchTarget={searchTarget}
+              initialCamera={initialCamera}
+              onCameraChange={handleCameraChange}
               geoFilter={geoFilter}
               geoFilterPicking={geoFilterPicking}
               onGeoFilterPick={pickGeoFilterCenter}
@@ -323,9 +451,35 @@ export default function Home() {
               sensorVisibility={sensorVisibility}
               setSensorVisibility={setSensorVisibility}
               visibleSensorCount={visibleSensorCount}
+              alwaysShow={mapFocus}
             />
+            <button
+              type="button"
+              onClick={() => setMapFocus((prev) => !prev)}
+              aria-pressed={mapFocus}
+              aria-label={mapFocus ? "Exit map focus" : "Expand map focus"}
+              title={mapFocus ? "Exit map focus (F / Esc)" : "Expand map (F)"}
+              className={`absolute left-[6.75rem] top-2 z-10 h-10 w-10 place-items-center border bg-overlay transition-colors duration-150 hover:border-line-strong hover:text-ink active:bg-surface-hover sm:left-[6.75rem] sm:top-11 sm:grid sm:h-9 sm:w-9 ${
+                mapFocus
+                  ? "grid border-info/60 text-info"
+                  : "hidden border-line text-muted xl:left-12"
+              }`}
+            >
+              {mapFocus ? (
+                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="h-3.5 w-3.5" aria-hidden="true">
+                  <path d="M6 2v4H2M10 2v4h4M6 14v-4H2M10 14v-4h4" />
+                </svg>
+              ) : (
+                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="h-3.5 w-3.5" aria-hidden="true">
+                  <path d="M2 6V2h4M14 6V2h-4M2 10v4h4M14 10v4h-4" />
+                </svg>
+              )}
+            </button>
             <div className="pointer-events-none absolute left-2 top-2 hidden border border-line bg-overlay px-2.5 py-1.5 text-[10px] uppercase tracking-[0.12em] text-ink sm:block">
               Live map <span className="ml-2 text-muted">Singapore</span>
+              {mapFocus ? (
+                <span className="ml-2 text-info">· Focus</span>
+              ) : null}
               {geoFilter ? (
                 <span className="ml-2 text-info">· {formatRadius(geoFilter.radiusM)} radius</span>
               ) : null}
@@ -407,7 +561,9 @@ export default function Home() {
 
           <nav
             aria-label="Dashboard sections"
-            className="order-2 grid grid-cols-4 gap-1 border border-line bg-surface p-1 xl:hidden"
+            className={`order-2 grid grid-cols-4 gap-1 border border-line bg-surface p-1 xl:hidden ${
+              mapFocus ? "hidden" : ""
+            }`}
           >
             {(
               [
@@ -459,7 +615,7 @@ export default function Home() {
 
           <section
             className={`order-5 grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-2 sm:gap-3 xl:order-none xl:grid 2xl:grid-cols-4 ${
-              mobileTab === "tools" ? "max-xl:hidden" : ""
+              mapFocus ? "hidden" : mobileTab === "tools" ? "max-xl:hidden" : ""
             }`}
           >
             <div
@@ -469,6 +625,13 @@ export default function Home() {
             >
               <MrtRoutePanel
                 route={mrtRoutePlan}
+                plansByMode={mrtPlansByMode}
+                routeMode={mrtRouteMode}
+                onRouteModeChange={setMrtRouteMode}
+                avoidDisruptions={mrtAvoidDisruptions}
+                onAvoidDisruptionsChange={setMrtAvoidDisruptions}
+                detourAvailable={mrtDetourAvailable}
+                disruptedLines={disruptedMrtLines}
                 startStation={mrtStartStation}
                 endStation={mrtEndStation}
                 onStartChange={setMrtStartStation}
@@ -510,14 +673,23 @@ export default function Home() {
                 mobileTab === "cameras" ? "" : "max-xl:hidden"
               }`}
             >
-              <CameraPanel feedStatus={feeds.cameras.status} cameras={cameras} selectedCamera={selectedCamera} />
+              <CameraPanel
+                feedStatus={feeds.cameras.status}
+                cameras={cameras}
+                incidents={incidents}
+                selectedCamera={selectedCamera}
+              />
             </div>
           </section>
         </section>
 
         <aside
           className={`order-3 flex min-w-0 flex-col gap-2 sm:gap-3 xl:order-3 xl:flex xl:min-h-0 xl:overflow-y-auto xl:pr-1 ${
-            mobileTab === "signals" || mobileTab === "tools" ? "" : "max-xl:hidden"
+            mapFocus
+              ? "hidden"
+              : mobileTab === "signals" || mobileTab === "tools"
+                ? ""
+                : "max-xl:hidden"
           }`}
         >
           <div className={mobileTab === "signals" ? "" : "max-xl:hidden"}>
@@ -561,7 +733,7 @@ export default function Home() {
         </aside>
       </main>
 
-      <DashboardFooter left={<FeedbackWidget />} />
+      {mapFocus ? null : <DashboardFooter left={<FeedbackWidget />} />}
 
       <FocusDialog
         key={selectedFlight?.id ?? selectedPark?.name ?? (selectedAmenity ? `${selectedAmenity.type}:${selectedAmenity.place.id}` : "none")}

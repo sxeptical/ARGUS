@@ -39,13 +39,49 @@ const NUMBERED: Record<string, ReadonlyArray<string | null>> = {
 /** LRT town-centre codes, which carry no number. */
 const LETTERED: Record<string, string> = { STC: "Sengkang", PTC: "Punggol" };
 
-/** Station name for an LTA code such as "EW13" or "STC"; null if unknown. */
-export function stationNameForCode(code: string): string | null {
+const LINE_PREFIX_TO_NAMES: Record<string, ReadonlyArray<string>> = {
+  NS: ["North South Line"],
+  EW: ["East West Line"],
+  CG: ["Changi Airport Branch"],
+  NE: ["North East Line"],
+  CC: ["Circle Line", "Circle Line Extension"],
+  CE: ["Circle Line Extension"],
+  DT: ["Downtown Line"],
+  TE: ["Thomson-East Coast Line"],
+  BP: ["Bukit Panjang LRT"],
+  SE: ["Sengkang LRT East Loop"],
+  SW: ["Sengkang LRT West Loop"],
+  PE: ["Punggol LRT East Loop"],
+  PW: ["Punggol LRT West Loop"],
+};
+
+const LETTERED_LINES: Record<string, ReadonlyArray<string>> = {
+  STC: ["Sengkang LRT East Loop", "Sengkang LRT West Loop"],
+  PTC: ["Punggol LRT East Loop", "Punggol LRT West Loop"],
+};
+
+/**
+ * Resolve an LTA station code (e.g. "EW13", "CC30", "STC") to its station
+ * name and candidate operational line names; null if unknown.
+ */
+export function resolveStationCode(
+  code: string,
+): { station: string; lines: ReadonlyArray<string> } | null {
   const trimmed = code.trim().toUpperCase();
-  if (LETTERED[trimmed]) return LETTERED[trimmed];
+  if (LETTERED[trimmed]) {
+    return { station: LETTERED[trimmed], lines: LETTERED_LINES[trimmed] };
+  }
   const match = /^([A-Z]{2})(\d{1,2})$/.exec(trimmed);
   if (!match) return null;
-  return NUMBERED[match[1]]?.[Number(match[2])] ?? null;
+  const station = NUMBERED[match[1]]?.[Number(match[2])] ?? null;
+  const lines = LINE_PREFIX_TO_NAMES[match[1]];
+  if (!station || !lines) return null;
+  return { station, lines };
+}
+
+/** Station name for an LTA code such as "EW13" or "STC"; null if unknown. */
+export function stationNameForCode(code: string): string | null {
+  return resolveStationCode(code)?.station ?? null;
 }
 
 const LEVEL_BY_CODE: Record<string, CrowdLevel> = { l: "low", m: "moderate", h: "high" };

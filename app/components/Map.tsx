@@ -26,6 +26,7 @@ import {
   buildGeoFilterMaskGeoJson,
   clipGeometryToRadius,
   clipLineToRadius,
+  distanceM,
   featuresTouchingRadius,
   withinRadius,
   type GeoFilter,
@@ -52,9 +53,11 @@ import {
   type AmenityLayer,
 } from "@/lib/amenity-layers";
 import { PARK_LABELS_GEOJSON, PARKS_GEOJSON } from "@/lib/data/parks";
+import { FORECAST_AREA_GEOMETRY_BY_NAME } from "@/lib/data/forecast-areas-geometry";
 import { describeParkFeature, PARK_KIND_TITLE } from "@/lib/parks";
 import { photosForPark } from "@/lib/park-photos";
 import { LAYER_BY_KEY, type SensorKey } from "@/lib/layers";
+import { DEFAULT_MAP_CAMERA, type MapCameraView } from "@/lib/view-link";
 import type { Theme } from "@/lib/theme";
 import type {
   AirRegionKey,
@@ -64,6 +67,7 @@ import type {
   FlightState,
   MRTGeoJson,
   AirQualityOverlay,
+  RainOverlay,
   TrafficCamera,
   TrafficIncident,
   AmenityType,
@@ -92,6 +96,7 @@ type MapProps = {
   carparks: CarparkAvailability[];
   evChargers: EvChargingLocation[];
   airQualityOverlay?: AirQualityOverlay | null;
+  rainOverlay?: RainOverlay | null;
   /** Display names of MRT lines currently flagged as disrupted by LTA. */
   disruptedMrtLines?: ReadonlyArray<string>;
   /** Visual theme; light swaps the basemap and overlay palette. */
@@ -101,6 +106,8 @@ type MapProps = {
   /** Sub-filter selections (gym brands, school levels, ...) per amenity. */
   amenityFilters?: AmenityFilters;
   searchTarget?: MapSearchTarget | null;
+  initialCamera?: MapCameraView | null;
+  onCameraChange?: (camera: MapCameraView) => void;
   onStopClick: (stop: BusStop) => void;
   onCameraClick: (camera: TrafficCamera) => void;
   onFlightClick: (flight: FlightState) => void;
@@ -379,6 +386,111 @@ function buildAirQualityGeoJson(
           geometry: {
             type: "Point" as const,
             coordinates: [lng, lat],
+          },
+        },
+      ];
+    }),
+  };
+}
+
+function ringCentroidPoint(ring: ReadonlyArray<ReadonlyArray<number>>): [number, number] {
+  if (ring.length === 0) return [0, 0];
+  let sumLng = 0;
+  let sumLat = 0;
+  for (const [lng, lat] of ring) {
+    sumLng += lng;
+    sumLat += lat;
+  }
+  return [sumLng / ring.length, sumLat / ring.length];
+}
+
+function largestOuterRing(
+  geometry: ReturnType<typeof clipGeometryToRadius>,
+): ReadonlyArray<ReadonlyArray<number>> | null {
+  if (!geometry) return null;
+  if (geometry.type === "Polygon") {
+    const coords = geometry.coordinates as ReadonlyArray<ReadonlyArray<ReadonlyArray<number>>>;
+    return coords[0] ?? null;
+  }
+  if (geometry.type === "MultiPolygon") {
+    const polys = geometry.coordinates as ReadonlyArray<
+      ReadonlyArray<ReadonlyArray<ReadonlyArray<number>>>
+    >;
+    let best: ReadonlyArray<ReadonlyArray<number>> | null = null;
+    for (const poly of polys) {
+      const outer = poly[0];
+      if (outer && (!best || outer.length > best.length)) best = outer;
+    }
+    return best;
+  }
+  return null;
+}
+
+function buildRainPatchesGeoJson(
+  overlay: RainOverlay | null | undefined,
+  geoFilter: GeoFilter | null = null,
+) {
+  if (!overlay || overlay.areas.length === 0) {
+    return { type: "FeatureCollection" as const, features: [] };
+  }
+  return {
+    type: "FeatureCollection" as const,
+    features: overlay.areas.flatMap((area) => {
+      const geometry = FORECAST_AREA_GEOMETRY_BY_NAME.get(area.name.toLowerCase());
+      if (!geometry) return [];
+      const resolved = geoFilter ? clipGeometryToRadius(geoFilter, geometry) : geometry;
+      if (!resolved) return [];
+      return [
+        {
+          type: "Feature" as const,
+          properties: {
+            name: area.name,
+            tone: area.tone,
+            label: area.label,
+            lightning: area.lightning,
+          },
+          geometry: resolved,
+        },
+      ];
+    }),
+  };
+}
+
+function buildRainLabelsGeoJson(
+  overlay: RainOverlay | null | undefined,
+  geoFilter: GeoFilter | null = null,
+) {
+  if (!overlay || overlay.areas.length === 0) {
+    return { type: "FeatureCollection" as const, features: [] };
+  }
+  return {
+    type: "FeatureCollection" as const,
+    features: overlay.areas.flatMap((area) => {
+      let coordinates: [number, number] = [area.lng, area.lat];
+      if (geoFilter) {
+        const geometry = FORECAST_AREA_GEOMETRY_BY_NAME.get(area.name.toLowerCase());
+        if (geometry) {
+          const clipped = clipGeometryToRadius(geoFilter, geometry);
+          if (!clipped) return [];
+          if (distanceM(geoFilter.center, coordinates) > geoFilter.radiusM) {
+            const ring = largestOuterRing(clipped);
+            if (ring) coordinates = ringCentroidPoint(ring);
+          }
+        } else if (distanceM(geoFilter.center, coordinates) > geoFilter.radiusM) {
+          return [];
+        }
+      }
+      return [
+        {
+          type: "Feature" as const,
+          properties: {
+            name: area.name,
+            tone: area.tone,
+            mapLabel: `${area.name}\n${area.label}`,
+          },
+          geometry: {
+            type: "Point" as const,
+            coordinates,
           },
         },
       ];
@@ -674,6 +786,7 @@ function useMapController({
   carparks,
   evChargers,
   airQualityOverlay = null,
+  rainOverlay = null,
   disruptedMrtLines = EMPTY_DISRUPTED_MRT_LINES,
   theme = "dark",
   sensorVisibility,
@@ -687,6 +800,8 @@ function useMapController({
   mrtRouteSegments = EMPTY_MRT_ROUTE_SEGMENTS,
   busRouteOverlay = null,
   searchTarget = null,
+  initialCamera = null,
+  onCameraChange,
   geoFilter = null,
   geoFilterPicking = false,
   onGeoFilterPick,
@@ -711,11 +826,15 @@ function useMapController({
   const onMrtStationClickRef = useRef(onMrtStationClick);
   const onParkClickRef = useRef(onParkClick);
   const onAmenityClickRef = useRef(onAmenityClick);
+  const onCameraChangeRef = useRef(onCameraChange);
+  const initialCameraRef = useRef<MapCameraView | null>(initialCamera);
+  const appliedInitialCameraRef = useRef<MapCameraView | null>(null);
   const hoverPopupRef = useRef<maplibregl.Popup | null>(null);
   const mrtLinesRef = useRef<MRTGeoJson | null>(null);
   const mrtRouteSegmentsRef = useRef<MrtRouteSegment[]>(mrtRouteSegments);
   const busRouteOverlayRef = useRef<BusRouteOverlay | null>(busRouteOverlay);
   const airQualityOverlayRef = useRef<AirQualityOverlay | null>(airQualityOverlay);
+  const rainOverlayRef = useRef<RainOverlay | null>(rainOverlay);
   const sensorVisibilityRef = useRef(sensorVisibility);
   const amenityFiltersRef = useRef(amenityFilters);
   const geoFilterRef = useRef<GeoFilter | null>(geoFilter);
@@ -750,6 +869,8 @@ function useMapController({
   }, [onMrtStationClick]);
   useEffect(() => { onParkClickRef.current = onParkClick; }, [onParkClick]);
   useEffect(() => { onAmenityClickRef.current = onAmenityClick; }, [onAmenityClick]);
+  useEffect(() => { onCameraChangeRef.current = onCameraChange; }, [onCameraChange]);
+  useEffect(() => { initialCameraRef.current = initialCamera; }, [initialCamera]);
 
   useEffect(() => {
     sensorVisibilityRef.current = sensorVisibility;
@@ -791,6 +912,10 @@ function useMapController({
         ?.setData(filterParks(geoFilter));
       (map.getSource("park-labels") as maplibregl.GeoJSONSource | undefined)
         ?.setData(filterPointFeatures(PARK_LABELS_GEOJSON, geoFilter));
+      (map.getSource("rain-areas") as maplibregl.GeoJSONSource | undefined)
+        ?.setData(buildRainPatchesGeoJson(rainOverlayRef.current, geoFilter));
+      (map.getSource("rain-area-labels") as maplibregl.GeoJSONSource | undefined)
+        ?.setData(buildRainLabelsGeoJson(rainOverlayRef.current, geoFilter));
     });
     return () => {
       if (geoFilterFrameRef.current !== null) {
@@ -897,6 +1022,19 @@ function useMapController({
 
   useEffect(() => {
     const map = mapRef.current;
+    if (!map || !initialCamera || appliedInitialCameraRef.current === initialCamera) {
+      return;
+    }
+    appliedInitialCameraRef.current = initialCamera;
+    map.jumpTo({
+      center: [initialCamera.lng, initialCamera.lat],
+      zoom: initialCamera.zoom,
+    });
+    onCameraChangeRef.current?.(initialCamera);
+  }, [initialCamera]);
+
+  useEffect(() => {
+    const map = mapRef.current;
     if (!map || !searchTarget) return;
     map.flyTo({
       center: [searchTarget.lng, searchTarget.lat],
@@ -962,6 +1100,7 @@ function useMapController({
       return;
     }
 
+    const startupCamera = initialCameraRef.current;
     // Keep data panels usable if map construction fails (for example, no WebGL2).
     let map: maplibregl.Map;
     try {
@@ -972,9 +1111,15 @@ function useMapController({
         // page.tsx remounts this component on a theme toggle (`key={theme}`)
         // so the other basemap can load; carrying the camera means the
         // switch does not reset the user's pan and zoom. A full page load
-        // starts fresh, as before.
-        ...(carriedCamera ?? { center: [103.8198, 1.3521], zoom: 10.8 }),
+        // starts fresh (or at the shared URL camera), as before.
+        ...(carriedCamera ??
+          (startupCamera
+            ? { center: [startupCamera.lng, startupCamera.lat], zoom: startupCamera.zoom }
+            : { center: [DEFAULT_MAP_CAMERA.lng, DEFAULT_MAP_CAMERA.lat], zoom: DEFAULT_MAP_CAMERA.zoom })),
       });
+      if (!carriedCamera && startupCamera) {
+        appliedInitialCameraRef.current = startupCamera;
+      }
 
       map.addControl(new maplibregl.NavigationControl(), "top-right");
       map.addControl(
@@ -1821,7 +1966,12 @@ function useMapController({
             "line-join": "round",
           },
           paint: {
-            "line-color": MAP_COLORS.ink,
+            "line-color": [
+              "case",
+              ["boolean", ["get", "disrupted"], false],
+              MAP_COLORS.danger,
+              MAP_COLORS.ink,
+            ],
             "line-width": 7.2,
             "line-opacity": 0.45,
           },
@@ -1837,7 +1987,12 @@ function useMapController({
             "line-join": "round",
           },
           paint: {
-            "line-color": ["get", "color"],
+            "line-color": [
+              "case",
+              ["boolean", ["get", "disrupted"], false],
+              MAP_COLORS.danger,
+              ["get", "color"],
+            ],
             "line-width": 4.8,
             "line-opacity": 1,
           },
@@ -2105,6 +2260,87 @@ function useMapController({
         console.warn("Air quality overlay failed to initialize", error);
       }
 
+      try {
+        const rainToneColorExpr: maplibregl.ExpressionSpecification = [
+          "match",
+          ["get", "tone"],
+          "info",
+          MAP_COLORS.info,
+          "warning",
+          MAP_COLORS.warning,
+          "danger",
+          MAP_COLORS.danger,
+          MAP_COLORS.muted,
+        ];
+        const belowTransit = map.getLayer("mrt-lines-casing-layer")
+          ? "mrt-lines-casing-layer"
+          : undefined;
+        map.addSource("rain-areas", {
+          type: "geojson",
+          data: buildRainPatchesGeoJson(rainOverlayRef.current, geoFilterRef.current),
+        });
+        map.addLayer(
+          {
+            id: "rain-areas-fill-layer",
+            type: "fill",
+            source: "rain-areas",
+            paint: {
+              "fill-color": rainToneColorExpr,
+              "fill-opacity": [
+                "interpolate",
+                ["linear"],
+                ["zoom"],
+                10,
+                0.24,
+                15,
+                0.14,
+              ],
+            },
+          },
+          belowTransit,
+        );
+        map.addLayer(
+          {
+            id: "rain-areas-outline-layer",
+            type: "line",
+            source: "rain-areas",
+            paint: {
+              "line-color": rainToneColorExpr,
+              "line-width": [
+                "case",
+                ["boolean", ["get", "lightning"], false],
+                1.4,
+                0.9,
+              ],
+              "line-opacity": 0.7,
+            },
+          },
+          belowTransit,
+        );
+        map.addSource("rain-area-labels", {
+          type: "geojson",
+          data: buildRainLabelsGeoJson(rainOverlayRef.current, geoFilterRef.current),
+        });
+        map.addLayer({
+          id: "rain-areas-label-layer",
+          type: "symbol",
+          source: "rain-area-labels",
+          layout: {
+            "text-font": MAP_FONT,
+            "text-field": ["get", "mapLabel"],
+            "text-size": 9.5,
+            "text-allow-overlap": false,
+          },
+          paint: {
+            "text-color": rainToneColorExpr,
+            "text-halo-color": MAP_COLORS.paper,
+            "text-halo-width": 1.2,
+          },
+        });
+      } catch (error) {
+        console.warn("Rain overlay failed to initialize", error);
+      }
+
       // Route focus stacks last: one scrim dims everything added so far, the
       // basemap included, and only the routes the user picked sit above it.
       map.addLayer({
@@ -2135,10 +2371,29 @@ function useMapController({
       dirtyAmenityLayersRef.current.clear();
       previousAmenityFiltersRef.current = amenityFiltersRef.current;
       previousGeoFilterRef.current = geoFilterRef.current;
+      emitCamera();
     };
+
+    const emitCamera = () => {
+      const center = map.getCenter();
+      onCameraChangeRef.current?.({
+        lat: center.lat,
+        lng: center.lng,
+        zoom: map.getZoom(),
+      });
+    };
+
+    const resizeObserver =
+      typeof ResizeObserver !== "undefined" && containerRef.current
+        ? new ResizeObserver(() => map.resize())
+        : null;
+    if (resizeObserver && containerRef.current) {
+      resizeObserver.observe(containerRef.current);
+    }
 
     const removeMapLoadListener = registerMapLoadListener(map, handleMapLoad);
     map.on("click", handleMapClick);
+    map.on("moveend", emitCamera);
     if (geoFilterPickingRef.current) map.getCanvas().style.cursor = "crosshair";
 
     // Sync mobile-only zoom gating when crossing the 640px breakpoint (e.g.
@@ -2167,8 +2422,10 @@ function useMapController({
       compactMedia?.removeEventListener("change", syncCompactZoomRanges);
       removeMapLoadListener();
       window.clearTimeout(loadTimeoutId);
+      resizeObserver?.disconnect();
       map.off("error", handleMapError);
       map.off("click", handleMapClick);
+      map.off("moveend", emitCamera);
       for (const removeLayerListener of layerListenerCleanups) {
         removeLayerListener();
       }
@@ -2282,6 +2539,20 @@ function useMapController({
       | undefined;
     source?.setData(buildAirQualityGeoJson(airQualityOverlay));
   }, [airQualityOverlay]);
+
+  useEffect(() => {
+    rainOverlayRef.current = rainOverlay;
+    const map = mapRef.current;
+    if (!map) return;
+    const patchSource = map.getSource("rain-areas") as
+      | maplibregl.GeoJSONSource
+      | undefined;
+    patchSource?.setData(buildRainPatchesGeoJson(rainOverlay, geoFilterRef.current));
+    const labelSource = map.getSource("rain-area-labels") as
+      | maplibregl.GeoJSONSource
+      | undefined;
+    labelSource?.setData(buildRainLabelsGeoJson(rainOverlay, geoFilterRef.current));
+  }, [rainOverlay]);
 
   return { containerRef, mapInitError };
 }

@@ -16,11 +16,13 @@ import type {
   SensorRow,
   SensorStatsRow,
 } from "@/app/hooks/use-dashboard-state";
+import type { GeoFilter } from "@/lib/geo-filter";
 import type { SensorKey } from "@/lib/layers";
 import { FLIGHTS_ENABLED } from "@/lib/features";
 import type {
   FlightState,
   AirQualityOverlay,
+  RainOverlay,
   WeatherAlerts,
   WeatherData,
   WeatherHistoryPoint,
@@ -39,7 +41,11 @@ export function LayersSidebar({
   weatherAlerts,
   weatherHistory,
   weatherStatus,
+  geoFilter,
   onAirQualityOverlayChange,
+  onRainOverlayChange,
+  onFocusLocation,
+  className,
   mobileVisible = true,
 }: {
   flights: FlightState[];
@@ -54,7 +60,11 @@ export function LayersSidebar({
   weatherAlerts: WeatherAlerts;
   weatherStatus: SourceStatus;
   weatherHistory: WeatherHistoryPoint[];
+  geoFilter?: GeoFilter | null;
   onAirQualityOverlayChange?: (overlay: AirQualityOverlay | null) => void;
+  onRainOverlayChange?: (overlay: RainOverlay | null) => void;
+  onFocusLocation?: (target: { lat: number; lng: number; zoom: number }) => void;
+  className?: string;
   mobileVisible?: boolean;
 }) {
   const {
@@ -77,7 +87,7 @@ export function LayersSidebar({
     <aside
       className={`order-4 flex min-w-0 flex-col gap-2 sm:gap-3 xl:order-1 xl:min-h-0 xl:overflow-hidden ${
         mobileVisible ? "" : "max-xl:hidden"
-      }`}
+      } ${className ?? ""}`}
     >
       <IntelPanel
         title="Layers"
@@ -184,7 +194,10 @@ export function LayersSidebar({
         weather={weather}
         storms={weatherAlerts}
         history={weatherHistory}
+        geoFilter={geoFilter}
         onAirQualityOverlayChange={onAirQualityOverlayChange}
+        onRainOverlayChange={onRainOverlayChange}
+        onFocusLocation={onFocusLocation}
         className="xl:max-h-[38%] xl:min-h-0 xl:shrink-0"
       />
       {FLIGHTS_ENABLED ? (

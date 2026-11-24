@@ -3,7 +3,7 @@
 import { useCallback, useMemo, useState } from "react";
 import { useBusRoute } from "@/app/hooks/use-bus-route";
 import { useDashboardSources } from "@/app/hooks/use-dashboard-sources";
-import { useMrtPlanner } from "@/app/hooks/use-mrt-planner";
+import { useMrtRoutePlans, useMrtSelection } from "@/app/hooks/use-mrt-planner";
 import { usePersistentState } from "@/app/hooks/use-persistent-state";
 import { useWeatherHistory } from "@/app/hooks/use-weather-history";
 import { FLIGHTS_ENABLED } from "@/lib/features";
@@ -85,7 +85,7 @@ const PARK_FEATURES = PARKS_GEOJSON.features.filter(
 export function useDashboardState() {
   // Declared before the sources: carparks and EV chargers only load while
   // their layer is on.
-  const [sensorVisibility, setSensorVisibility] = usePersistentState<
+  const [sensorVisibility, setSensorVisibility, overrideSensorVisibility] = usePersistentState<
     Record<SensorKey, boolean>
   >(
     SENSOR_VISIBILITY_KEY,
@@ -103,15 +103,24 @@ export function useDashboardState() {
     NO_AMENITY_FILTERS,
     parseAmenityFilters,
   );
+  // Declared before the sources: train crowds only load once a station is picked.
+  const mrtSelection = useMrtSelection();
   const data = useDashboardSources(
     {
       carparks: sensorVisibility.carparks,
       evChargers: sensorVisibility.evChargers,
+      trainCrowds: mrtSelection.hasSelection,
     },
     notificationPrefs.browser,
   );
   const busRoute = useBusRoute();
-  const mrt = useMrtPlanner();
+  const mrt = {
+    ...mrtSelection,
+    ...useMrtRoutePlans(mrtSelection, {
+      trainAlerts: data.trainAlerts,
+      trainCrowds: data.trainCrowds,
+    }),
+  };
   const weatherHistory = useWeatherHistory(data.weather);
   const [selectedCameraId, setSelectedCameraId] = useState<string | null>(null);
   const [selectedFlightId, setSelectedFlightId] = useState<string | null>(null);
@@ -119,10 +128,10 @@ export function useDashboardState() {
   const [selectedAmenityId, setSelectedAmenityId] =
     useState<AmenitySelectionTarget | null>(null);
   // Keep the radius when clearing and re-picking the filter centre.
-  const [geoFilterCenter, setGeoFilterCenter] = usePersistentState<
+  const [geoFilterCenter, setGeoFilterCenter, overrideGeoFilterCenter] = usePersistentState<
     readonly [number, number] | null
   >(GEO_FILTER_CENTER_KEY, null, parseGeoFilterCenter);
-  const [geoFilterRadiusM, setGeoFilterRadiusM] = usePersistentState(
+  const [geoFilterRadiusM, setGeoFilterRadiusM, overrideGeoFilterRadiusM] = usePersistentState(
     GEO_FILTER_RADIUS_KEY,
     GEO_FILTER_DEFAULT_RADIUS_M,
     parseGeoFilterRadius,
@@ -143,6 +152,21 @@ export function useDashboardState() {
     setGeoFilterCenter(null);
     setGeoFilterPicking(false);
   }, [setGeoFilterCenter]);
+  // A shared link applies its layers and radius for this visit only; the
+  // recipient's saved preferences change only once they edit them.
+  const applySharedView = useCallback(
+    (shared: {
+      sensorVisibility?: Record<SensorKey, boolean>;
+      geoFilter?: GeoFilter;
+    }) => {
+      if (shared.sensorVisibility) overrideSensorVisibility(shared.sensorVisibility);
+      if (shared.geoFilter) {
+        overrideGeoFilterCenter(shared.geoFilter.center);
+        overrideGeoFilterRadiusM(shared.geoFilter.radiusM);
+      }
+    },
+    [overrideGeoFilterCenter, overrideGeoFilterRadiusM, overrideSensorVisibility],
+  );
 
   // Display filtered feeds, but keep unfiltered data for search and selection.
   const busStops = useMemo(
@@ -425,13 +449,18 @@ export function useDashboardState() {
     geoFilterPicking,
     geoFilterRadiusM,
     amenityFilters,
+    applySharedView,
     clearGeoFilter,
     pickGeoFilterCenter,
     setGeoFilterPicking,
     setGeoFilterRadiusM,
     handleSelectStop: busRoute.selectStop,
+    mrtAvoidDisruptions: mrt.avoidDisruptions,
+    mrtDetourAvailable: mrt.detourAvailable,
     mrtEndStation: mrt.end,
     mrtMapPickTarget: mrt.mapPickTarget,
+    mrtPlansByMode: mrt.plansByMode,
+    mrtRouteMode: mrt.routeMode,
     mrtRoutePlan: mrt.plan,
     mrtStartStation: mrt.start,
     news: data.news,
@@ -453,8 +482,10 @@ export function useDashboardState() {
     sensorRows: visibleSensorRows,
     sensorStatsRows: visibleSensorStatsRows,
     sensorVisibility,
+    setMrtAvoidDisruptions: mrt.setAvoidDisruptions,
     setMrtEndStation: mrt.setEnd,
     setMrtMapPickTarget: mrt.setMapPickTarget,
+    setMrtRouteMode: mrt.setRouteMode,
     setMrtStartStation: mrt.setStart,
     setNotificationPrefs,
     setSelectedCamera: selectCamera,
