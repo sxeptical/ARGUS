@@ -106,10 +106,9 @@ export default function FeedbackWidget() {
     <button
       type="button"
       onClick={() => setView("form")}
-      // Phones have no free space in the header, so the tab takes its own row
-      // above it (sticky while scrolling); wider screens float it over the gap
-      // in the middle of the header.
-      className="sticky top-[env(safe-area-inset-top)] z-40 -mt-2 inline-flex self-center sm:fixed sm:left-1/2 sm:mt-0 sm:-translate-x-1/2 items-center gap-2 rounded-b border border-t-0 border-line-strong bg-surface-raised px-2.5 py-1 font-mono text-[10px] uppercase tracking-[0.12em] text-muted shadow-lg shadow-elevation/80 transition-colors duration-150 hover:bg-surface-hover hover:text-ink"
+      // On phones this sits cleanly in the footer instead of taking a sticky row
+      // above the header; wider screens float it over the gap in the header.
+      className="inline-flex min-h-8 items-center gap-2 rounded-sm border border-line bg-surface px-2.5 py-1 font-mono text-[10px] uppercase tracking-[0.12em] text-muted transition-colors duration-150 hover:border-line-strong hover:bg-surface-hover hover:text-ink sm:fixed sm:left-1/2 sm:top-[env(safe-area-inset-top)] sm:z-40 sm:min-h-0 sm:-translate-x-1/2 sm:rounded-none sm:rounded-b sm:border-t-0 sm:border-line-strong sm:bg-surface-raised sm:shadow-lg sm:shadow-elevation/80"
     >
       <span className="status-dot text-success" aria-hidden />
       Feedback
@@ -250,7 +249,9 @@ function FeedbackDialog({
               let me know what you think!
             </p>
             <p className="leading-relaxed text-muted">
-              When you are ready, open the Feedback tab at the top of the screen.
+              When you are ready, open the Feedback button{" "}
+              <span className="sm:hidden">at the bottom of the page.</span>
+              <span className="hidden sm:inline">at the top of the screen.</span>
             </p>
             <div className="flex gap-2">
               <button type="button" className="action-button flex-1" onClick={onShowForm}>

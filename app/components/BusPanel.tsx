@@ -259,7 +259,7 @@ export default function BusPanel({
               ? `Search stops within ${searchScope}`
               : "Search bus stop code or name"
           }
-          className="field-control text-xs"
+          className="field-control text-base sm:text-xs"
         />
 
         {filteredStops.length > 0 ? (

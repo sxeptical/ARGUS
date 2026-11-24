@@ -46,6 +46,7 @@ export function LayersSidebar({
   onRainOverlayChange,
   onFocusLocation,
   className,
+  mobileVisible = true,
 }: {
   flights: FlightState[];
   selectedFlight: FlightState | null;
@@ -64,6 +65,7 @@ export function LayersSidebar({
   onRainOverlayChange?: (overlay: RainOverlay | null) => void;
   onFocusLocation?: (target: { lat: number; lng: number; zoom: number }) => void;
   className?: string;
+  mobileVisible?: boolean;
 }) {
   const {
     groups,
@@ -82,18 +84,18 @@ export function LayersSidebar({
   return (
     // `xl:overflow-hidden` + a capped Weather panel keep Weather visible at
     // the bottom of the viewport while the Layers list scrolls internally.
-    <aside className={`order-4 flex min-w-0 flex-col gap-2 sm:gap-3 xl:order-1 xl:min-h-0 xl:overflow-hidden ${className ?? ""}`}>
+    <aside
+      className={`order-4 flex min-w-0 flex-col gap-2 sm:gap-3 xl:order-1 xl:min-h-0 xl:overflow-hidden ${
+        mobileVisible ? "" : "max-xl:hidden"
+      } ${className ?? ""}`}
+    >
       <IntelPanel
         title="Layers"
         badge={`${visibleSensorCount}/${sensorRows.length}`}
-        className="xl:flex xl:min-h-0 xl:flex-1 xl:flex-col xl:overflow-hidden"
+        className="hidden xl:flex xl:min-h-0 xl:flex-1 xl:flex-col xl:overflow-hidden"
         contentClassName="space-y-2 xl:min-h-0 xl:flex-1 xl:overflow-y-auto xl:pr-1"
         headerContent={
-          // Layer controls live in the map drawer below xl, so the filter
-          // is desktop-only; the stat summary below still shows everywhere.
-          <span className="block max-xl:hidden">
-            <LayerFilterInput value={filter} onChange={setFilter} />
-          </span>
+          <LayerFilterInput value={filter} onChange={setFilter} />
         }
       >
         <div className="max-xl:hidden space-y-2">

@@ -80,21 +80,28 @@ export function MobileLayersDrawer({
         ref={triggerRef}
         type="button"
         onClick={() => setOpen(true)}
-        aria-label="Open map layers menu"
+        aria-label={`Open map layers menu (${visibleSensorCount} active)`}
         aria-expanded={open}
         aria-controls="mobile-layers-drawer"
-        className={`absolute left-14 top-11 z-10 flex h-11 w-11 items-center justify-center border border-line bg-overlay sm:left-12 sm:h-9 sm:w-9 text-muted transition-colors duration-150 hover:border-line-strong hover:text-ink active:bg-surface-hover ${alwaysShow ? "" : "xl:hidden"}`}
+        className={`absolute left-[3.25rem] top-2 z-10 inline-flex h-10 items-center justify-center gap-1.5 border border-line bg-overlay px-2.5 text-muted transition-colors duration-150 hover:border-line-strong hover:text-ink active:bg-surface-hover sm:left-12 sm:top-11 sm:h-9 ${alwaysShow ? "" : "xl:hidden"}`}
       >
         <svg
           viewBox="0 0 16 16"
           fill="none"
           stroke="currentColor"
           strokeWidth="1.5"
-          className="h-3.5 w-3.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          className="h-3.5 w-3.5 shrink-0"
           aria-hidden="true"
         >
-          <path d="M2 4h12M2 8h12M2 12h12" />
+          <path d="M8 2 1.5 5.5 8 9l6.5-3.5L8 2Z" />
+          <path d="M1.5 8.5 8 12l6.5-3.5" />
+          <path d="M1.5 11.5 8 15l6.5-3.5" />
         </svg>
+        <span className="font-mono text-[10px] leading-none text-ink">
+          {visibleSensorCount}
+        </span>
       </button>
 
       <div

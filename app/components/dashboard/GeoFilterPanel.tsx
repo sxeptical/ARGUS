@@ -91,7 +91,7 @@ export function GeoFilterPanel({
 
         <div className="text-muted">
           {picking
-            ? "Click anywhere on the map to place the centre."
+            ? "Tap or click anywhere on the map to place the centre."
             : filter
               ? "Only feeds inside the circle are shown. MRT lines and bus routes stay whole."
               : "Set a centre to limit the map and panels to a radius."}

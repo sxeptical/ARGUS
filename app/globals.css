@@ -474,6 +474,17 @@ select:focus-visible {
   .terminal-content {
     padding: var(--space-3);
   }
+
+  /* Pinch-to-zoom handles zooming on phones; hide +/- while keeping the
+     compass visible so accidental two-finger rotation can be reset to north. */
+  .maplibregl-ctrl-zoom-in,
+  .maplibregl-ctrl-zoom-out {
+    display: none !important;
+  }
+
+  .maplibregl-ctrl-compass {
+    border-top: 0 !important;
+  }
 }
 
 ::-webkit-scrollbar {

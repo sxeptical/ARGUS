@@ -164,7 +164,7 @@ export function NotificationBell({
           setOpen(!open);
           onMarkRead();
         }}
-        className={`relative inline-flex h-7 w-7 items-center justify-center transition-colors duration-150 hover:text-ink ${
+        className={`relative inline-flex h-9 w-9 items-center justify-center rounded-sm transition-colors duration-150 hover:text-ink active:bg-surface-hover sm:h-7 sm:w-7 ${
           open ? "text-ink" : "text-muted"
         }`}
       >
@@ -174,7 +174,7 @@ export function NotificationBell({
         {unreadCount > 0 ? (
           <span
             aria-hidden="true"
-            className="absolute -right-0.5 -top-0.5 flex h-3.5 min-w-3.5 items-center justify-center bg-danger px-0.5 font-mono text-[9px] font-semibold leading-none tracking-normal text-paper"
+            className="absolute right-0.5 top-0.5 flex h-3.5 min-w-3.5 items-center justify-center bg-danger px-0.5 font-mono text-[9px] font-semibold leading-none tracking-normal text-paper sm:-right-0.5 sm:-top-0.5"
           >
             {unreadCount > 9 ? "9+" : unreadCount}
           </span>

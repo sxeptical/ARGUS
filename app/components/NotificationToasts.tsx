@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { signalTitle } from "@/lib/notifications";
 import type { SignalRow } from "@/lib/signals";
 
 const MAX_VISIBLE_TOASTS = 3;
+const MAX_VISIBLE_MOBILE_TOASTS = 1;
 const ROAD_TOAST_DURATION_MS = 15 * 1000;
 
 function NotificationToast({
@@ -58,18 +59,36 @@ export default function NotificationToasts({
   onDismissAll: () => void;
   onExpire: (id: string) => void;
 }) {
-  const hiddenCount = toasts.length - MAX_VISIBLE_TOASTS;
+  const [isMobile, setIsMobile] = useState(false);
 
-  // Top-right so the stack can't cover UpdateAvailableToast at the bottom. The
-  // live region stays mounted while empty so screen readers announce additions.
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.matchMedia) return;
+    const media = window.matchMedia("(max-width: 639px)");
+    const sync = () => setIsMobile(media.matches);
+    sync();
+    media.addEventListener("change", sync);
+    return () => media.removeEventListener("change", sync);
+  }, []);
+
+  const maxVisible = isMobile ? MAX_VISIBLE_MOBILE_TOASTS : MAX_VISIBLE_TOASTS;
+  const hiddenCount = toasts.length - maxVisible;
+
+  // Top-right so the stack can't cover UpdateAvailableToast at the bottom. On
+  // phones, mount only 1 toast at a time so hidden road toasts don't expire
+  // before the user ever sees them.
   return (
     <div
       role="status"
       aria-live="polite"
       className="pointer-events-none fixed inset-x-3 top-[calc(env(safe-area-inset-top)+0.75rem)] z-50 space-y-2 sm:left-auto sm:right-4 sm:top-16 sm:w-[360px]"
     >
-      {toasts.slice(0, MAX_VISIBLE_TOASTS).map((toast) => (
-        <NotificationToast key={toast.id} toast={toast} onDismiss={onDismiss} onExpire={onExpire} />
+      {toasts.slice(0, maxVisible).map((toast) => (
+        <NotificationToast
+          key={toast.id}
+          toast={toast}
+          onDismiss={onDismiss}
+          onExpire={onExpire}
+        />
       ))}
       {hiddenCount > 0 ? (
         <div className="pointer-events-auto flex items-center justify-between gap-3 border border-line-strong bg-surface-raised px-3 py-2">
