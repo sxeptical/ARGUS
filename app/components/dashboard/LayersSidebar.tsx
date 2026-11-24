@@ -45,6 +45,7 @@ export function LayersSidebar({
   onAirQualityOverlayChange,
   onRainOverlayChange,
   onFocusLocation,
+  className,
 }: {
   flights: FlightState[];
   selectedFlight: FlightState | null;
@@ -62,6 +63,7 @@ export function LayersSidebar({
   onAirQualityOverlayChange?: (overlay: AirQualityOverlay | null) => void;
   onRainOverlayChange?: (overlay: RainOverlay | null) => void;
   onFocusLocation?: (target: { lat: number; lng: number; zoom: number }) => void;
+  className?: string;
 }) {
   const {
     groups,
@@ -80,7 +82,7 @@ export function LayersSidebar({
   return (
     // `xl:overflow-hidden` + a capped Weather panel keep Weather visible at
     // the bottom of the viewport while the Layers list scrolls internally.
-    <aside className="order-4 flex min-w-0 flex-col gap-2 sm:gap-3 xl:order-1 xl:min-h-0 xl:overflow-hidden">
+    <aside className={`order-4 flex min-w-0 flex-col gap-2 sm:gap-3 xl:order-1 xl:min-h-0 xl:overflow-hidden ${className ?? ""}`}>
       <IntelPanel
         title="Layers"
         badge={`${visibleSensorCount}/${sensorRows.length}`}

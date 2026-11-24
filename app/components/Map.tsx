@@ -57,6 +57,7 @@ import { FORECAST_AREA_GEOMETRY_BY_NAME } from "@/lib/data/forecast-areas-geomet
 import { describeParkFeature, PARK_KIND_TITLE } from "@/lib/parks";
 import { photosForPark } from "@/lib/park-photos";
 import { LAYER_BY_KEY, type SensorKey } from "@/lib/layers";
+import { DEFAULT_MAP_CAMERA, type MapCameraView } from "@/lib/view-link";
 import type { Theme } from "@/lib/theme";
 import type {
   AirRegionKey,
@@ -105,6 +106,8 @@ type MapProps = {
   /** Sub-filter selections (gym brands, school levels, ...) per amenity. */
   amenityFilters?: AmenityFilters;
   searchTarget?: MapSearchTarget | null;
+  initialCamera?: MapCameraView | null;
+  onCameraChange?: (camera: MapCameraView) => void;
   onStopClick: (stop: BusStop) => void;
   onCameraClick: (camera: TrafficCamera) => void;
   onFlightClick: (flight: FlightState) => void;
@@ -797,6 +800,8 @@ function useMapController({
   mrtRouteSegments = EMPTY_MRT_ROUTE_SEGMENTS,
   busRouteOverlay = null,
   searchTarget = null,
+  initialCamera = null,
+  onCameraChange,
   geoFilter = null,
   geoFilterPicking = false,
   onGeoFilterPick,
@@ -821,6 +826,9 @@ function useMapController({
   const onMrtStationClickRef = useRef(onMrtStationClick);
   const onParkClickRef = useRef(onParkClick);
   const onAmenityClickRef = useRef(onAmenityClick);
+  const onCameraChangeRef = useRef(onCameraChange);
+  const initialCameraRef = useRef<MapCameraView | null>(initialCamera);
+  const appliedInitialCameraRef = useRef<MapCameraView | null>(null);
   const hoverPopupRef = useRef<maplibregl.Popup | null>(null);
   const mrtLinesRef = useRef<MRTGeoJson | null>(null);
   const mrtRouteSegmentsRef = useRef<MrtRouteSegment[]>(mrtRouteSegments);
@@ -861,6 +869,8 @@ function useMapController({
   }, [onMrtStationClick]);
   useEffect(() => { onParkClickRef.current = onParkClick; }, [onParkClick]);
   useEffect(() => { onAmenityClickRef.current = onAmenityClick; }, [onAmenityClick]);
+  useEffect(() => { onCameraChangeRef.current = onCameraChange; }, [onCameraChange]);
+  useEffect(() => { initialCameraRef.current = initialCamera; }, [initialCamera]);
 
   useEffect(() => {
     sensorVisibilityRef.current = sensorVisibility;
@@ -1012,6 +1022,19 @@ function useMapController({
 
   useEffect(() => {
     const map = mapRef.current;
+    if (!map || !initialCamera || appliedInitialCameraRef.current === initialCamera) {
+      return;
+    }
+    appliedInitialCameraRef.current = initialCamera;
+    map.jumpTo({
+      center: [initialCamera.lng, initialCamera.lat],
+      zoom: initialCamera.zoom,
+    });
+    onCameraChangeRef.current?.(initialCamera);
+  }, [initialCamera]);
+
+  useEffect(() => {
+    const map = mapRef.current;
     if (!map || !searchTarget) return;
     map.flyTo({
       center: [searchTarget.lng, searchTarget.lat],
@@ -1077,6 +1100,7 @@ function useMapController({
       return;
     }
 
+    const startupCamera = initialCameraRef.current;
     // Keep data panels usable if map construction fails (for example, no WebGL2).
     let map: maplibregl.Map;
     try {
@@ -1086,9 +1110,15 @@ function useMapController({
         // page.tsx remounts this component on a theme toggle (`key={theme}`)
         // so the other basemap can load; carrying the camera means the
         // switch does not reset the user's pan and zoom. A full page load
-        // starts fresh, as before.
-        ...(carriedCamera ?? { center: [103.8198, 1.3521], zoom: 10.8 }),
+        // starts fresh (or at the shared URL camera), as before.
+        ...(carriedCamera ??
+          (startupCamera
+            ? { center: [startupCamera.lng, startupCamera.lat], zoom: startupCamera.zoom }
+            : { center: [DEFAULT_MAP_CAMERA.lng, DEFAULT_MAP_CAMERA.lat], zoom: DEFAULT_MAP_CAMERA.zoom })),
       });
+      if (!carriedCamera && startupCamera) {
+        appliedInitialCameraRef.current = startupCamera;
+      }
 
       map.addControl(new maplibregl.NavigationControl(), "top-right");
       map.addControl(
@@ -2300,10 +2330,29 @@ function useMapController({
       dirtyAmenityLayersRef.current.clear();
       previousAmenityFiltersRef.current = amenityFiltersRef.current;
       previousGeoFilterRef.current = geoFilterRef.current;
+      emitCamera();
     };
+
+    const emitCamera = () => {
+      const center = map.getCenter();
+      onCameraChangeRef.current?.({
+        lat: center.lat,
+        lng: center.lng,
+        zoom: map.getZoom(),
+      });
+    };
+
+    const resizeObserver =
+      typeof ResizeObserver !== "undefined" && containerRef.current
+        ? new ResizeObserver(() => map.resize())
+        : null;
+    if (resizeObserver && containerRef.current) {
+      resizeObserver.observe(containerRef.current);
+    }
 
     const removeMapLoadListener = registerMapLoadListener(map, handleMapLoad);
     map.on("click", handleMapClick);
+    map.on("moveend", emitCamera);
     if (geoFilterPickingRef.current) map.getCanvas().style.cursor = "crosshair";
 
     mapRef.current = map;
@@ -2311,8 +2360,10 @@ function useMapController({
     return () => {
       removeMapLoadListener();
       window.clearTimeout(loadTimeoutId);
+      resizeObserver?.disconnect();
       map.off("error", handleMapError);
       map.off("click", handleMapClick);
+      map.off("moveend", emitCamera);
       for (const removeLayerListener of layerListenerCleanups) {
         removeLayerListener();
       }

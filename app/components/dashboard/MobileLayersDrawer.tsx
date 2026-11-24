@@ -19,11 +19,13 @@ export function MobileLayersDrawer({
   sensorVisibility,
   setSensorVisibility,
   visibleSensorCount,
+  alwaysShow = false,
 }: {
   sensorRows: ReadonlyArray<SensorRow>;
   sensorVisibility: Record<SensorKey, boolean>;
   setSensorVisibility: Dispatch<SetStateAction<Record<SensorKey, boolean>>>;
   visibleSensorCount: number;
+  alwaysShow?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -81,7 +83,7 @@ export function MobileLayersDrawer({
         aria-label="Open map layers menu"
         aria-expanded={open}
         aria-controls="mobile-layers-drawer"
-        className="absolute left-14 top-11 z-10 flex h-11 w-11 items-center justify-center border border-line bg-overlay sm:left-12 sm:h-9 sm:w-9 text-muted transition-colors duration-150 hover:border-line-strong hover:text-ink active:bg-surface-hover xl:hidden"
+        className={`absolute left-14 top-11 z-10 flex h-11 w-11 items-center justify-center border border-line bg-overlay sm:left-12 sm:h-9 sm:w-9 text-muted transition-colors duration-150 hover:border-line-strong hover:text-ink active:bg-surface-hover ${alwaysShow ? "" : "xl:hidden"}`}
       >
         <svg
           viewBox="0 0 16 16"
@@ -98,7 +100,7 @@ export function MobileLayersDrawer({
       <div
         aria-hidden="true"
         onClick={close}
-        className={`fixed inset-0 z-40 bg-overlay transition-opacity duration-200 ease-out xl:hidden ${
+        className={`fixed inset-0 z-40 bg-overlay transition-opacity duration-200 ease-out ${alwaysShow ? "" : "xl:hidden"} ${
           open ? "opacity-100" : "pointer-events-none opacity-0"
         }`}
       />
@@ -110,7 +112,7 @@ export function MobileLayersDrawer({
         role="dialog"
         aria-modal={open ? true : undefined}
         aria-label="Map layers"
-        className={`fixed inset-y-0 left-0 z-50 flex w-64 max-w-[82vw] flex-col border-r border-line bg-surface transition-transform duration-200 ease-out xl:hidden ${
+        className={`fixed inset-y-0 left-0 z-50 flex w-64 max-w-[82vw] flex-col border-r border-line bg-surface transition-transform duration-200 ease-out ${alwaysShow ? "" : "xl:hidden"} ${
           open ? "translate-x-0" : "-translate-x-full"
         }`}
       >
